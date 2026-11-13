@@ -1,0 +1,240 @@
+# Least privilege, namespace-scoped only (Role, never ClusterRole).
+#
+#   identity            can                                              used by
+#   symphony-daemon     create/cancel runner+reflector Jobs, reconcile   daemon, nightly sweep
+#                       and reap workspace pods (exec pkill, delete pod
+#                       + session PVC), publish the workflow ConfigMap
+#   symphony-runner     create/attach workspace pods + session PVCs,     runner/reflector Jobs
+#                       exec into them, read the provider Secrets and
+#                       the MCP server definitions (symphony-mcp)
+#   symphony-api        read workload state; write provider settings     api
+#                       (symphony-providers); first-run setup: seed and
+#                       publish the workflow ConfigMap, patch the
+#                       integration Secrets and symphony-mcp, restart
+#                       their consumers
+#   symphony-gateway    nothing (no token mounted; it reads symphony-mcp gateway
+#                       as a mounted volume)
+#   symphony-merger     read the provider keys (symphony-providers)     merger
+#                       and MCP servers (symphony-mcp) per agent run;
+#                       git + GitHub App for the rest
+#   symphony-assistant  read the provider keys (symphony-providers)     assistant
+#                       and MCP servers (symphony-mcp) per session;
+#                       chat tokens + GitHub App for the rest
+#   symphony-backup     nothing (no token mounted; it reads Redis, the   backup CronJob
+#                       mounted workflow and the symphony-backup Secret
+#                       through its environment)
+#
+# Workspace pods mount NO ServiceAccount token (automountServiceAccountToken: false in
+# kube.py's pod manifest): the agent can never reach the Kubernetes API.
+#
+# IRSA (EKS) / cloud workload identity: annotate symphony-merger (and symphony-runner if
+# the runner should mint Bedrock credentials) with the role, e.g.
+#   eks.amazonaws.com/role-arn: arn:aws:iam::<account>:role/symphony-bedrock
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: symphony-daemon
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: symphony-runner
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: symphony-api
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: symphony-gateway
+automountServiceAccountToken: false
+---
+# The backup CronJob (deploy/backup.yaml) needs no Kubernetes API access: no Role.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: symphony-backup
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: symphony-merger
+---
+# The merger's agents (reviewer, oracle, arbiter, developer) each run on their role's
+# provider: the key saved in the Admin screen is read from this Secret per run.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: symphony-merger
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["symphony-providers", "symphony-mcp"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: symphony-merger
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: symphony-merger
+subjects:
+  - kind: ServiceAccount
+    name: symphony-merger
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: symphony-assistant
+---
+# The assistant's agents (assistant, researcher, planner) run on their role's provider and
+# MCP servers, read per session like the merger's.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: symphony-assistant
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["symphony-providers", "symphony-mcp"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: symphony-assistant
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: symphony-assistant
+subjects:
+  - kind: ServiceAccount
+    name: symphony-assistant
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: symphony-daemon
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "delete", "patch"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["get", "create"] # WebSocket exec uses GET; POST exec uses create
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "delete"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["symphony-workflow"]
+    verbs: ["get", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: symphony-runner
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "delete", "patch"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["get", "create"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["create", "get"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["symphony-providers", "model-provider", "symphony-mcp"]
+    verbs: ["get"]
+---
+# The setup flow (PUT /v1/setup/*) writes integrations and restarts what reads them.
+# Kubernetes cannot scope `create` to a name, so every object the API writes exists from
+# the start (deploy/integrations.yaml, deploy/providers.yaml; symphony-api is created by
+# the operator) and the API only gets `get` + `patch`/`update` on exactly those names.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: symphony-api
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "persistentvolumeclaims"]
+    verbs: ["get", "list"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list"]
+  # seed it from /opt/symphony/WORKFLOW.default.md and publish it (resourceVersion CAS)
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["symphony-workflow"]
+    verbs: ["get", "update"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["symphony-providers"]
+    verbs: ["get", "update"]
+  # integration credentials, write-only through the API (stringData patches)
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["linear-api-key", "github-app", "symphony-api", "symphony-slack", "symphony-discord", "symphony-mcp"]
+    verbs: ["get", "patch"]
+  # the models step checks which host credentials exist (key names only, never values)
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["model-provider"]
+    verbs: ["get"]
+  # restart the consumers of a changed Secret (`symphony.dev/restarted-at` annotation).
+  # `list` finds the merger Deployments (label component=merger); `patch` is limited to
+  # these names: a per-repository merger Deployment added by an overlay must be added here
+  # too (tests/test_deploy.py checks every rendered merger is).
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: ["symphony-api", "symphony-daemon", "symphony-merger", "symphony-assistant"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: symphony-daemon
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: symphony-daemon
+subjects:
+  - kind: ServiceAccount
+    name: symphony-daemon
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: symphony-runner
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: symphony-runner
+subjects:
+  - kind: ServiceAccount
+    name: symphony-runner
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: symphony-api
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: symphony-api
+subjects:
+  - kind: ServiceAccount
+    name: symphony-api

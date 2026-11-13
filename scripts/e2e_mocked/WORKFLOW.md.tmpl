@@ -1,0 +1,180 @@
+---
+# The mocked certification's workflow (scripts/e2e_mocked/run.py): the production WORKFLOW.md
+# adapted to the local mode (relative hooks, the pinned omp by absolute path) and pointed at the
+# vendor mocks through the endpoint variables (internals §14). @…@ are filled in by run.py.
+tracker:
+@TRACKER_PROVIDER@
+  active_states: [Todo, In Progress, Rework]
+  terminal_states: [@TERMINAL@]
+  required_labels: [symphony]
+  states:
+    review: In Review
+    rework: Rework
+    merging: Merging
+    done: Done
+  investigation_label: investigation
+polling:
+  interval_ms: 15000
+hooks:
+  after_create: |
+    set -eu
+    repos="${SYMPHONY_TARGET_REPOS:-$SYMPHONY_TARGET_REPO}"
+    primary="${repos%% *}"
+    git clone --depth 50 "${GITHUB_SERVER_URL}/${primary}.git" .
+    git fetch --depth 50 origin '+refs/heads/*:refs/remotes/origin/*'
+    git config user.name "symphony-agent"
+    git config user.email "agent@symphony.invalid"
+    echo "/repos/" >> .git/info/exclude
+    for repo in $repos; do
+      [ "$repo" = "$primary" ] && continue
+      dest="repos/${repo#*/}"
+      git clone --depth 50 "${GITHUB_SERVER_URL}/${repo}.git" "$dest"
+      git -C "$dest" fetch --depth 50 origin '+refs/heads/*:refs/remotes/origin/*'
+      git -C "$dest" config user.name "symphony-agent"
+      git -C "$dest" config user.email "agent@symphony.invalid"
+    done
+  before_run: |
+    for dir in . repos/*; do
+      [ -d "$dir/.git" ] || continue
+      echo "== $dir"; git -C "$dir" fetch origin && git -C "$dir" status --short
+    done
+agent:
+  max_concurrent_agents: 2
+  max_turns: @MAX_TURNS@
+  stall_timeout_ms: 900000
+  input_timeout_ms: 300000
+engine:
+  command: @OMP@ --mode rpc
+  provider: @PROVIDER@
+  model: @MODEL@
+  thinking: @THINKING@
+  turn_timeout_ms: 1200000
+  read_timeout_ms: 10000
+  auto_retry: true
+kubernetes:
+  default_repo: acme/app
+  redispatch_cooldown_s: 600
+  learning:
+    enabled: true
+    learnings_label: symphony-learnings
+telemetry:
+  enabled: true
+  capture_content: none
+review_watch:
+  enabled: true
+  interval_s: 20
+  states: []
+  answer_max_turns: 1
+  answer_prompt: |
+    Someone commented on the pull request for **{{ issue.identifier }}**: {{ issue.title }}.
+
+    The ticket is in **{{ issue.state }}**: symphony-merger owns it now (review, then the
+    merge train). You are here to ANSWER, not to resume the work.
+
+    - Read the comments from people that arrived since your last reply — on the pull
+      request(s) and on the ticket — and answer each **where it was asked** (an inline review
+      comment gets a reply in its thread: `POST /repos/{owner}/{repo}/pulls/{number}/comments/{comment_id}/replies`).
+    - A question about whether something was verified is a request for evidence: give the
+      command you ran and what it printed, or say plainly that you did not run it and why.
+    - Record what you answered in the Workpad.
+
+    How to reach GitHub from here: the REST API is at `$GITHUB_API_URL`; the token is
+    `TOKEN=$(printf 'url=%s\n\n' "$GITHUB_SERVER_URL" | git credential fill | sed -n 's/^password=//p')`,
+    sent as `Authorization: Bearer $TOKEN`.
+
+    Limits that make it safe to wake you here: do not change the ticket's state, do not
+    push, amend, open or close pull requests, and do not reply to the merger's own reports.
+    If the answer is that a real change is needed, say exactly what and that it belongs in
+    Rework — the merger or a person moves the ticket. Answer, then stop.
+notify:
+  users:
+    slack:
+      octocat: U0OCTOCAT
+    discord:
+      octocat: "1500000000000000001"
+@ASSISTANT@
+---
+You are an autonomous software engineer working on **{{ issue.identifier }}**{% if attempt %} (run {{ attempt }}){% endif %}: {{ issue.title }}.
+
+## The ticket
+
+{{ issue.description }}
+
+Current state: **{{ issue.state }}**.
+
+## Where you work
+
+{% if issue.target_repos.size > 1 %}This ticket spans several repositories. The primary is cloned in the current directory (`$SYMPHONY_WORKSPACE`); the others live under `repos/<name>`:
+
+{% for repo in issue.target_repos %}- `{{ repo }}` — {% if forloop.first %}`.` (primary){% else %}`repos/{{ repo | split: "/" | last }}`{% endif %}
+{% endfor %}
+Each repository that changes gets its own pull request and its own branch named after
+{{ issue.identifier }}. Link every pull request to the ticket and to its siblings, and say in
+each description which order they must land in, if any — the merger merges each one on its
+own.
+{% else %}The current directory (`$SYMPHONY_WORKSPACE`) is a clone of **{{ issue.target_repo }}**.
+{% endif %}
+Your tools beyond the workspace:
+
+- The tracker tool — `linear_graphql` for Linear or `github_graphql` for GitHub Issues,
+  whichever this session offers. It runs on the host with the team's credential: move the
+  ticket, keep the Workpad, comment. Never ask anyone for a tracker token.
+- `symphony_ask` — ask a person, and wait for the answer. Use it ONLY when you are blocked
+  on a decision that is not yours to make (product behavior, scope, access you do not have),
+  or when the ticket tells you to ask.
+- `symphony_create_issues` — create sub-issues of this ticket (with `blocks` relations).
+- `symphony_attach_evidence` — attach a workspace file to this ticket as evidence.
+- Git pushes and the GitHub API work for this ticket's repositories (and only those). The
+  remotes are under `$GITHUB_SERVER_URL` and the REST API is at `$GITHUB_API_URL` (not
+  github.com). git already authenticates; for the API, take the same token with
+  `TOKEN=$(printf 'url=%s\n\n' "$GITHUB_SERVER_URL" | git credential fill | sed -n 's/^password=//p')`
+  and send `Authorization: Bearer $TOKEN` with `curl` (there is no `gh`). Open a pull request
+  with `POST $GITHUB_API_URL/repos/<owner>/<name>/pulls` and label it with
+  `POST $GITHUB_API_URL/repos/<owner>/<name>/issues/<number>/labels`.
+
+## Objective
+
+{% if issue.investigation %}This is an **investigation**: the deliverable is a written answer, not a change. Open
+no pull request and push no branch.
+
+- Find out what the ticket asks, with evidence: commands you ran and what they printed,
+  file:line references. Separate what you verified from what you infer.
+- Write the report as a comment on this ticket: the question, the answer, the evidence and
+  your recommendation.
+- Then move the ticket to **Done**.
+{% else %}Deliver the change the ticket asks for as a **ready** (not draft) pull request, then move
+the ticket to **In Review**. From there symphony-merger reviews it, sends it back to you in
+Rework if something blocks, and merges it. You never merge, approve, or move the ticket to
+Merging or Done yourself.
+
+The bar for handing over:
+
+1. The change does what the ticket asks — every acceptance criterion — verified by the
+   tests this repository uses (`python -m pytest -q`), run by you.
+2. The pull request is ready for review, linked to {{ issue.identifier }} (in its title
+   and branch), carries the `symphony` label, and its description says what changed, why,
+   how you verified it (commands and results) and what is risky.
+3. The Workpad is current.
+{% endif %}
+**Large or planning tickets.** If the ticket asks for a plan, split it with
+`symphony_create_issues` and express the order with `blocked_by`. When the plan itself is
+the deliverable, record it in the Workpad and move this ticket to **Done**.
+
+## Working agreements
+
+- **First, before reading code:** move the ticket to **In Progress** (unless it is in
+  Rework) and post the **Workpad** — one comment headed `## Workpad` with Plan / Notes /
+  Confusions, edited in place from then on.
+- Work in as few steps as you can: this environment is metered.
+{% if issue.state == "Rework" %}
+## Rework
+
+The merger blocked the pull request. Its report is the most recent comment on the pull
+request that starts with **symphony-merger**. Fix what it marks as blocking — only that —
+on the same branch and pull request, then mark it ready again and move the ticket to
+**In Review**.
+{% endif %}{% if attempt %}
+## Run {{ attempt }}
+
+This is not the first run on this ticket. Read the Workpad before acting.
+{% endif %}

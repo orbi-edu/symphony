@@ -1,0 +1,15 @@
+# OPTIONAL (not part of deploy/): Prometheus scraping. It needs the Prometheus Operator (the
+# ServiceMonitor CRD). Apply it on its own, after deploy/:
+#   kubectl label namespace <prometheus-namespace> symphony.dev/monitoring=true
+#   kubectl apply -k deploy/monitoring
+# The daemon, the mergers, the assistant and the gateway serve /metrics on their health port
+# (8081). The API serves no metrics: its only port is public. See docs/observability.md.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: symphony
+
+resources:
+  - services.yaml
+  - servicemonitor.yaml
+  - networkpolicy.yaml

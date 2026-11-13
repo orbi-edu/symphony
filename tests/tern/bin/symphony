@@ -1,0 +1,306 @@
+#!/usr/bin/env python3
+"""Stub `symphony` CLI used ONLY by the Tern plugin's headless scenarios (tests/tern).
+
+It implements the subset of the real CLI's surface the plugin calls (ClientCli contract): `token
+print --json`, `login --url U --token - --json`, `api METHOD PATH [--header K:V]... [--data -|JSON]`,
+`say`, `answer`, `interrupt`, `tern install --json`, `omp sync --json`, `takeover`, `mcp viewer`, `admin mcp
+list|set|remove|headers|test` and `setup` (`--status`, `tracker`, `github-app`, `repositories`,
+`notifications slack|discord|test`, `webhooks`, `assistant`; secrets on stdin as the real CLI reads them). The
+credential lives in `$SYMPHONY_STUB_HOME/creds.json` instead of the keychain, and every
+invocation is appended to `$SYMPHONY_STUB_HOME/calls.jsonl` so tests can assert on it.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+
+HOME = os.environ.get("SYMPHONY_STUB_HOME", "/tmp/symphony-stub")
+CREDS = os.path.join(HOME, "creds.json")
+
+
+def out(doc) -> None:
+    sys.stdout.write(json.dumps(doc) + "\n")
+
+
+def die(code: str, message: str) -> None:
+    out({"error": {"code": code, "message": message}})
+    sys.exit(1)
+
+
+def creds() -> dict:
+    try:
+        with open(CREDS, encoding="utf-8") as fh:
+            return json.load(fh)
+    except FileNotFoundError:
+        die("not_logged_in", "run `symphony login` first")
+    raise AssertionError
+
+
+def request(method: str, url: str, token: str, body: bytes | None = None, headers: dict | None = None):
+    req = urllib.request.Request(url, data=body, method=method)
+    req.add_header("Authorization", f"Bearer {token}")
+    req.add_header("Accept", "application/json")
+    if body is not None:
+        req.add_header("Content-Type", "application/json")
+    for k, v in (headers or {}).items():
+        req.add_header(k, v)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            raw = resp.read()
+            return resp.status, (json.loads(raw) if raw else {})
+    except urllib.error.HTTPError as exc:
+        raw = exc.read()
+        try:
+            return exc.code, json.loads(raw)
+        except ValueError:
+            return exc.code, {"error": {"code": f"http_{exc.code}", "message": raw.decode(errors="replace")}}
+    except (urllib.error.URLError, OSError) as exc:
+        die("unreachable", str(exc))
+    raise AssertionError
+
+
+def api(method: str, path: str, body=None, headers: dict | None = None) -> dict:
+    c = creds()
+    data = None if body is None else json.dumps(body).encode()
+    status, doc = request(method, c["url"].rstrip("/") + path, c["token"], data, headers)
+    if not 200 <= status < 300:
+        out(doc)
+        sys.exit(1)
+    return doc
+
+
+def flag(args: list[str], name: str, default=None):
+    if name in args:
+        i = args.index(name)
+        value = args[i + 1]
+        del args[i : i + 2]
+        return value
+    return default
+
+
+def first_line() -> str:
+    return (sys.stdin.readline() or "").strip()
+
+
+def many(args: list[str], name: str) -> list[str]:
+    """Every value of a repeatable flag, as `--name V` or `--name=V`."""
+    values, rest = [], []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == name and i + 1 < len(args):
+            values.append(args[i + 1])
+            i += 2
+            continue
+        if a.startswith(name + "="):
+            values.append(a[len(name) + 1:])
+        else:
+            rest.append(a)
+        i += 1
+    args[:] = rest
+    return values
+
+
+def admin_mcp(args: list[str]) -> None:
+    """`symphony admin mcp …`: `set` sends the whole definition; header values come on stdin."""
+    sub, name = args[2], (args[3] if len(args) > 3 else None)
+    if sub == "list":
+        out(api("GET", "/v1/admin/mcp"))
+    elif sub == "set":
+        body = {"roles": many(args, "--role"), "enabled": "--disabled" not in args}
+        # `--preset seiji` goes to the API as `preset`, which fills what the flags leave out.
+        transport, preset = flag(args, "--transport"), flag(args, "--preset")
+        if transport is not None:
+            body["transport"] = transport
+        if preset is not None:
+            body["preset"] = preset
+        url, command, timeout = flag(args, "--url"), flag(args, "--command"), flag(args, "--timeout-ms")
+        if url is not None:
+            body["url"] = url
+        if command is not None:
+            body["command"] = command
+            body["args"] = many(args, "--arg")
+            body["env"] = dict(e.split("=", 1) for e in many(args, "--env"))
+        if timeout is not None:
+            body["timeout_ms"] = int(timeout)
+        if "--instructions" in args:
+            body["instructions"] = True
+        http_base, cleanup = many(args, "--http-base"), many(args, "--cleanup")
+        if http_base:
+            body["http_base"] = http_base[-1]
+        agent_env, origins = many(args, "--agent-env"), many(args, "--rewrite-origin")
+        if agent_env:
+            body["agent_env"] = dict(e.split("=", 1) for e in agent_env)
+        if origins:
+            body["rewrite_origins"] = origins
+        if cleanup:
+            fields = ("acquire_tool", "id_field", "release_tool", "release_arg")
+            body["cleanup"] = dict(zip(fields, cleanup[-1].split(":"), strict=True))
+        out(api("PUT", f"/v1/admin/mcp/{name}", body))
+    elif sub == "remove":
+        api("DELETE", f"/v1/admin/mcp/{name}")
+        out({"removed": name})
+    elif sub == "headers":
+        doc = json.loads(sys.stdin.read() or "{}")
+        out(api("PUT", f"/v1/admin/mcp/{name}/headers", doc if "headers" in doc else {"headers": doc}))
+    elif sub == "test":
+        result = api("POST", f"/v1/admin/mcp/{name}/test", {})
+        out(result)
+        sys.exit(1 if result.get("ok") is False else 0)
+    else:
+        die("usage", "unsupported stub admin mcp command: " + " ".join(args))
+
+
+def setup(args: list[str]) -> None:
+    """`symphony setup …`: the request bodies of setup contract §1, secrets read from stdin."""
+    sub = args[1:2]
+    if "--status" in args:
+        out(api("GET", "/v1/setup"))
+    elif sub == ["tracker"]:
+        kind = flag(args, "--kind")
+        if kind == "linear":
+            body = {"kind": "linear", "api_key": first_line()}
+            team, project = flag(args, "--team"), flag(args, "--project")
+            body.update({"team_key": team} if team else {"project_slug": project})
+        else:
+            body = {"kind": "github", "owner": flag(args, "--owner"),
+                    "project_number": int(flag(args, "--project-number"))}
+            status_field = flag(args, "--status-field")
+            if status_field:
+                body["status_field"] = status_field
+        out(api("PUT", "/v1/setup/tracker", body))
+    elif sub == ["github-app"]:
+        out(api("PUT", "/v1/setup/github-app", {
+            "app_id": flag(args, "--app-id"), "installation_id": flag(args, "--installation-id"),
+            "private_key": sys.stdin.read().strip() + "\n",
+        }))
+    elif sub == ["repositories"]:
+        clear = "--clear-default-repo" in args
+        out(api("PUT", "/v1/setup/repositories", {"default_repo": None if clear else flag(args, "--default-repo")}))
+    elif sub == ["notifications"]:
+        provider = args[2]
+        if provider == "test":
+            # As the real CLI: every configured channel's result, Slack first; exit 1 if one failed.
+            byname = api("POST", "/v1/setup/notifications/test", {})["results"]
+            words = {"rejected": "rejected the message", "unreachable": "could not be reached. Try again in a moment."}
+            results = [{"channel": p, "ok": r["ok"], "at": r["at"],
+                        "error": None if r["ok"] else {"code": r["error"],
+                                                       "message": f"{p.capitalize()} {words[r['error']]}"}}
+                       for p, r in sorted(byname.items(), key=lambda kv: kv[0] != "slack")]
+            out({"results": results})
+            sys.exit(0 if all(r["ok"] for r in results) else 1)
+        if "--webhook" in args:
+            conf = {"webhook_url": first_line()}
+        elif provider == "slack":
+            conf = {"channel": flag(args, "--channel"), "bot_token": first_line()}
+        else:
+            conf = {"channel_id": flag(args, "--channel-id"), "bot_token": first_line()}
+        out(api("PUT", "/v1/setup/notifications", {provider: conf}))
+    elif sub == ["webhooks"]:
+        out(api("POST", "/v1/setup/webhooks", {"rotate": True} if "--rotate" in args else {}))
+    elif sub == ["assistant"]:
+        # The Slack app token is the first stdin line; an empty line keeps the stored one.
+        slack, discord, repos = many(args, "--slack-channel"), many(args, "--discord-channel"), many(args, "--repo")
+        if not slack and not discord:
+            die("invalid_assistant", "Name at least one Slack or Discord channel.")
+        body: dict = {}
+        if slack:
+            body["slack"] = {"channels": slack}
+            token = first_line()
+            if token:
+                body["slack"]["app_token"] = token
+        if discord:
+            body["discord"] = {"channels": discord}
+        if repos:
+            body["repositories"] = repos
+        out(api("PUT", "/v1/setup/assistant", body))
+    else:
+        die("usage", "unsupported stub setup command: " + " ".join(args))
+
+
+def main(argv: list[str]) -> None:
+    os.makedirs(HOME, exist_ok=True)
+    with open(os.path.join(HOME, "calls.jsonl"), "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(argv) + "\n")
+    args = list(argv)
+    if "--json" in args:
+        args.remove("--json")
+    cmd = args[:2]
+    if args[:1] == ["setup"]:
+        setup(args)
+        return
+    if cmd == ["token", "print"]:
+        c = creds()
+        out({"url": c["url"], "token": c["token"], "name": c.get("name"), "role": c.get("role")})
+    elif args[:1] == ["login"]:
+        url = flag(args, "--url")
+        token = flag(args, "--token")
+        if token == "-":
+            token = sys.stdin.readline().strip()
+        status, me = request("GET", url.rstrip("/") + "/v1/me", token)
+        if status != 200:
+            die("unauthorized", "The server rejected the token.")
+        with open(CREDS, "w", encoding="utf-8") as fh:
+            json.dump({"url": url, "token": token, "name": me["name"], "role": me["role"]}, fh)
+        out({"url": url, "name": me["name"], "role": me["role"], "token_id": me["token_id"], "storage": "keychain"})
+    elif args[:1] == ["api"]:
+        method, path = args[1], args[2]
+        rest = args[3:]
+        headers = {}
+        while "--header" in rest:
+            k, _, v = flag(rest, "--header").partition(":")
+            headers[k.strip()] = v.strip()
+        data = flag(rest, "--data")
+        body = None
+        if data == "-":
+            body = json.loads(sys.stdin.read() or "null")
+        elif data is not None:
+            body = json.loads(data)
+        out(api(method, path, body, headers))
+    elif args[:1] == ["say"]:
+        sid, text = args[1], args[2]
+        mode = "steer" if "--steer" in args else "follow_up" if "--follow-up" in args else "auto"
+        out(api("POST", f"/v1/sessions/{sid}/messages", {"text": text, "mode": mode}))
+    elif args[:1] == ["answer"]:
+        out(api("POST", f"/v1/sessions/{args[1]}/messages", {"text": args[2], "mode": "auto"}))
+    elif args[:1] == ["release"]:
+        reason = flag(args, "--reason", "Returned from the CLI")
+        items = api("GET", "/v1/issues")["items"]
+        match = next((i for i in items if i["identifier"] == args[1] or i["issue_id"] == args[1]), None)
+        if match is None:
+            die("not_found", "Symphony does not track this ticket.")
+        if not match.get("held"):
+            die("not_held", "No person holds this ticket.")
+        out(api("POST", "/v1/commands", {"action": "release", "target": {"issueId": match["issue_id"]}, "reason": reason}))
+    elif args[:1] == ["interrupt"]:
+        reason = flag(args, "--reason", "interrupted from Tern")
+        out(api("POST", f"/v1/sessions/{args[1]}/interrupt", {"reason": reason}))
+    elif cmd == ["tern", "install"]:
+        out({"settings": "~/Library/Application Support/Tern/settings.json", "agent": "symphony",
+             "mcp": "symphony", "plugin": "symphony 0.1.0"})
+    elif cmd == ["omp", "sync"]:
+        cfg = api("GET", "/v1/admin/config")
+        # Same shape as `symphony.cli.local.omp_sync`, with an omp older than the team's.
+        out({"profile": "symphony", "config": "~/.omp/profiles/symphony/config.yml",
+             "generation": cfg["generation"], "model": "amazon-bedrock/global.moonshotai.kimi-k3.1",
+             "omp": {"path": "/usr/local/bin/omp", "version": "18.19.0", "team_version": "18.20.2",
+                     "matches": False}})
+    elif cmd == ["admin", "mcp"]:
+        admin_mcp(args)
+    elif cmd == ["mcp", "viewer"]:
+        # `symphony mcp viewer NAME LEASE [--control]`: a one-time viewer link to a held device.
+        name, lease = args[2], args[3]
+        out(api("POST", f"/v1/mcp/{name}/viewer", {"lease_id": lease, "control": "--control" in args}))
+    elif args[:1] == ["takeover"]:
+        print(f"Taking over {args[1]}: pausing the attempt and downloading the session…")
+        sys.stdin.read()
+    else:
+        die("usage", "unsupported stub command: " + " ".join(argv))
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

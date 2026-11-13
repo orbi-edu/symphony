@@ -1,0 +1,83 @@
+# The chat assistant (src/symphony/assistant): answers questions, researches and plans tickets
+# on Slack and Discord. It connects out (Slack Socket Mode, the Discord Gateway), so it needs no
+# Service and no public URL. It idles until setup gives it a transport's tokens and
+# WORKFLOW.md enables it (`assistant:`; `symphony setup assistant`).
+#
+# It runs omp locally with read-only tools, in worktrees of the repositories it may read
+# (fetched with a read-only GitHub App token). Its only Kubernetes API access is reading the
+# provider keys and the MCP server definitions saved in the Admin screen (deploy/rbac.yaml).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: symphony-assistant
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # one bot connection per transport
+  selector:
+    matchLabels: {app: symphony, component: assistant}
+  template:
+    metadata:
+      labels: {app: symphony, component: assistant}
+    spec:
+      serviceAccountName: symphony-assistant
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: assistant
+          image: symphony-orchestrator
+          command: ["python", "-m", "symphony.entry.assistant"]
+          env:
+            - name: REDIS_URL
+              value: redis://symphony-redis:6379/0
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef: {fieldPath: metadata.namespace}
+            # mirrors/, work/ (read-only worktrees) and sessions/ (omp session files)
+            - name: SYMPHONY_ASSISTANT_WORKDIR
+              value: /var/lib/symphony/assistant
+            # provider API keys from the Admin screen, read per agent session (internals §13)
+            - name: SYMPHONY_SECRET_PROVIDERS
+              value: symphony-providers
+          envFrom:
+            # All optional: without a transport's tokens the assistant idles
+            # (`assistant_not_configured`). Slack needs SLACK_APP_TOKEN and SLACK_BOT_TOKEN;
+            # Discord needs DISCORD_BOT_TOKEN. Either alone is enough.
+            - secretRef: {name: symphony-slack, optional: true}
+            - secretRef: {name: symphony-discord, optional: true}
+            # read-only mirrors, and the tracker for search and ticket creation
+            - secretRef: {name: github-app, optional: true}
+            - secretRef: {name: linear-api-key, optional: true}
+            # Host-level fallback for the assistant's agents (AWS_REGION +
+            # AWS_BEARER_TOKEN_BEDROCK, ANTHROPIC_API_KEY, …), as for the merger.
+            - secretRef: {name: model-provider, optional: true}
+          ports:
+            - name: health
+              containerPort: 8081
+          volumeMounts:
+            - name: work
+              mountPath: /var/lib/symphony/assistant
+            - name: workflow
+              mountPath: /workflow
+              readOnly: true
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {cpu: "2", memory: 4Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          livenessProbe:
+            httpGet: {path: /healthz, port: health}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+      volumes:
+        # Mirrors are fetched again after a restart; nothing here must survive one.
+        - name: work
+          emptyDir: {sizeLimit: 20Gi}
+        - name: workflow
+          configMap: {name: symphony-workflow, optional: true}

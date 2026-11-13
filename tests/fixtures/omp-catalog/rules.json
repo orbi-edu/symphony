@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "auth": {
+    "providers": [
+      {"id": "acme", "login": {"kind": "api-key"}},
+      {"id": "zeta", "login": {"kind": "oauth-code"}, "refresh": {"kind": "request"}},
+      {"id": "codexy", "login": {"kind": "oauth-code"}},
+      {"id": "copiloty", "apiKeyFormat": "structured", "login": {"kind": "custom", "hook": "copiloty"},
+       "refresh": {"kind": "hook", "hook": "copiloty"}}
+    ]
+  },
+  "providers": {
+    "acme": {"id": "acme", "defaultModel": "m1", "envVars": ["ACME_API_KEY"]},
+    "zeta": {"id": "zeta", "defaultModel": "z1", "envVars": ["ZETA_API_KEY", "ZED_KEY"]},
+    "codexy": {"id": "codexy", "defaultModel": "c1", "envVars": ["CODEXY_OAUTH_TOKEN"]},
+    "copiloty": {"id": "copiloty", "defaultModel": "p1", "envVars": ["COPILOTY_GITHUB_TOKEN"]},
+    "hosty": {"id": "hosty", "defaultModel": "h1"},
+    "wire-only": {"id": "wire-only"}
+  }
+}

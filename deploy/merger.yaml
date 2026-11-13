@@ -1,0 +1,100 @@
+# The merger (docs/merger.md): agent review of every ready pull request and the merge train.
+# One Deployment per repository: set SYMPHONY_MERGER_REPO (owner/name), or leave it empty to
+# use WORKFLOW.md's default repository. For more repositories, add one copy per repository
+# with its own `merger` label and PVC (docs/install.md, "Add a merger for each repository").
+#
+# It runs omp locally (reviewer/oracle/arbiter/developer agents) and git in a mirror +
+# worktrees on its own PVC. Its only Kubernetes API access is reading the provider keys
+# saved in the Admin screen (Secret symphony-providers, deploy/rbac.yaml).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: symphony-merger
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: symphony-merger
+  # Setup finds every merger Deployment by these labels to restart it after a secret change.
+  labels: {app: symphony, component: merger, merger: default}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # RWO volume; the train lease absorbs any overlap
+  # `merger` tells one merger Deployment from another: one Deployment per repository, each
+  # with its own value (docs/install.md). `component: merger` stays for the NetworkPolicies.
+  selector:
+    matchLabels: {app: symphony, component: merger, merger: default}
+  template:
+    metadata:
+      labels: {app: symphony, component: merger, merger: default}
+    spec:
+      serviceAccountName: symphony-merger
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: merger
+          image: symphony-orchestrator
+          command: ["python", "-m", "symphony.entry.merger"]
+          env:
+            - name: REDIS_URL
+              value: redis://symphony-redis:6379/0
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef: {fieldPath: metadata.namespace}
+            - name: SYMPHONY_MERGER_REPO
+              value: ""
+            - name: SYMPHONY_MERGER_REVIEWERS
+              value: "2"
+            # mirror/, wt/ (worktrees) and sessions/ (omp session files) live here
+            - name: SYMPHONY_MERGER_WORKDIR
+              value: /var/lib/symphony/merger
+            # provider API keys from the Admin screen, read per agent run (internals §13)
+            - name: SYMPHONY_SECRET_PROVIDERS
+              value: symphony-providers
+          envFrom:
+            # Optional: without the GitHub App the merger idles (`merger_not_configured`).
+            - secretRef: {name: linear-api-key, optional: true}
+            - secretRef: {name: github-app, optional: true}
+            - secretRef: {name: symphony-slack, optional: true}
+            - secretRef: {name: symphony-discord, optional: true}
+            # Host-level fallback for the merger's agents: AWS_REGION +
+            # AWS_BEARER_TOKEN_BEDROCK (or ANTHROPIC_API_KEY, OPENAI_API_KEY, …). With IRSA /
+            # an instance role, leave the AWS keys out and annotate the symphony-merger
+            # ServiceAccount instead (docs/install.md).
+            - secretRef: {name: model-provider, optional: true}
+          ports:
+            - name: health
+              containerPort: 8081
+          volumeMounts:
+            - name: work
+              mountPath: /var/lib/symphony/merger
+            - name: workflow
+              mountPath: /workflow
+              readOnly: true
+          resources:
+            requests: {cpu: 500m, memory: 1Gi}
+            limits: {cpu: "4", memory: 6Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          livenessProbe:
+            httpGet: {path: /healthz, port: health}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+      volumes:
+        - name: work
+          persistentVolumeClaim:
+            claimName: symphony-merger
+        - name: workflow
+          configMap: {name: symphony-workflow, optional: true}

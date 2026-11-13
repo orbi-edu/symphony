@@ -1,0 +1,11 @@
+# Build context = repository root; only what the Dockerfile COPYs is sent.
+**
+!pyproject.toml
+!uv.lock
+!README.md
+!WORKFLOW.md
+!src/
+!docker/install-omp.sh
+!docker/install-omp-catalog.sh
+**/__pycache__
+**/*.pyc

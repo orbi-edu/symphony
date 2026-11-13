@@ -1,0 +1,12 @@
+# Kubernetes API audit policy of the kind setup certification (scripts/e2e_kind_setup.sh).
+# Metadata level only: verb, object, user, status and time; never a request or response body,
+# so no Secret value reaches the log. Only the Symphony ServiceAccounts are recorded.
+apiVersion: audit.k8s.io/v1
+kind: Policy
+omitStages: ["RequestReceived"]
+rules:
+  - level: None
+    verbs: ["watch"]
+  - level: Metadata
+    userGroups: ["system:serviceaccounts:symphony"]
+  - level: None

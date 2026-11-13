@@ -1,0 +1,79 @@
+# Sandbox gateway: the ONLY Symphony service a workspace pod may call. Two routes:
+# `POST /v1/traces` (OTLP protobuf; the per-attempt bearer token fenced by dispatch_seq) and
+# the MCP proxy `/v1/mcp/<name>` (the agent's MCP token; workspaces, merger agents and the
+# assistant call it). It mounts no ServiceAccount token. Its one credential is the
+# `symphony-mcp` Secret, mounted read-only: the gateway adds those headers to MCP requests,
+# so agents never hold them. Kubelet refreshes the mount within about a minute of a change.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: symphony-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: symphony, component: gateway}
+  template:
+    metadata:
+      labels: {app: symphony, component: gateway}
+    spec:
+      serviceAccountName: symphony-gateway
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: gateway
+          image: symphony-orchestrator
+          command: ["python", "-m", "symphony.entry.serve", "gateway"]
+          env:
+            - name: REDIS_URL
+              value: redis://symphony-redis:6379/0
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef: {fieldPath: metadata.namespace}
+            - name: SYMPHONY_MCP_DIR
+              value: /etc/symphony/mcp
+          ports:
+            - name: http
+              containerPort: 8090
+            # /healthz and /metrics (deploy/monitoring/ lets a monitoring namespace scrape it)
+            - name: health
+              containerPort: 8081
+          volumeMounts:
+            - name: workflow
+              mountPath: /workflow
+              readOnly: true
+            - name: mcp
+              mountPath: /etc/symphony/mcp
+              readOnly: true
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: "1", memory: 384Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          readinessProbe:
+            tcpSocket: {port: http}
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: {port: http}
+            periodSeconds: 20
+      volumes:
+        - name: workflow
+          configMap: {name: symphony-workflow, optional: true}
+        - name: mcp
+          secret: {secretName: symphony-mcp, optional: true, defaultMode: 0440}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: symphony-gateway # edge.py derives the workspace-facing URLs from this name
+spec:
+  selector: {app: symphony, component: gateway}
+  ports:
+    - name: http
+      port: 8090
+      targetPort: http

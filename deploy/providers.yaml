@@ -1,0 +1,8 @@
+# Provider API keys saved from the Admin screen (Tern › Admin › Providers; internals §13),
+# read per attempt by the runner, the reflector and the merger. Bootstrap storage only:
+# do not add data/stringData, so later applies preserve the keys saved through the API.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: symphony-providers
+type: Opaque

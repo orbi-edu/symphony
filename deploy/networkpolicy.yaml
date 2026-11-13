@@ -1,0 +1,154 @@
+# Network fences (plain NetworkPolicy, CNI-agnostic; needs an enforcing CNI such as
+# Calico, Cilium, or k3s' built-in policy controller). Authorization still happens in
+# every service; these are the outer walls.
+#
+# 1. Workspaces (agent code) reach ONLY the sandbox gateway and the public internet.
+#    Private ranges are excluded so a workspace cannot reach the API, Redis, the node,
+#    other pods or the cloud metadata endpoint (169.254.169.254: no instance-role
+#    credentials for agent code). Nothing ever dials INTO a workspace: the runner uses
+#    the API server's exec, not the pod network.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: symphony-workspace
+spec:
+  podSelector:
+    matchLabels: {app: symphony, component: workspace}
+  policyTypes: ["Ingress", "Egress"]
+  ingress: []
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app: symphony, component: gateway}
+      ports:
+        - protocol: TCP
+          port: 8090
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 100.64.0.0/10
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+---
+# 2. The gateway serves agents only: workspaces and distill pods (traces, MCP), merger
+#    agents and the assistant (MCP). It reaches Redis (tokens), DNS, and the public internet
+#    for remote MCP servers; private ranges stay closed, as for workspaces, so a stored MCP
+#    header can never be sent into the cluster or to the cloud metadata endpoint.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: symphony-gateway
+spec:
+  podSelector:
+    matchLabels: {app: symphony, component: gateway}
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app: symphony, component: workspace}
+        - podSelector:
+            matchLabels: {app: symphony, component: distill}
+        - podSelector:
+            matchLabels: {app: symphony, component: merger}
+        - podSelector:
+            matchLabels: {app: symphony, component: assistant}
+      ports:
+        - protocol: TCP
+          port: 8090
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app: symphony, component: redis}
+      ports:
+        - protocol: TCP
+          port: 6379
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 100.64.0.0/10
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+---
+# 3. The API serves people and webhooks: reachable on 8080 from anywhere the cluster
+#    routes it (port-forward today; deploy/cloudflared/ or an ingress controller later).
+#    Workspaces are kept out by their own egress policy above.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: symphony-api
+spec:
+  podSelector:
+    matchLabels: {app: symphony, component: api}
+  policyTypes: ["Ingress"]
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8080
+---
+# 4. Redis holds API tokens, sessions, audit and orchestration authority:
+#    only Symphony's own host-side components may reach it, never workspaces.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: symphony-redis
+spec:
+  podSelector:
+    matchLabels: {app: symphony, component: redis}
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app: symphony}
+            matchExpressions:
+              - key: component
+                operator: In
+                values: [api, gateway, daemon, merger, runner, reflector, sweep, assistant, backup]
+      ports:
+        - protocol: TCP
+          port: 6379
+---
+# 5. Daemon, merger, assistant, the backup CronJob and Jobs serve nothing over the network
+#    (health probes come from the kubelet on the node, which policy does not filter). Their
+#    egress stays open: the assistant dials Slack, Discord, GitHub, Redis, the gateway and
+#    the Kubernetes API; the backup dials Redis and the S3 endpoint.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: symphony-no-ingress
+spec:
+  podSelector:
+    matchLabels: {app: symphony}
+    matchExpressions:
+      - key: component
+        operator: In
+        values: [daemon, merger, runner, reflector, sweep, assistant, backup]
+  policyTypes: ["Ingress"]
+  ingress: []

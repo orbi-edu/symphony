@@ -1,0 +1,75 @@
+# Shared state: orchestration (leases, dispatch tokens), sessions (meta, event streams,
+# transcripts, intents), API tokens, team config, merger state and audit. The board can
+# rebuild issue discovery, but not tokens, audit or merger intents: back up this PVC.
+#
+# AOF with `appendfsync everysec`: every event delta and intent is an XADD on the hot
+# path (internals §6, < 300 ms end to end), so fsync per write is not affordable; a node
+# crash can lose at most the last second of writes, which the leases, dispatch tokens and
+# crash-safe merger intents are built to absorb.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: symphony-redis
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: symphony-redis
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # RWO volume: the new pod cannot mount until the old one is gone
+  selector:
+    matchLabels: {app: symphony, component: redis}
+  template:
+    metadata:
+      labels: {app: symphony, component: redis}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: redis
+          image: redis:7.4-alpine
+          args:
+            - redis-server
+            - --appendonly
+            - "yes"
+            - --appendfsync
+            - everysec
+            - --save
+            - "" # AOF only; no RDB snapshots competing for the disk
+          ports:
+            - name: redis
+              containerPort: 6379
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: {port: redis}
+            periodSeconds: 15
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: symphony-redis
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: symphony-redis
+spec:
+  selector: {app: symphony, component: redis}
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis

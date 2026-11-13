@@ -1,0 +1,61 @@
+[project]
+name = "symphony"
+version = "0.1.0"
+description = "Linear-driven autonomous coding agents (Oh My Pi) on Kubernetes, operated from Tern"
+requires-python = ">=3.12"
+dependencies = [
+    "kubernetes>=29.0",
+    "redis>=5.0",
+    "httpx>=0.27",
+    "python-liquid>=2.3.1,<2.4",
+    "PyYAML>=6.0",
+    "ruamel.yaml>=0.18",
+    "structlog>=24.0",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "pydantic>=2.7",
+    # GitHub App installation tokens: RS256 assertion signing, host-side only
+    "PyJWT>=2.9",
+    "cryptography>=43.0",
+    # OMP's native telemetry exporter speaks OTLP/HTTP protobuf only
+    "opentelemetry-proto>=1.27",
+    # CLI: the person's API token lives in the OS keychain
+    "keyring>=25",
+    # `symphony watch` draws natively in Tern; pinned to the SDK validated against Tern 0.8.3
+    "tern-sdk==0.2.0",
+    # The assistant's outbound websockets: Slack Socket Mode and the Discord Gateway
+    "websockets>=14.0",
+]
+
+[project.scripts]
+symphony = "symphony.cli.main:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    # Doc-faithful mocks of Linear, GitHub and Slack (scripts/mocks): requests and responses are
+    # checked against the vendors' published GraphQL schemas and OpenAPI descriptions.
+    "graphql-core>=3.2",
+    "jsonschema>=4.23",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/symphony"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501"]

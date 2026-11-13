@@ -1,0 +1,82 @@
+---
+# Example policy for a .NET 9 solution (xunit or NUnit, no Docker). Copy it to the root of
+# your deployment as WORKFLOW.md and change the tracker scope, the solution name and the
+# test filter.
+tracker:
+  kind: linear
+  provider:
+    team_key: "ENG"
+    api_key: $LINEAR_API_KEY
+  active_states: [Todo, In Progress, Rework]
+  terminal_states: [Done, Canceled, Duplicate]
+  required_labels: [symphony]
+  states: { review: In Review, rework: Rework, merging: Merging, done: Done }
+  investigation_label: investigation
+polling:
+  interval_ms: 15000              # safety poll; webhooks wake the daemon
+workspace:
+  root: /workspace
+hooks:
+  after_create: |
+    set -eu
+    server="${GITHUB_SERVER_URL:-https://github.com}"
+    repos="${SYMPHONY_TARGET_REPOS:-$SYMPHONY_TARGET_REPO}"
+    primary="${repos%% *}"
+    git clone --depth 50 "${server}/${primary}.git" /workspace
+    git -C /workspace fetch --depth 50 origin '+refs/heads/*:refs/remotes/origin/*'
+    echo "/repos/" >> /workspace/.git/info/exclude
+    for repo in $repos; do
+      [ "$repo" = "$primary" ] && continue
+      git clone --depth 50 "${server}/${repo}.git" "/workspace/repos/${repo#*/}"
+    done
+    cd /workspace && dotnet restore App.sln
+  before_run: |
+    cd /workspace && git fetch origin
+agent:
+  max_concurrent_agents: 3
+  max_turns: 20
+  max_retry_backoff_ms: 300000
+  stall_timeout_ms: 1800000
+  input_timeout_ms: 900000
+engine:
+  command: omp --mode rpc
+  # Models come from the team configuration that an admin publishes in Tern (Admin).
+  turn_timeout_ms: 3600000
+  read_timeout_ms: 5000
+  auto_retry: true
+kubernetes:
+  app_name: symphony
+  agent_runtime: dotnet9
+  sandbox: { cpu: 4, memory_mib: 8192, timeout_s: 14400, idle_timeout_s: 1800 }
+  runner: { timeout_s: 14400, wallclock_guard_s: 12600 }
+  privileged_agents: false        # tests that need Docker are filtered out below
+  egress_allowlist: []
+  redispatch_cooldown_s: 900
+  learning:
+    enabled: true
+    reflect_on: null
+    agents_md_budget_lines: 100
+    learnings_label: symphony-learnings
+    decay_after_incorporations: 10
+notify:
+  users: {}
+---
+You are an autonomous software engineer working on issue **{{ issue.identifier }}**{% if attempt %} (run {{ attempt }}){% endif %}: {{ issue.title }}.
+
+## The ticket
+
+{{ issue.description }}
+
+## Build and test (this repository)
+
+- Build: `dotnet build App.sln --no-restore`.
+- Test: `dotnet test App.sln --no-build --filter "Category!=Integration"`. This sandbox has
+  no Docker daemon, so tests that start containers cannot run. Do not delete them to make
+  the build green.
+- Do not start the API. The build and the filtered tests are the verification loop.
+
+## Objective, working agreements and review protocol
+
+Copy the sections "Where you work", "Objective", "Working agreements", "Rework" and "Run"
+from the root WORKFLOW.md into this file when you deploy it. Those sections hand the pull
+request over to symphony-merger and define the investigation and Rework rules.

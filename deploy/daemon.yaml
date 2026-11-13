@@ -1,0 +1,67 @@
+# The orchestration daemon: waits on `wake(daemon)` (Linear/GitHub webhooks via the API)
+# with a 15 s safety poll, dispatches runner Jobs, reconciles workspaces and reaps idle
+# ones. A wedged loop stops answering /healthz and the kubelet restarts it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: symphony-daemon
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # narrows the two-daemons window; the lease + dispatch tokens absorb the rest
+  selector:
+    matchLabels: {app: symphony, component: daemon}
+  template:
+    metadata:
+      labels: {app: symphony, component: daemon}
+    spec:
+      serviceAccountName: symphony-daemon
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: daemon
+          image: symphony-orchestrator
+          command: ["python", "-m", "symphony.entry.daemon"]
+          env:
+            - name: REDIS_URL
+              value: redis://symphony-redis:6379/0
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef: {fieldPath: metadata.namespace}
+            # The image runner/reflector Jobs run from: this one. kustomization.yaml's
+            # replacement keeps it equal to this container's transformed image.
+            - name: SYMPHONY_ORCHESTRATOR_IMAGE
+              value: symphony-orchestrator
+            - name: SYMPHONY_SECRET_PROVIDERS
+              value: symphony-providers
+          envFrom:
+            # Host side only: no workspace pod ever mounts these. All optional: until setup
+            # writes them the daemon idles and reports `setup_incomplete`.
+            - secretRef: {name: linear-api-key, optional: true}
+            - secretRef: {name: github-app, optional: true}
+            - secretRef: {name: symphony-slack, optional: true}
+            - secretRef: {name: symphony-discord, optional: true}
+          ports:
+            - name: health
+              containerPort: 8081
+          volumeMounts:
+            - name: workflow
+              mountPath: /workflow
+              readOnly: true
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          livenessProbe:
+            httpGet: {path: /healthz, port: health}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+      volumes:
+        - name: workflow
+          configMap: {name: symphony-workflow, optional: true}

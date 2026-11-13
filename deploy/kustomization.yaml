@@ -1,0 +1,55 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: symphony
+
+resources:
+  - namespace.yaml
+  - rbac.yaml
+  - providers.yaml
+  - integrations.yaml
+  - redis.yaml
+  - api.yaml
+  - gateway.yaml
+  - daemon.yaml
+  - merger.yaml
+  - assistant.yaml
+  - nightly-sweep.yaml
+  - backup.yaml
+  - networkpolicy.yaml
+
+# A minimal install is this kustomization + the `symphony-api` Secret
+# (deploy/secrets.example.yaml) + Redis (redis.yaml): the API starts, and `symphony setup`
+# (or Tern › Setup) fills the empty integration Secrets and the workflow ConfigMap of
+# integrations.yaml. Every other pod starts without them and waits for setup.
+# deploy/cloudflared/ (external access) is a separate, later kustomization.
+
+# Point at a published release or at YOUR registry (docs/install.md#images):
+#   (cd deploy && kustomize edit set image \
+#     symphony-orchestrator=ghcr.io/<owner>/symphony-orchestrator:<version>)
+# A release tag v<version> publishes amd64 + arm64 images there; scripts/build_images.sh
+# builds and pushes your own. Workspace images are WORKFLOW.md's kubernetes.agent_images
+# (ghcr.io/<owner>/symphony-agent:<runtime>-<version>), not this list.
+images:
+  - name: symphony-orchestrator
+    newTag: latest
+
+# Runner/reflector Jobs must run the same transformed image as their spawner. An overlay
+# that retags the image must repeat this block (it runs after the base's replacements;
+# scripts/e2e/kustomization.yaml does). `kustomize edit set image` here needs nothing else.
+replacements:
+  - source:
+      kind: Deployment
+      name: symphony-daemon
+      fieldPath: spec.template.spec.containers.[name=daemon].image
+    targets:
+      - select:
+          kind: Deployment
+          name: symphony-daemon
+        fieldPaths:
+          - spec.template.spec.containers.[name=daemon].env.[name=SYMPHONY_ORCHESTRATOR_IMAGE].value
+      - select:
+          kind: CronJob
+          name: symphony-nightly-sweep
+        fieldPaths:
+          - spec.jobTemplate.spec.template.spec.containers.[name=sweep].env.[name=SYMPHONY_ORCHESTRATOR_IMAGE].value

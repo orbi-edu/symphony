@@ -1,0 +1,180 @@
+# The vendor mocks of the kind setup certification, in their own namespace (test only).
+# scripts/e2e_kind_setup.sh makes the Secret `mock-tokens` (the MCP and Seiji bearer tokens)
+# before it applies this. Each mock validates every request against the vendored specification
+# (scripts/mocks/specs). Their control routes (/_mock, /_control) are reached through
+# `kubectl port-forward` only.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: symphony-e2e-mocks
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: linear
+  namespace: symphony-e2e-mocks
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {mock: linear}
+  template:
+    metadata:
+      labels: {mock: linear}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, fsGroup: 10001}
+      containers:
+        - name: mock
+          image: symphony-e2e-mocks:e2e
+          command: ["python", "-m", "scripts.mocks.linear", "--host", "0.0.0.0", "--port", "4100",
+                    "--state", "/data", "--team", "ENG:Engineering",
+                    "--public-url", "http://linear.symphony-e2e-mocks.svc:4100"]
+          ports: [{containerPort: 4100}]
+          readinessProbe: {httpGet: {path: /_mock/health, port: 4100}, periodSeconds: 2}
+          volumeMounts: [{name: data, mountPath: /data}]
+      volumes: [{name: data, emptyDir: {}}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: linear
+  namespace: symphony-e2e-mocks
+spec:
+  selector: {mock: linear}
+  ports: [{port: 4100, targetPort: 4100}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: github
+  namespace: symphony-e2e-mocks
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {mock: github}
+  template:
+    metadata:
+      labels: {mock: github}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, fsGroup: 10001}
+      containers:
+        - name: mock
+          image: symphony-e2e-mocks:e2e
+          command: ["python", "-m", "scripts.mocks.github", "--host", "0.0.0.0", "--port", "4200",
+                    "--state", "/data", "--public-url", "http://github.symphony-e2e-mocks.svc:4200"]
+          ports: [{containerPort: 4200}]
+          readinessProbe: {httpGet: {path: /_mock/health, port: 4200}, periodSeconds: 2}
+          volumeMounts: [{name: data, mountPath: /data}]
+      volumes: [{name: data, emptyDir: {}}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: github
+  namespace: symphony-e2e-mocks
+spec:
+  selector: {mock: github}
+  ports: [{port: 4200, targetPort: 4200}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: slack
+  namespace: symphony-e2e-mocks
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {mock: slack}
+  template:
+    metadata:
+      labels: {mock: slack}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, fsGroup: 10001}
+      containers:
+        - name: mock
+          image: symphony-e2e-mocks:e2e
+          command: ["python", "-m", "scripts.mocks.slack", "--host", "0.0.0.0", "--port", "4300",
+                    "--state", "/data"]
+          ports: [{containerPort: 4300}]
+          readinessProbe: {httpGet: {path: /_mock/state, port: 4300}, periodSeconds: 2}
+          volumeMounts: [{name: data, mountPath: /data}]
+      volumes: [{name: data, emptyDir: {}}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: slack
+  namespace: symphony-e2e-mocks
+spec:
+  selector: {mock: slack}
+  ports: [{port: 4300, targetPort: 4300}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp
+  namespace: symphony-e2e-mocks
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {mock: mcp}
+  template:
+    metadata:
+      labels: {mock: mcp}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 10001}
+      containers:
+        - name: mock
+          image: symphony-e2e-mocks:e2e
+          command: ["python", "-m", "scripts.mocks.mcp", "--host", "0.0.0.0", "--port", "4600"]
+          env:
+            - name: MCP_MOCK_TOKEN
+              valueFrom: {secretKeyRef: {name: mock-tokens, key: MCP_MOCK_TOKEN}}
+          ports: [{containerPort: 4600}]
+          readinessProbe: {httpGet: {path: /_control/requests, port: 4600}, periodSeconds: 2}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp
+  namespace: symphony-e2e-mocks
+spec:
+  selector: {mock: mcp}
+  ports: [{port: 4600, targetPort: 4600}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: seiji
+  namespace: symphony-e2e-mocks
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {mock: seiji}
+  template:
+    metadata:
+      labels: {mock: seiji}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 10001}
+      containers:
+        - name: mock
+          image: symphony-e2e-mocks:e2e
+          # Seiji's listen.publicUrl is another origin than the API root, so the gateway must
+          # rewrite its links (rewrite_origins), as in the mocked scenario 13.
+          command: ["python", "-m", "scripts.mocks.seiji", "--host", "0.0.0.0", "--port", "4780",
+                    "--public-url", "https://seiji.e2e.invalid",
+                    "--allowed-host", "seiji.symphony-e2e-mocks.svc", "--allowed-host", "localhost",
+                    "--allowed-host", "127.0.0.1"]
+          env:
+            - name: SEIJI_MOCK_TOKEN
+              valueFrom: {secretKeyRef: {name: mock-tokens, key: SEIJI_MOCK_TOKEN}}
+          ports: [{containerPort: 4780}]
+          readinessProbe: {httpGet: {path: /healthz, port: 4780}, periodSeconds: 2}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: seiji
+  namespace: symphony-e2e-mocks
+spec:
+  selector: {mock: seiji}
+  ports: [{port: 4780, targetPort: 4780}]

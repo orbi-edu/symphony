@@ -1,0 +1,30 @@
+---
+# WORKFLOW of the local-mode certification (scripts/e2e_local.sh). `@VAR@` placeholders are
+# filled by run.py: the omp binary, the model and the throwaway git repository.
+tracker:
+  kind: memory
+polling:
+  interval_ms: 15000
+hooks:
+  after_create: |
+    set -eu
+    git clone -q "@REPO@" .
+  timeout_ms: 60000
+agent:
+  max_concurrent_agents: 1
+  max_turns: 1
+  input_timeout_ms: 60000
+engine:
+  command: "@OMP@ --mode rpc"
+  provider: "@PROVIDER@"
+  model: "@MODEL@"
+  thinking: low
+  read_timeout_ms: 15000
+---
+You are working on ticket {{ issue.identifier }}: {{ issue.title }}
+
+{{ issue.description }}
+
+Work only inside the current directory, one shell command per step, and do not commit, push or
+call linear_graphql. If a human message arrives while you work, do what it asks as well. When
+everything is done, reply with a one-line summary.

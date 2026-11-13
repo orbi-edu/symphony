@@ -1,0 +1,94 @@
+# Control API: people (CLI, Tern plugin, `symphony acp`, MCP) and webhooks. Bearer
+# `sym_` tokens authorize every request (docs/api.md); NetworkPolicy is an outer fence.
+# Exposure beyond the cluster comes later through deploy/cloudflared/ (or an ingress);
+# until then use `kubectl port-forward svc/symphony-api 8080`.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: symphony-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: symphony, component: api}
+  template:
+    metadata:
+      labels: {app: symphony, component: api}
+    spec:
+      serviceAccountName: symphony-api
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: api
+          image: symphony-orchestrator
+          command: ["python", "-m", "symphony.entry.serve", "api"]
+          env:
+            - name: REDIS_URL
+              value: redis://symphony-redis:6379/0
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef: {fieldPath: metadata.namespace}
+            - name: SYMPHONY_SECRET_PROVIDERS
+              value: symphony-providers
+          envFrom:
+            # The only Secret the API needs to start: SYMPHONY_BOOTSTRAP_TOKEN (first admin),
+            # plus GITHUB_WEBHOOK_SECRET once setup generates it.
+            - secretRef: {name: symphony-api}
+            # Integrations, written by the setup flow (PUT /v1/setup/*); absent until then.
+            # LINEAR_API_KEY + LINEAR_WEBHOOK_SECRET (webhook signature, issue reads)
+            - secretRef: {name: linear-api-key, optional: true}
+            - secretRef: {name: github-app, optional: true}
+            - secretRef: {name: symphony-slack, optional: true}
+            - secretRef: {name: symphony-discord, optional: true}
+            # The S3 backup target's access keys (`symphony backup run`, list, restore)
+            - secretRef: {name: symphony-backup, optional: true}
+            # SYMPHONY_PUBLIC_URL: the base of the webhook URLs setup hands out
+            - configMapRef: {name: symphony-api-config}
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: workflow
+              mountPath: /workflow
+              readOnly: true
+          resources:
+            requests: {cpu: 100m, memory: 192Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 20
+      volumes:
+        - name: workflow
+          # Optional: a fresh install starts before any WORKFLOW.md is published.
+          configMap: {name: symphony-workflow, optional: true}
+---
+# Plain (non-secret) API settings. Set SYMPHONY_PUBLIC_URL to the URL people and webhooks
+# reach the API at (e.g. the Cloudflare Tunnel hostname, https://symphony.example.com); the
+# setup flow builds the Linear/GitHub webhook URLs from it. Empty = the base URL of the
+# request that asked (fine behind `kubectl port-forward`, wrong behind a proxy).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: symphony-api-config
+data:
+  SYMPHONY_PUBLIC_URL: ""
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: symphony-api
+spec:
+  selector: {app: symphony, component: api}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

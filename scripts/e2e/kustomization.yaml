@@ -1,0 +1,44 @@
+# Local kind cluster (scripts/e2e_kind.sh): images loaded with `kind load`, tag `e2e`
+# so the kubelet never tries to pull them (IfNotPresent).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../deploy
+
+images:
+  - name: symphony-orchestrator
+    newTag: e2e
+
+patches:
+  # The merger needs a real GitHub App and repository; e2e_kind.sh scales it up when
+  # E2E_MERGER_REPO is given (with real secrets).
+  - target: {kind: Deployment, name: symphony-merger}
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 0
+  - target: {kind: PersistentVolumeClaim, name: symphony-merger}
+    patch: |
+      - op: replace
+        path: /spec/resources/requests/storage
+        value: 2Gi
+
+# The base's replacements ran before this overlay retagged the image: repeat them so the
+# runner/reflector Jobs the daemon and the sweep spawn run the same `e2e` image.
+replacements:
+  - source:
+      kind: Deployment
+      name: symphony-daemon
+      fieldPath: spec.template.spec.containers.[name=daemon].image
+    targets:
+      - select:
+          kind: Deployment
+          name: symphony-daemon
+        fieldPaths:
+          - spec.template.spec.containers.[name=daemon].env.[name=SYMPHONY_ORCHESTRATOR_IMAGE].value
+      - select:
+          kind: CronJob
+          name: symphony-nightly-sweep
+        fieldPaths:
+          - spec.jobTemplate.spec.template.spec.containers.[name=sweep].env.[name=SYMPHONY_ORCHESTRATOR_IMAGE].value

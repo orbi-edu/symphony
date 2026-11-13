@@ -1,0 +1,63 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_PYTHON: "3.12"
+
+jobs:
+  lint:
+    name: lint, scripts, manifests, links
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+      - name: uv sync
+        run: uv sync --frozen --extra dev
+      - name: ruff
+        run: uv run ruff check .
+      - name: bash -n on the scripts
+        run: git ls-files -z '*.sh' | xargs -0 -n 1 bash -n
+      - name: kustomize render
+        run: |
+          kubectl kustomize deploy/ > /dev/null
+          kubectl kustomize deploy/cloudflared/ > /dev/null
+          kubectl kustomize scripts/e2e/ > /dev/null
+      - name: docs link check
+        run: python3 scripts/check_links.py
+
+  test:
+    name: pytest
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+      # The redis_client fixture starts its own disposable redis-server on a Unix socket; it
+      # never connects to a shared server, so CI installs the binary, not a service container.
+      - name: redis-server
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends redis-server
+          redis-server --version
+      - name: uv sync
+        run: uv sync --frozen --extra dev
+      # Tern, the real omp, Seiji, the mocked end-to-end run and real models skip by
+      # themselves here: no `tern` binary, and SYMPHONY_REAL_OMP, SYMPHONY_SEIJI_BIN and
+      # SYMPHONY_E2E_MOCKED are unset.
+      - name: pytest
+        run: uv run pytest -rs

@@ -1,0 +1,14 @@
+# LATER (not part of deploy/): external access to symphony-api through a Cloudflare
+# Tunnel. Apply on its own once the tunnel exists:
+#   kubectl -n symphony create secret generic cloudflared-token --from-literal=TUNNEL_TOKEN=<token>
+#   kubectl apply -k deploy/cloudflared
+# In the Cloudflare dashboard, route the public hostname to
+#   http://symphony-api.symphony.svc.cluster.local:8080
+# The tunnel is outbound-only (no LoadBalancer, no open port). See docs/install.md.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: symphony
+
+resources:
+  - cloudflared.yaml

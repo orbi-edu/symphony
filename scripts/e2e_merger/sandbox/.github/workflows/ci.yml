@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review] # no "labeled": a label edit must not cancel the train's run
+  push:
+    branches: [main]
+
+concurrency:
+  # PR: one group per PR, a separate one while the merge train owns the head (label train-ci).
+  # main: one group per commit, so no main run is cancelled (the main CI watch needs each result).
+  group: >-
+    ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}${{
+    contains(github.event.pull_request.labels.*.name, 'train-ci') && '-train' || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet pytest
+      - run: python -m pytest -q

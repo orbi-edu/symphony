@@ -1,0 +1,40 @@
+# Cloudflare Tunnel connector: dials out to Cloudflare and forwards the public hostname
+# to symphony-api. It holds only the tunnel token and needs no Kubernetes API access.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: symphony-cloudflared
+spec:
+  replicas: 2 # two connectors: a restart never drops the hostname
+  selector:
+    matchLabels: {app: symphony, component: cloudflared}
+  template:
+    metadata:
+      labels: {app: symphony, component: cloudflared}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: cloudflared
+          image: cloudflare/cloudflared:2026.11.0
+          args: ["tunnel", "--no-autoupdate", "--metrics", "0.0.0.0:2000", "run"]
+          env:
+            - name: TUNNEL_TOKEN
+              valueFrom:
+                secretKeyRef: {name: cloudflared-token, key: TUNNEL_TOKEN}
+          ports:
+            - name: metrics
+              containerPort: 2000
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          livenessProbe:
+            httpGet: {path: /ready, port: metrics}
+            periodSeconds: 20
+            failureThreshold: 3

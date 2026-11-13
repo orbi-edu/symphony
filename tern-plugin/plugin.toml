@@ -1,0 +1,27 @@
+schema = 1
+id = "symphony"
+name = "Symphony"
+version = "0.1.0"
+description = "Dashboard, live agent sessions, merger and team administration for Symphony, inside Tern."
+icon = "broadcast"
+host = "host.luau"
+window = "window.luau"
+# Tern 0.8.3 ignores a block's `font = "sans"`: this sheet gives Symphony's regions the UI face.
+styles = ["styles.css"]
+
+[[blocks]]
+id = "app"
+title = "Symphony"
+icon = "broadcast"
+
+[[blocks]]
+id = "signin"
+title = "Symphony: Sign in"
+icon = "log-in"
+palette = false
+
+[[blocks]]
+id = "setup"
+title = "Symphony: Setup"
+icon = "list-checks"
+palette = false

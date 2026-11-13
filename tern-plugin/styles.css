@@ -1,0 +1,16 @@
+/*
+ * The `font: "sans"` the blocks declare, for Tern 0.8.3: that release predates the block `font`
+ * field (it adds no `sf-sans` class), so this sheet gives Symphony's own regions the UI face the
+ * way `sf-sans` does in later releases. Machine strings stay mono through the span tokens and
+ * the kinds that are mono by nature. Scoped to this plugin's surfaces; no colors, no cursor.
+ */
+.sf-region[data-surface^="plugin.symphony."] {
+	font-family: var(--sans);
+	font-size: 13px;
+	line-height: 18px;
+}
+
+.sf-region[data-surface^="plugin.symphony."] :is(.sf-t-mono, .sf-t-key, .sf-t-code, .sf-t-path, .sf-t-num, .sf-code, .sf-input) {
+	font-family: var(--mono);
+	font-size: 12.5px;
+}

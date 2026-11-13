@@ -1,0 +1,52 @@
+# Nightly safety net: retrospectives (at-least-once) + metrics retention. It spawns
+# reflector Jobs like the daemon does, so it runs as symphony-daemon.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: symphony-nightly-sweep
+spec:
+  schedule: "30 3 * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels: {app: symphony, component: sweep}
+        spec:
+          restartPolicy: Never
+          serviceAccountName: symphony-daemon
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: sweep
+              image: symphony-orchestrator
+              command: ["python", "-m", "symphony.entry.sweep"]
+              env:
+                - name: REDIS_URL
+                  value: redis://symphony-redis:6379/0
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef: {fieldPath: metadata.namespace}
+                # Kept equal to this container's image by kustomization.yaml.
+                - name: SYMPHONY_ORCHESTRATOR_IMAGE
+                  value: symphony-orchestrator
+              envFrom:
+                - secretRef: {name: linear-api-key, optional: true}
+                - secretRef: {name: github-app, optional: true}
+                - secretRef: {name: symphony-slack, optional: true}
+                - secretRef: {name: symphony-discord, optional: true}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: {drop: ["ALL"]}
+              volumeMounts:
+                - name: workflow
+                  mountPath: /workflow
+                  readOnly: true
+          volumes:
+            - name: workflow
+              configMap: {name: symphony-workflow, optional: true}

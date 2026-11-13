@@ -1,0 +1,18 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+node_modules/
+
+# real secrets never enter the repo — secrets.example.yaml is the template
+deploy/secrets.yaml
+*.pem
+
+.DS_Store
+
+# Maintainer-only material (exploration spikes, old specs, raw certification notes); kept out
+# of the public repository.
+internal/

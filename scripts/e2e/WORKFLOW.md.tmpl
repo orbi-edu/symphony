@@ -1,0 +1,56 @@
+---
+# WORKFLOW of the kind certification (scripts/e2e_kind.sh + scripts/e2e/certify.py).
+# `@VAR@` placeholders are filled by the scripts. The board is the memory tracker seeded from
+# `tracker.issues`: every pod mounts this same file, so republishing it moves the ticket.
+# There is no GitHub App and no Linear: the hook builds a local git repository.
+tracker:
+  kind: memory
+  issues: @ISSUES@
+polling:
+  interval_ms: 5000
+workspace:
+  root: /workspace
+hooks:
+  after_create: |
+    set -eu
+    mkdir -p /workspace && cd /workspace
+    git init -q -b main .
+    git config user.name "Symphony E2E"
+    git config user.email e2e@example.invalid
+    printf '# kind e2e\n' > README.md
+    git add README.md && git commit -q -m init
+    # Never fetched: it records which repository this workspace is for, so the next
+    # attempt reuses the workspace instead of treating it as another repository's.
+    git remote add origin "${GITHUB_SERVER_URL:-https://github.com}/${SYMPHONY_TARGET_REPO}.git"
+  before_run: |
+    cd /workspace && git status --short
+  timeout_ms: 60000
+agent:
+  max_concurrent_agents: 1
+  max_turns: 1
+  input_timeout_ms: 60000
+engine:
+  command: omp --mode rpc
+  provider: "@PROVIDER@"
+  model: "@MODEL@"
+  thinking: low
+  read_timeout_ms: 15000
+kubernetes:
+  agent_runtime: node
+  agent_images:
+    node: symphony-agent:node
+  sandbox: {cpu: 1, memory_mib: 2048, timeout_s: 3600, idle_timeout_s: 1800}
+  runner: {timeout_s: 1800, wallclock_guard_s: 1500}
+  session_volume_size: 1Gi
+  learning:
+    enabled: false   # retrospectives open a learnings PR: they need the GitHub App
+telemetry:
+  enabled: true
+---
+You are working on ticket {{ issue.identifier }}: {{ issue.title }}
+
+{{ issue.description }}
+
+Work only inside /workspace, one shell command per step, and do not commit, push or call
+linear_graphql. If a human message arrives while you work, do what it asks as well. When
+everything is done, reply with a one-line summary.

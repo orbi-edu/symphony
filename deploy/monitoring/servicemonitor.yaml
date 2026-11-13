@@ -1,0 +1,18 @@
+# Prometheus Operator: scrape every Symphony metrics Service every 30 s. The `component`
+# label of the Service becomes a target label, so `up{component="daemon"}` works in alerts.
+# Your Prometheus must select this ServiceMonitor (its serviceMonitorSelector and
+# serviceMonitorNamespaceSelector); add the labels it expects in an overlay.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: symphony
+  labels: {app: symphony}
+spec:
+  selector:
+    matchLabels: {symphony.dev/metrics: "true"}
+  targetLabels: [component]
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s

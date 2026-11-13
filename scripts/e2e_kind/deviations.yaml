@@ -1,0 +1,64 @@
+# Test-only deviations of the kind setup certification (docs/certification.md, Deviations).
+#
+# D2: the vendor endpoints (internals §14) point at the mocks in the namespace
+# symphony-e2e-mocks. Production keeps the defaults (api.linear.app, api.github.com, github.com,
+# slack.com). No credential is here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: e2e-endpoints
+data:
+  LINEAR_API_URL: http://linear.symphony-e2e-mocks.svc:4100/graphql
+  GITHUB_API_URL: http://github.symphony-e2e-mocks.svc:4200
+  GITHUB_GRAPHQL_URL: http://github.symphony-e2e-mocks.svc:4200/graphql
+  GITHUB_SERVER_URL: http://github.symphony-e2e-mocks.svc:4200
+  SLACK_API_URL: http://slack.symphony-e2e-mocks.svc:4300/api
+---
+# D3a: the mocks have private pod IPs, which deploy/networkpolicy.yaml closes to workspaces.
+# This policy opens one path: a workspace may clone from and push to the GitHub mock (git
+# smart HTTP). In production, github.com is on the public internet, which stays open.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: e2e-workspace-to-github-mock
+spec:
+  podSelector:
+    matchLabels: {app: symphony, component: workspace}
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: symphony-e2e-mocks}
+          podSelector:
+            matchLabels: {mock: github}
+      ports:
+        - protocol: TCP
+          port: 4200
+---
+# D3b: the same for the gateway: it may reach the MCP mock and the Seiji mock. In production,
+# remote MCP servers are on the public internet, which stays open to the gateway.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: e2e-gateway-to-mcp-mocks
+spec:
+  podSelector:
+    matchLabels: {app: symphony, component: gateway}
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: symphony-e2e-mocks}
+          podSelector:
+            matchLabels: {mock: mcp}
+      ports:
+        - protocol: TCP
+          port: 4600
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: symphony-e2e-mocks}
+          podSelector:
+            matchLabels: {mock: seiji}
+      ports:
+        - protocol: TCP
+          port: 4780

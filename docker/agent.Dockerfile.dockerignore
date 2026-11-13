@@ -1,0 +1,3 @@
+# Build context = repository root; only what the Dockerfile COPYs is sent.
+**
+!docker/install-omp.sh

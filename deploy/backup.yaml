@@ -1,0 +1,59 @@
+# Nightly backup and archive of the namespace's Redis state (docs/backup.md).
+#
+# Each run archives the ended sessions and the audit entries that Redis will drop, writes a
+# backup, and keeps the newest `backup.keep` ones. Until WORKFLOW.md sets `backup.s3` (or
+# `backup.dir`) it idles: it logs `backup_not_configured` with the reason, `symphony backup
+# status` shows it, and the Job succeeds. The S3 access keys come from the symphony-backup
+# Secret (deploy/integrations.yaml); WORKFLOW.md holds only the endpoint, bucket, prefix and
+# region. It needs no Kubernetes API access, so its ServiceAccount mounts no token.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: symphony-backup
+spec:
+  schedule: "15 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels: {app: symphony, component: backup}
+        spec:
+          restartPolicy: Never
+          serviceAccountName: symphony-backup
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: backup
+              image: symphony-orchestrator
+              command: ["python", "-m", "symphony.entry.backup"]
+              env:
+                - name: REDIS_URL
+                  value: redis://symphony-redis:6379/0
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef: {fieldPath: metadata.namespace}
+              envFrom:
+                # SYMPHONY_BACKUP_ACCESS_KEY_ID, SYMPHONY_BACKUP_SECRET_ACCESS_KEY
+                - secretRef: {name: symphony-backup, optional: true}
+              resources:
+                requests: {cpu: 50m, memory: 128Mi}
+                limits: {cpu: "1", memory: 512Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: {drop: ["ALL"]}
+              volumeMounts:
+                - name: workflow
+                  mountPath: /workflow
+                  readOnly: true
+          volumes:
+            - name: workflow
+              configMap: {name: symphony-workflow, optional: true}

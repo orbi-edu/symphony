@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "keys": ["api", "baseUrl", "name", "contextWindow", "reasoning", "input", "cost", "output", "cacheRead", "cacheWrite"],
+  "booleanShapes": [[], [4]],
+  "nodes": [
+    [1, ["text", "image"]],
+    [0, [5, 1, 7, 2, 8, 0.1, 9, 1.25], 0, []],
+    [0, [0, "anthropic-messages", 1, "https://api.acme.test"], 0, []],
+    [0, [2, "Model One", 3, 200000, 5, [0], 6, [1]], 1, [1]],
+    [0, [2, "Model Two", 3, 100000, 5, [0], 6, [1]], 1, [0]],
+    [0, [], 0, []],
+    [0, [0, "openai-responses", 1, "https://z.test", 2, "Zed"], 0, []]
+  ],
+  "compat": [],
+  "providers": [
+    ["zeta", [5], [["z1", [6]]]],
+    ["acme", [2], [["m2", [4]], ["m1", [3]]]],
+    ["codexy", [5], [["c1", [6]]]],
+    ["copiloty", [5], [["p1", [6]]]],
+    ["hosty", [5], [["h1", [6]]]],
+    ["unruled", [5], [["u1", [6]]]]
+  ]
+}

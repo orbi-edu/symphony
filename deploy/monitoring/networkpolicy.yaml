@@ -1,0 +1,23 @@
+# Lets Prometheus reach the health port (8081) of the daemon, the mergers, the assistant and
+# the gateway, from a namespace labeled `symphony.dev/monitoring: "true"` only. Policies add
+# up: this rule opens 8081 next to `symphony-no-ingress` and `symphony-gateway`
+# (deploy/networkpolicy.yaml), and nothing else.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: symphony-metrics
+spec:
+  podSelector:
+    matchLabels: {app: symphony}
+    matchExpressions:
+      - key: component
+        operator: In
+        values: [daemon, merger, assistant, gateway]
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {symphony.dev/monitoring: "true"}
+      ports:
+        - protocol: TCP
+          port: 8081

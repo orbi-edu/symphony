@@ -1,0 +1,72 @@
+# Symphony on kind for the setup certification (scripts/e2e_kind_setup.sh). This is deploy/
+# with the `e2e` image tag and the test-only deviations below. Each deviation is listed in
+# docs/certification.md (Kubernetes setup on kind, Deviations). Nothing here adds a Secret:
+# the operator makes only `symphony-api` and `model-provider`, and setup fills the rest.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: symphony
+
+resources:
+  - ../../deploy
+  # D2 and D3: vendor endpoints at the in-cluster mocks, and the egress paths to them.
+  - deviations.yaml
+
+images:
+  - name: symphony-orchestrator
+    newTag: e2e
+
+patches:
+  # Not a deviation: an operator sets the public URL. The mocks deliver their signed webhooks
+  # to the API Service inside the cluster.
+  - target: {kind: ConfigMap, name: symphony-api-config}
+    patch: |
+      - op: replace
+        path: /data/SYMPHONY_PUBLIC_URL
+        value: http://symphony-api.symphony.svc:8080
+  # D2: every host-side component reads the vendor endpoints from the e2e-endpoints ConfigMap.
+  # The daemon passes them on to the runner Jobs, and the runner to the workspace.
+  - target: {kind: Deployment, name: "symphony-(api|daemon|merger|assistant)"}
+    patch: |
+      - op: add
+        path: /spec/template/spec/containers/0/envFrom/-
+        value: {configMapRef: {name: e2e-endpoints}}
+  - target: {kind: CronJob, name: symphony-nightly-sweep}
+    patch: |
+      - op: add
+        path: /spec/jobTemplate/spec/template/spec/containers/0/envFrom/-
+        value: {configMapRef: {name: e2e-endpoints}}
+  # D4: the mock MCP and Seiji servers speak plain HTTP inside the cluster. Production MCP
+  # servers need https://.
+  - target: {kind: Deployment, name: "symphony-(api|gateway)"}
+    patch: |
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SYMPHONY_MCP_ALLOW_HTTP_HOSTS
+          value: mcp.symphony-e2e-mocks.svc,seiji.symphony-e2e-mocks.svc
+  # kind's local-path volumes: a small merger mirror is enough for the mock repository.
+  - target: {kind: PersistentVolumeClaim, name: symphony-merger}
+    patch: |
+      - op: replace
+        path: /spec/resources/requests/storage
+        value: 2Gi
+
+# The base's replacements ran before this overlay retagged the image: repeat them so the
+# runner and reflector Jobs run the same `e2e` image (as scripts/e2e/kustomization.yaml does).
+replacements:
+  - source:
+      kind: Deployment
+      name: symphony-daemon
+      fieldPath: spec.template.spec.containers.[name=daemon].image
+    targets:
+      - select:
+          kind: Deployment
+          name: symphony-daemon
+        fieldPaths:
+          - spec.template.spec.containers.[name=daemon].env.[name=SYMPHONY_ORCHESTRATOR_IMAGE].value
+      - select:
+          kind: CronJob
+          name: symphony-nightly-sweep
+        fieldPaths:
+          - spec.jobTemplate.spec.template.spec.containers.[name=sweep].env.[name=SYMPHONY_ORCHESTRATOR_IMAGE].value

@@ -1,0 +1,60 @@
+# Empty placeholders the setup flow fills (PUT /v1/setup/*; contracts: first-run setup).
+#
+# They exist from the first `kubectl apply -k deploy/` so that the API can PATCH exactly
+# these names (Kubernetes RBAC cannot scope `create` to a name). They carry no data on
+# purpose: a later `kubectl apply -k deploy/` leaves the values the API wrote alone.
+#
+# Fill them with `symphony setup` (or Tern › Setup). By hand: copy
+# deploy/integrations.example.yaml, fill it in and `kubectl replace -n symphony -f` it,
+# NEVER `kubectl apply`: apply records the values in its last-applied annotation, and the
+# next `kubectl apply -k deploy/` would erase them.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: linear-api-key
+type: Opaque
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: github-app
+type: Opaque
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: symphony-slack
+type: Opaque
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: symphony-discord
+type: Opaque
+---
+# MCP servers for agents (Admin › MCP): `servers.json` and one write-only
+# `headers.<name>.json` per server. The API patches it; runners and mergers read it; the
+# gateway mounts it read-only and adds the stored headers itself.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: symphony-mcp
+type: Opaque
+---
+# The access keys of the backup target `backup.s3` (docs/backup.md):
+# SYMPHONY_BACKUP_ACCESS_KEY_ID and SYMPHONY_BACKUP_SECRET_ACCESS_KEY. The backup CronJob
+# and the API read it. Setup does not write it: fill it by hand with `kubectl replace`
+# (deploy/integrations.example.yaml).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: symphony-backup
+type: Opaque
+---
+# The published WORKFLOW.md. Empty until the setup flow seeds it from the image's
+# /opt/symphony/WORKFLOW.default.md (or scripts/sync_workflow.sh publishes one); after that
+# it changes only through the audited API (PUT /v1/workflow).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: symphony-workflow

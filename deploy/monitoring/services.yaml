@@ -1,0 +1,54 @@
+# One metrics Service per component, on the health port. They are headless: only Prometheus
+# uses their endpoints. Every merger Deployment (one per repository) has `component: merger`,
+# so one Service lists them all.
+apiVersion: v1
+kind: Service
+metadata:
+  name: symphony-daemon-metrics
+  labels: {app: symphony, component: daemon, symphony.dev/metrics: "true"}
+spec:
+  clusterIP: None
+  selector: {app: symphony, component: daemon}
+  ports:
+    - name: metrics
+      port: 8081
+      targetPort: health
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: symphony-merger-metrics
+  labels: {app: symphony, component: merger, symphony.dev/metrics: "true"}
+spec:
+  clusterIP: None
+  selector: {app: symphony, component: merger}
+  ports:
+    - name: metrics
+      port: 8081
+      targetPort: health
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: symphony-assistant-metrics
+  labels: {app: symphony, component: assistant, symphony.dev/metrics: "true"}
+spec:
+  clusterIP: None
+  selector: {app: symphony, component: assistant}
+  ports:
+    - name: metrics
+      port: 8081
+      targetPort: health
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: symphony-gateway-metrics
+  labels: {app: symphony, component: gateway, symphony.dev/metrics: "true"}
+spec:
+  clusterIP: None
+  selector: {app: symphony, component: gateway}
+  ports:
+    - name: metrics
+      port: 8081
+      targetPort: health

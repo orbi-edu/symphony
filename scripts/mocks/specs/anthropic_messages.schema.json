@@ -1,0 +1,604 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://platform.claude.com/docs/en/api/messages",
+  "title": "Anthropic Messages API, transcribed from the vendored reference (see SOURCES.md)",
+  "description": "Anthropic publishes no machine-readable spec at a stable URL; this transcribes anthropic-messages.md.gz (POST /v1/messages body, Message, stream events) and anthropic-beta-messages.md.gz (beta-only body fields). Every name, enum and required field below comes from those pages. Kinds the mock never serves (documents, server tools, citations…) keep their discriminator and documented fields but are not described deeper.",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "required": ["max_tokens", "messages", "model"],
+      "properties": {
+        "max_tokens": {"type": "integer", "minimum": 0},
+        "messages": {"type": "array", "items": {"$ref": "#/$defs/MessageParam"}},
+        "model": {"type": "string", "minLength": 1},
+        "cache_control": {"anyOf": [{"$ref": "#/$defs/CacheControlEphemeral"}, {"type": "null"}]},
+        "container": {"anyOf": [{"$ref": "#/$defs/ContainerParams"}, {"type": "string"}, {"type": "null"}]},
+        "diagnostics": {
+          "anyOf": [
+            {"type": "object", "properties": {"previous_message_id": {"type": ["string", "null"]}}, "additionalProperties": false},
+            {"type": "null"}
+          ]
+        },
+        "inference_geo": {"type": ["string", "null"]},
+        "metadata": {
+          "type": "object",
+          "properties": {"user_id": {"type": ["string", "null"]}},
+          "additionalProperties": false
+        },
+        "output_config": {"$ref": "#/$defs/OutputConfig"},
+        "service_tier": {"enum": ["auto", "standard_only"]},
+        "speed": {"enum": ["standard", "fast", null]},
+        "stop_sequences": {"type": "array", "items": {"type": "string"}},
+        "stream": {"type": "boolean"},
+        "system": {"anyOf": [{"type": "string"}, {"type": "array", "items": {"$ref": "#/$defs/TextBlockParam"}}]},
+        "thinking": {"$ref": "#/$defs/ThinkingConfigParam"},
+        "tool_choice": {"$ref": "#/$defs/ToolChoice"},
+        "tools": {"type": "array", "items": {"$ref": "#/$defs/ToolUnion"}}
+      },
+      "additionalProperties": false
+    },
+    "sampling_properties": {
+      "description": "Accepted up to anthropic-version 2023-06-01; removed in 2026-10-21 (anthropic-versioning.md).",
+      "temperature": {"type": "number", "minimum": 0, "maximum": 1},
+      "top_k": {"type": "integer", "minimum": 0},
+      "top_p": {"type": "number", "minimum": 0, "maximum": 1}
+    },
+    "beta_properties": {
+      "description": "Top-level body fields only the beta reference documents; accepted when the request sends an anthropic-beta header.",
+      "compaction": {"type": ["object", "null"]},
+      "context_management": {"anyOf": [{"$ref": "#/$defs/BetaContextManagementConfig"}, {"type": "null"}]},
+      "fallback_credit_token": {"type": ["string", "object", "null"]},
+      "fallbacks": {"type": ["object", "array", "null"]},
+      "mcp_servers": {"type": "array", "items": {"type": "object", "required": ["name", "type", "url"]}},
+      "thread": {"type": ["object", "null"]},
+      "output_format": {"anyOf": [{"$ref": "#/$defs/JSONOutputFormat"}, {"type": "null"}]}
+    },
+    "CacheControlEphemeral": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {"type": {"const": "ephemeral"}, "ttl": {"enum": ["5m", "1h"]}},
+      "additionalProperties": false
+    },
+    "ContainerParams": {
+      "type": "object",
+      "properties": {
+        "id": {"type": ["string", "null"]},
+        "skills": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "object",
+            "required": ["skill_id", "type"],
+            "properties": {"type": {"enum": ["anthropic", "custom"]}, "skill_id": {"type": "string"}, "version": {"type": "string"}},
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "JSONOutputFormat": {
+      "type": "object",
+      "required": ["schema", "type"],
+      "properties": {"type": {"const": "json_schema"}, "schema": {"type": "object"}},
+      "additionalProperties": false
+    },
+    "OutputConfig": {
+      "type": "object",
+      "properties": {
+        "effort": {"enum": ["low", "medium", "high", "xhigh", "max", null]},
+        "format": {"anyOf": [{"$ref": "#/$defs/JSONOutputFormat"}, {"type": "null"}]}
+      },
+      "additionalProperties": false
+    },
+    "ThinkingConfigParam": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "budget_tokens"],
+          "properties": {
+            "type": {"const": "enabled"},
+            "budget_tokens": {"type": "integer", "minimum": 1024},
+            "display": {"enum": ["summarized", "omitted", "updates", null]}
+          },
+          "additionalProperties": false
+        },
+        {"type": "object", "required": ["type"], "properties": {"type": {"const": "disabled"}}, "additionalProperties": false},
+        {"type": "object", "required": ["type"], "properties": {"type": {"const": "between_tools"}}, "additionalProperties": false},
+        {
+          "type": "object",
+          "required": ["type"],
+          "properties": {"type": {"const": "adaptive"}, "display": {"enum": ["summarized", "omitted", "updates", null]}},
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ToolChoice": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type"],
+          "properties": {"type": {"const": "auto"}, "disable_parallel_tool_use": {"type": "boolean"}},
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["type"],
+          "properties": {"type": {"const": "any"}, "disable_parallel_tool_use": {"type": "boolean"}},
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["type", "name"],
+          "properties": {"type": {"const": "tool"}, "name": {"type": "string"}, "disable_parallel_tool_use": {"type": "boolean"}},
+          "additionalProperties": false
+        },
+        {"type": "object", "required": ["type"], "properties": {"type": {"const": "none"}}, "additionalProperties": false}
+      ]
+    },
+    "ToolUnion": {
+      "anyOf": [
+        {"$ref": "#/$defs/Tool"},
+        {
+          "description": "Server and Anthropic-defined tools (bash_20250124, web_search_20250305, …): a dated `type` plus `name`.",
+          "type": "object",
+          "required": ["type", "name"],
+          "properties": {"type": {"type": "string", "pattern": "^[a-z_]+_[0-9]{8}$"}, "name": {"type": "string"}}
+        }
+      ]
+    },
+    "Tool": {
+      "type": "object",
+      "required": ["input_schema", "name"],
+      "properties": {
+        "type": {"enum": ["custom", null]},
+        "input_schema": {
+          "type": "object",
+          "required": ["type"],
+          "properties": {
+            "type": {"const": "object"},
+            "properties": {"type": ["object", "null"]},
+            "required": {"type": ["array", "null"], "items": {"type": "string"}}
+          }
+        },
+        "name": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_-]{1,128}$"},
+        "allowed_callers": {
+          "type": "array",
+          "items": {"enum": ["direct", "code_execution_20250825", "code_execution_20260120", "code_execution_20260521"]}
+        },
+        "cache_control": {"anyOf": [{"$ref": "#/$defs/CacheControlEphemeral"}, {"type": "null"}]},
+        "defer_loading": {"type": "boolean"},
+        "description": {"type": "string"},
+        "eager_input_streaming": {"type": ["boolean", "null"]},
+        "input_examples": {"type": "array", "items": {"type": "object"}},
+        "strict": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "MessageParam": {
+      "type": "object",
+      "required": ["content", "role"],
+      "properties": {
+        "role": {"enum": ["user", "assistant", "system"]},
+        "content": {"$ref": "#/$defs/MessageContentParam"}
+      },
+      "additionalProperties": false
+    },
+    "MessageContentParam": {
+      "anyOf": [{"type": "string"}, {"type": "array", "items": {"$ref": "#/$defs/ContentBlockParam"}}]
+    },
+    "ContentBlockParam": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "enum": [
+            "text", "image", "document", "search_result", "thinking", "redacted_thinking", "tool_use",
+            "tool_result", "server_tool_use", "web_search_tool_result", "web_fetch_tool_result",
+            "code_execution_tool_result", "bash_code_execution_tool_result",
+            "text_editor_code_execution_tool_result", "tool_search_tool_result", "container_upload"
+          ]
+        }
+      },
+      "allOf": [
+        {"if": {"properties": {"type": {"const": "text"}}}, "then": {"$ref": "#/$defs/TextBlockParam"}},
+        {"if": {"properties": {"type": {"const": "image"}}}, "then": {"$ref": "#/$defs/ImageBlockParam"}},
+        {"if": {"properties": {"type": {"const": "thinking"}}}, "then": {"$ref": "#/$defs/ThinkingBlockParam"}},
+        {"if": {"properties": {"type": {"const": "redacted_thinking"}}}, "then": {"$ref": "#/$defs/RedactedThinkingBlockParam"}},
+        {"if": {"properties": {"type": {"const": "tool_use"}}}, "then": {"$ref": "#/$defs/ToolUseBlockParam"}},
+        {"if": {"properties": {"type": {"const": "tool_result"}}}, "then": {"$ref": "#/$defs/ToolResultBlockParam"}}
+      ]
+    },
+    "TextBlockParam": {
+      "type": "object",
+      "required": ["text", "type"],
+      "properties": {
+        "type": {"const": "text"},
+        "text": {"type": "string"},
+        "cache_control": {"anyOf": [{"$ref": "#/$defs/CacheControlEphemeral"}, {"type": "null"}]},
+        "citations": {"type": ["array", "null"], "items": {"type": "object", "required": ["type", "cited_text"]}}
+      },
+      "additionalProperties": false
+    },
+    "ImageBlockParam": {
+      "type": "object",
+      "required": ["source", "type"],
+      "properties": {
+        "type": {"const": "image"},
+        "source": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["data", "media_type", "type"],
+              "properties": {
+                "type": {"const": "base64"},
+                "data": {"type": "string"},
+                "media_type": {"enum": ["image/jpeg", "image/png", "image/gif", "image/webp"]}
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": ["type", "url"],
+              "properties": {"type": {"const": "url"}, "url": {"type": "string"}},
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": ["file_id", "type"],
+              "properties": {"type": {"const": "file"}, "file_id": {"type": "string"}},
+              "additionalProperties": false
+            }
+          ]
+        },
+        "cache_control": {"anyOf": [{"$ref": "#/$defs/CacheControlEphemeral"}, {"type": "null"}]},
+        "transformations": {
+          "type": ["object", "null"],
+          "properties": {"oversized_image": {"enum": ["downsize", "error"]}},
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "ThinkingBlockParam": {
+      "type": "object",
+      "required": ["signature", "thinking", "type"],
+      "properties": {"type": {"const": "thinking"}, "signature": {"type": "string"}, "thinking": {"type": "string"}},
+      "additionalProperties": false
+    },
+    "RedactedThinkingBlockParam": {
+      "type": "object",
+      "required": ["data", "type"],
+      "properties": {"type": {"const": "redacted_thinking"}, "data": {"type": "string"}},
+      "additionalProperties": false
+    },
+    "ToolUseBlockParam": {
+      "type": "object",
+      "required": ["id", "input", "name", "type"],
+      "properties": {
+        "type": {"const": "tool_use"},
+        "id": {"type": "string"},
+        "input": {"type": "object"},
+        "name": {"type": "string"},
+        "cache_control": {"anyOf": [{"$ref": "#/$defs/CacheControlEphemeral"}, {"type": "null"}]},
+        "caller": {
+          "type": "object",
+          "required": ["type"],
+          "properties": {"type": {"enum": ["direct", "code_execution_20250825", "code_execution_20260120"]}, "tool_id": {"type": "string"}},
+          "additionalProperties": false
+        },
+        "toolset_name": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "ToolResultBlockParam": {
+      "type": "object",
+      "required": ["tool_use_id", "type"],
+      "properties": {
+        "type": {"const": "tool_result"},
+        "tool_use_id": {"type": "string"},
+        "cache_control": {"anyOf": [{"$ref": "#/$defs/CacheControlEphemeral"}, {"type": "null"}]},
+        "content": {
+          "anyOf": [
+            {"type": "string"},
+            {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["type"],
+                "properties": {"type": {"enum": ["text", "image", "search_result", "document", "tool_reference", "browser_state"]}},
+                "allOf": [
+                  {"if": {"properties": {"type": {"const": "text"}}}, "then": {"$ref": "#/$defs/TextBlockParam"}},
+                  {"if": {"properties": {"type": {"const": "image"}}}, "then": {"$ref": "#/$defs/ImageBlockParam"}}
+                ]
+              }
+            }
+          ]
+        },
+        "is_error": {"type": "boolean"},
+        "toolset_name": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "BetaContextManagementConfig": {
+      "type": "object",
+      "properties": {
+        "edits": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": ["type"],
+                "properties": {
+                  "type": {"const": "clear_tool_uses_20250919"},
+                  "clear_at_least": {"type": ["object", "null"]},
+                  "clear_tool_inputs": {"type": ["boolean", "array", "null"]},
+                  "exclude_tools": {"type": ["array", "null"]},
+                  "keep": {"type": "object"},
+                  "trigger": {"type": "object"}
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": ["type"],
+                "properties": {
+                  "type": {"const": "clear_thinking_20251015"},
+                  "keep": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "required": ["type", "value"],
+                        "properties": {"type": {"const": "thinking_turns"}, "value": {"type": "integer"}},
+                        "additionalProperties": false
+                      },
+                      {"type": "object", "required": ["type"], "properties": {"type": {"const": "all"}}, "additionalProperties": false},
+                      {"const": "all"}
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": ["type"],
+                "properties": {
+                  "type": {"const": "compact_20260112"},
+                  "instructions": {"type": ["string", "null"]},
+                  "pause_after_compaction": {"type": "boolean"},
+                  "trigger": {"type": ["object", "null"]}
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "Usage": {
+      "type": "object",
+      "required": ["input_tokens", "output_tokens"],
+      "properties": {
+        "cache_creation": {
+          "type": ["object", "null"],
+          "required": ["ephemeral_1h_input_tokens", "ephemeral_5m_input_tokens"],
+          "properties": {"ephemeral_1h_input_tokens": {"type": "integer"}, "ephemeral_5m_input_tokens": {"type": "integer"}}
+        },
+        "cache_creation_input_tokens": {"type": ["integer", "null"]},
+        "cache_read_input_tokens": {"type": ["integer", "null"]},
+        "inference_geo": {"type": ["string", "null"]},
+        "input_tokens": {"type": "integer"},
+        "output_tokens": {"type": "integer"},
+        "output_tokens_details": {"type": ["object", "null"]},
+        "server_tool_use": {"type": ["object", "null"]},
+        "service_tier": {"enum": ["standard", "priority", "batch", null]},
+        "speed": {"enum": ["standard", "fast", null]}
+      },
+      "additionalProperties": false
+    },
+    "MessageDeltaUsage": {
+      "type": "object",
+      "required": ["output_tokens"],
+      "properties": {
+        "cache_creation_input_tokens": {"type": ["integer", "null"]},
+        "cache_read_input_tokens": {"type": ["integer", "null"]},
+        "input_tokens": {"type": ["integer", "null"]},
+        "output_tokens": {"type": "integer"},
+        "output_tokens_details": {"type": ["object", "null"]},
+        "server_tool_use": {"type": ["object", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "StopReason": {"enum": ["end_turn", "max_tokens", "stop_sequence", "tool_use", "pause_turn", "refusal", "model_context_window_exceeded", null]},
+    "ContentBlock": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["citations", "text", "type"],
+          "properties": {"type": {"const": "text"}, "text": {"type": "string"}, "citations": {"type": ["array", "null"]}},
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["signature", "thinking", "type"],
+          "properties": {"type": {"const": "thinking"}, "signature": {"type": "string"}, "thinking": {"type": "string"}},
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["id", "input", "name", "type"],
+          "properties": {
+            "type": {"const": "tool_use"},
+            "id": {"type": "string"},
+            "input": {"type": "object"},
+            "name": {"type": "string"},
+            "caller": {"type": "object"}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Message": {
+      "type": "object",
+      "required": ["id", "content", "model", "role", "stop_reason", "stop_sequence", "type", "usage"],
+      "properties": {
+        "type": {"const": "message"},
+        "id": {"type": "string"},
+        "container": {"type": ["object", "null"]},
+        "content": {"type": "array", "items": {"$ref": "#/$defs/ContentBlock"}},
+        "diagnostics": {"type": ["object", "null"]},
+        "model": {"type": "string"},
+        "role": {"const": "assistant"},
+        "stop_details": {"type": ["object", "null"]},
+        "stop_reason": {"$ref": "#/$defs/StopReason"},
+        "stop_sequence": {"type": ["string", "null"]},
+        "usage": {"$ref": "#/$defs/Usage"}
+      },
+      "additionalProperties": false
+    },
+    "RawMessageStreamEvent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["message", "type"],
+          "properties": {"type": {"const": "message_start"}, "message": {"$ref": "#/$defs/Message"}},
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["content_block", "index", "type"],
+          "properties": {
+            "type": {"const": "content_block_start"},
+            "index": {"type": "integer"},
+            "content_block": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "required": ["text", "type"],
+                  "properties": {"type": {"const": "text"}, "text": {"const": ""}, "citations": {"type": ["array", "null"]}},
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "required": ["signature", "thinking", "type"],
+                  "properties": {"type": {"const": "thinking"}, "signature": {"const": ""}, "thinking": {"const": ""}},
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "required": ["id", "input", "name", "type"],
+                  "properties": {
+                    "type": {"const": "tool_use"},
+                    "id": {"type": "string"},
+                    "input": {"type": "object", "maxProperties": 0},
+                    "name": {"type": "string"},
+                    "caller": {"type": "object"}
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["delta", "index", "type"],
+          "properties": {
+            "type": {"const": "content_block_delta"},
+            "index": {"type": "integer"},
+            "delta": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "required": ["text", "type"],
+                  "properties": {"type": {"const": "text_delta"}, "text": {"type": "string"}},
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "required": ["partial_json", "type"],
+                  "properties": {"type": {"const": "input_json_delta"}, "partial_json": {"type": "string"}},
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "required": ["thinking", "type"],
+                  "properties": {"type": {"const": "thinking_delta"}, "thinking": {"type": "string"}},
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "required": ["signature", "type"],
+                  "properties": {"type": {"const": "signature_delta"}, "signature": {"type": "string"}},
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["index", "type"],
+          "properties": {"type": {"const": "content_block_stop"}, "index": {"type": "integer"}},
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["delta", "type", "usage"],
+          "properties": {
+            "type": {"const": "message_delta"},
+            "delta": {
+              "type": "object",
+              "required": ["stop_reason", "stop_sequence"],
+              "properties": {
+                "container": {"type": ["object", "null"]},
+                "stop_details": {"type": ["object", "null"]},
+                "stop_reason": {"$ref": "#/$defs/StopReason"},
+                "stop_sequence": {"type": ["string", "null"]}
+              },
+              "additionalProperties": false
+            },
+            "usage": {"$ref": "#/$defs/MessageDeltaUsage"}
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["type"],
+          "properties": {"type": {"const": "message_stop"}},
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["type"],
+          "properties": {"type": {"const": "ping"}},
+          "additionalProperties": false
+        },
+        {"$ref": "#/$defs/ErrorResponse"}
+      ]
+    },
+    "ErrorResponse": {
+      "type": "object",
+      "required": ["error", "type"],
+      "properties": {
+        "type": {"const": "error"},
+        "error": {
+          "type": "object",
+          "required": ["message", "type"],
+          "properties": {
+            "type": {
+              "enum": [
+                "invalid_request_error", "authentication_error", "billing_error", "permission_error", "not_found_error",
+                "conflict_error", "request_too_large", "rate_limit_error", "api_error", "timeout_error", "overloaded_error"
+              ]
+            },
+            "message": {"type": "string"}
+          }
+        },
+        "request_id": {"type": ["string", "null"]}
+      }
+    }
+  }
+}
