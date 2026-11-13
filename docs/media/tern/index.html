@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Operating Symphony from Tern</title>
+<link rel="stylesheet" href="../lib/style.css">
+<style>
+  /* A key cap, as the plugin's footers draw keys. */
+  .kbd { display: inline-block; min-width: 44px; padding: 2px 12px; border: 2px solid #3a4658; border-bottom-width: 4px; border-radius: 9px;
+         background: #1a2230; font-family: var(--mono); font-size: 28px; color: #e6edf3; text-align: center; }
+  .keyrow { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; font-size: 28px; color: #c8d3e1; }
+  .keyrow .lbl { margin-right: 14px; }
+  /* The confirm strip and the reason prompt, in Tern's dark style. */
+  .strip { position: absolute; border: 2px solid var(--amber); border-radius: 14px; background: #1b1812; padding: 18px 26px; font-size: 28px; }
+  .strip.red { border-color: var(--red); background: #1c1214; }
+  .strip b { font-size: 30px; }
+  .strip p { margin: 8px 0 14px; color: #c8d3e1; }
+  .strip .kbd { margin-right: 10px; }
+  .strip .lbl { margin-right: 28px; }
+  .foot .who { font-size: 26px; color: var(--muted); margin-top: 14px; }
+  .foot .keyrow { margin-top: 6px; gap: 10px 10px; }
+  .foot .keyrow .lbl { margin-right: 10px; }
+  .prompt { position: absolute; border: 2px solid #3a4658; border-radius: 16px; background: #161c27; padding: 20px 26px; font-size: 28px; color: #9da7b3; }
+  .prompt .in { margin-top: 14px; padding: 10px 16px; border: 2px solid var(--blue); border-radius: 10px; color: #e6edf3; font-family: var(--mono); }
+  .prompt .warn { margin-top: 12px; color: var(--amber); }
+  .cmdlist .r { display: flex; align-items: center; gap: 18px; height: 50px; font-size: 28px; }
+  .cmdlist .r .k { margin-left: auto; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script src="../lib/engine.js"></script>
+<script src="scenes.js"></script>
+<script>
+  // capture.mjs sets window.TIMING before this runs.
+  D.video(window.TIMING, SCENES);
+  window.READY = Engine.ready();
+  const params = new URLSearchParams(location.search);
+  if (params.has("t")) window.READY.then(() => Engine.seek(parseFloat(params.get("t"))));
+</script>
+</body>
+</html>

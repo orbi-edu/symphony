@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Symphony: trackers and notifications</title>
+<link rel="stylesheet" href="../lib/style.css">
+<style>
+  /* A comment as GitHub renders it (dark). */
+  .ghc { position: absolute; border: 2px solid #30363d; border-radius: 14px; background: #0d1117; overflow: hidden; }
+  .ghc .hd { display: flex; align-items: center; gap: 14px; padding: 12px 22px; background: #161b22; border-bottom: 2px solid #30363d;
+             font-size: 28px; color: #9da7b3; }
+  .ghc .hd b { color: #e6edf3; }
+  .ghc .bd { padding: 16px 24px; font-size: 28px; line-height: 1.38; color: #e6edf3; }
+  .ghc .bd p { margin: 0 0 10px; }
+  .ghc .bd h4 { margin: 4px 0 8px; font-size: 32px; }
+  .ghc code { font-family: var(--mono); font-size: 26px; background: #262c36; padding: 1px 8px; border-radius: 6px; }
+  /* A board column. */
+  .col { position: absolute; border-radius: 16px; border: 2px solid var(--line); background: #0f1624; }
+  .col .h { padding: 14px 16px; font-size: 28px; font-weight: 700; border-bottom: 2px solid var(--line); }
+  .tk { position: absolute; border-radius: 12px; border: 2px solid #3a475b; background: #141d2d; padding: 10px 14px; font-size: 28px; }
+  .tk .mono { color: var(--muted); }
+  /* A chat message. */
+  .msg { position: absolute; border-radius: 14px; border: 2px solid #2b3648; background: #10151f; padding: 16px 22px; font-size: 28px; line-height: 1.4; }
+  .msg .who { font-weight: 700; margin-bottom: 6px; }
+  .msg .at { color: var(--blue); background: rgba(92,184,255,0.15); border-radius: 6px; padding: 0 6px; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script src="../lib/engine.js"></script>
+<script src="scenes.js"></script>
+<script>
+  // capture.mjs sets window.TIMING before this runs.
+  D.video(window.TIMING, SCENES);
+  window.READY = Engine.ready();
+  const params = new URLSearchParams(location.search);
+  if (params.has("t")) window.READY.then(() => Engine.seek(parseFloat(params.get("t"))));
+</script>
+</body>
+</html>

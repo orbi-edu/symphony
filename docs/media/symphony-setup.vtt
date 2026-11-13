@@ -1,0 +1,225 @@
+WEBVTT
+
+s1.1
+00:00:00.650 --> 00:00:02.284
+Symphony runs in two ways.
+
+s1.2
+00:00:02.284 --> 00:00:06.713
+Kubernetes: k3s on one VM, or kind for evaluation.
+
+s1.3
+00:00:06.713 --> 00:00:08.756
+There, each ticket gets its own pod.
+
+s1.4
+00:00:08.756 --> 00:00:12.344
+Local mode: one process on the host, with no isolation.
+
+s1.5
+00:00:12.344 --> 00:00:14.138
+Both use the same setup.
+
+s2.1
+00:00:14.488 --> 00:00:17.573
+A new install starts with only Redis and the API.
+
+s2.2
+00:00:17.573 --> 00:00:21.616
+You apply the manifests. They make empty Secrets that setup fills later.
+
+s2.3
+00:00:21.616 --> 00:00:24.889
+You fill one Secret yourself, with a bootstrap admin token.
+
+s2.4
+00:00:24.889 --> 00:00:27.854
+Then you log in with that token, and run symphony setup.
+
+s2.5
+00:00:27.854 --> 00:00:32.042
+In local mode, the process prints an admin token at its first start.
+
+s3.1
+00:00:32.392 --> 00:00:35.309
+Until setup is complete, the other components wait.
+
+s3.2
+00:00:35.309 --> 00:00:40.075
+The daemon keeps its heartbeat, and logs daemon setup incomplete once a minute at most.
+
+s3.3
+00:00:40.075 --> 00:00:44.110
+Each merger idles, and logs merger not configured with what it lacks.
+
+s3.4
+00:00:44.110 --> 00:00:46.300
+The assistant writes an idle heartbeat.
+
+s3.5
+00:00:46.300 --> 00:00:49.805
+Health checks stay green, so Kubernetes does not restart them.
+
+s3.6
+00:00:49.805 --> 00:00:52.516
+Jobs end with a setup incomplete event.
+
+s4.1
+00:00:52.866 --> 00:00:55.484
+In a terminal, symphony setup starts the wizard.
+
+s4.2
+00:00:55.484 --> 00:00:58.545
+It shows a progress bar, and does the GitHub App first.
+
+s4.3
+00:00:58.545 --> 00:01:00.646
+A step that is done asks: Change it?
+
+s4.4
+00:01:00.646 --> 00:01:02.397
+Secrets go into hidden prompts.
+
+s4.5
+00:01:02.397 --> 00:01:06.472
+If the API refuses a value, you see why, and you can try again.
+
+s4.6
+00:01:06.472 --> 00:01:10.604
+Scripts use one subcommand per step. Secrets come from standard input.
+
+s4.7
+00:01:10.604 --> 00:01:13.998
+symphony setup --status prints the checklist.
+
+s5.1
+00:01:14.348 --> 00:01:16.576
+Tern has the same flow in its Setup view.
+
+s5.2
+00:01:16.576 --> 00:01:20.570
+Other people see a banner. For an admin, Setup opens by itself.
+
+s5.3
+00:01:20.570 --> 00:01:24.201
+It shows the steps, the progress, and a card for the selected step.
+
+s5.4
+00:01:24.201 --> 00:01:25.742
+Secret fields are masked.
+
+s5.5
+00:01:25.742 --> 00:01:28.941
+A refused value is not saved, and the card says why.
+
+s5.6
+00:01:28.941 --> 00:01:31.628
+A saved step shows what the API found.
+
+s6.1
+00:01:31.978 --> 00:01:37.700
+Setup has seven steps. The API checks each value against the real service before it saves it.
+
+s6.2
+00:01:37.700 --> 00:01:39.194
+Four steps are required.
+
+s6.3
+00:01:39.194 --> 00:01:43.357
+Tracker: the Linear key and team, or the GitHub board and its status field.
+
+s6.4
+00:01:43.357 --> 00:01:48.331
+GitHub App: it mints a token, lists the repositories, and reports missing permissions.
+
+s6.5
+00:01:48.331 --> 00:01:51.871
+Repositories: the App must reach the default repository.
+
+s6.6
+00:01:51.871 --> 00:01:55.564
+On Kubernetes, each repository also needs a running merger.
+
+s6.7
+00:01:55.564 --> 00:01:59.067
+Models: each role needs a stored key or a host credential.
+
+s6.8
+00:01:59.067 --> 00:02:00.472
+Three steps are optional.
+
+s6.9
+00:02:00.472 --> 00:02:03.084
+Notifications send a test message first.
+
+s6.10
+00:02:03.084 --> 00:02:07.482
+The assistant checks the Slack tokens, and the Discord message content intent.
+
+s6.11
+00:02:07.482 --> 00:02:10.317
+Webhooks wait for one signed delivery from each source.
+
+s6.12
+00:02:10.317 --> 00:02:13.723
+Setup is complete when every required step is done.
+
+s7.1
+00:02:14.073 --> 00:02:18.977
+Credentials are write-only. No response, log or audit entry contains them.
+
+s7.2
+00:02:18.977 --> 00:02:21.608
+On Kubernetes, they go into named Secrets.
+
+s7.3
+00:02:21.608 --> 00:02:25.323
+In local mode, they go to secrets.env in the root directory.
+
+s7.4
+00:02:25.323 --> 00:02:26.738
+Redis holds none of them.
+
+s7.5
+00:02:26.738 --> 00:02:30.102
+Webhook secrets are the exception. Setup shows them once.
+
+s7.6
+00:02:30.102 --> 00:02:32.292
+To get new ones, you rotate them.
+
+s8.1
+00:02:32.642 --> 00:02:37.020
+On Kubernetes, a saved credential reaches the components through a restart.
+
+s8.2
+00:02:37.020 --> 00:02:41.442
+The order is the daemon, each merger, the assistant, and the API last.
+
+s8.3
+00:02:41.442 --> 00:02:43.975
+In local mode, a change applies at once.
+
+s8.4
+00:02:43.975 --> 00:02:48.622
+SYMPHONY_PUBLIC_URL is the address where people and vendors reach the API.
+
+s8.5
+00:02:48.622 --> 00:02:53.937
+Setup uses it for the webhook URLs. Without it, they use the address of the request.
+
+s9.1
+00:02:54.287 --> 00:02:57.215
+When every required step is done, Symphony is ready.
+
+s9.2
+00:02:57.215 --> 00:03:00.180
+Create your first ticket, and move it to an active state.
+
+s9.3
+00:03:00.180 --> 00:03:02.553
+Follow it with symphony status, or in Tern.
+
+s9.4
+00:03:02.553 --> 00:03:06.432
+The full guide is docs/install.md.

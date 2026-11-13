@@ -1,0 +1,155 @@
+{
+  "voice": "af_heart",
+  "speed": 1.15,
+  "pads": { "sceneLead": 0.35, "cueGap": 0.22, "sceneTail": 0.5, "intro": 0.3, "outro": 1.6 },
+  "scenes": [
+    {
+      "id": "s1",
+      "kicker": "The lifecycle",
+      "title": "One ticket, end to end",
+      "cues": [
+        { "text": "This is one ticket in Symphony, from the board to Done." },
+        { "text": "A person writes the ticket in Linear, or as an issue on a GitHub Projects board." },
+        { "text": "The daemon picks it up, and a runner starts one coding agent for it." },
+        { "text": "The agent works in its own workspace pod and opens a ready pull request." },
+        { "text": "The merger reviews the pull request and merges it." },
+        { "text": "After Done, a reflector looks back and proposes lessons." }
+      ]
+    },
+    {
+      "id": "s2",
+      "kicker": "Eligibility",
+      "title": "Labels, repositories and active states",
+      "cues": [
+        { "text": "The daemon dispatches a ticket only when every rule holds." },
+        { "text": "The ticket has the required labels, symphony in the default workflow." },
+        { "text": "It is in an active state: Todo, In Progress or Rework. In Review and Merging are parked." },
+        { "text": "A repo: label names the repository. Without one, the default repository applies.", "say": "A repo label names the repository. Without one, the default repository applies." },
+        { "text": "Its blockers are terminal, no person holds it, and a slot is free." }
+      ]
+    },
+    {
+      "id": "s3",
+      "kicker": "Dispatch",
+      "title": "A webhook wakes the daemon",
+      "cues": [
+        { "text": "When a ticket changes, the tracker sends a signed webhook to the control API." },
+        { "text": "The API wakes the daemon at once. A safety poll also runs every 15 seconds.", "say": "The API wakes the daemon at once. A safety poll also runs every fifteen seconds." },
+        { "text": "The daemon claims the ticket and takes a dispatch token. Only the first writer wins, so nothing starts twice." },
+        { "text": "Then it creates a runner Job for this attempt." },
+        { "text": "In the mocked run, the session started 44 milliseconds after the ticket.", "say": "In the mocked run, the session started forty-four milliseconds after the ticket." }
+      ]
+    },
+    {
+      "id": "s4",
+      "kicker": "Where the agent works",
+      "title": "The runner and the workspace pod",
+      "cues": [
+        { "text": "The runner is trusted. It keeps the tracker key and the GitHub App key." },
+        { "text": "It creates or reuses the ticket's workspace pod, with a volume for the session." },
+        { "text": "It mints a GitHub token for the ticket's repositories, for one hour at most, in a private file." },
+        { "text": "The model settings and MCP servers go into a private agent dir, made fresh for each attempt.", "say": "The model settings and M C P servers go into a private agent dir, made fresh for each attempt." },
+        { "text": "The pod has no ServiceAccount token, and it cannot reach the API or Redis." },
+        { "text": "The runner starts omp in the pod, through the Kubernetes API.", "say": "The runner starts O M P in the pod, through the Kubernetes API." }
+      ]
+    },
+    {
+      "id": "s5",
+      "kicker": "The prompt",
+      "title": "WORKFLOW.md becomes the first message",
+      "cues": [
+        { "text": "WORKFLOW.md has the settings at the top and a prompt template below.", "say": "The workflow file has the settings at the top and a prompt template below." },
+        { "text": "The template is strict Liquid, with two values: the issue and the attempt." },
+        { "text": "The default prompt asks for a ready pull request, and then a move to In Review." },
+        { "text": "The first step is to move the ticket to In Progress and post the Workpad, one comment edited in place." },
+        { "text": "On a retry, the last failure summary is added. Later turns get a short prompt." }
+      ]
+    },
+    {
+      "id": "s6",
+      "kicker": "One attempt",
+      "title": "Turns, live events and the hand-off",
+      "cues": [
+        { "text": "An attempt is a series of turns, up to 20. Before each one, the runner reads the ticket state.", "say": "An attempt is a series of turns, up to twenty. Before each one, the runner reads the ticket state." },
+        { "text": "Every engine event goes to the session stream in Redis, and Tern shows it live." },
+        { "text": "The tracker tool runs in the runner, so the tracker key never enters the pod." },
+        { "text": "People can steer, follow up or interrupt. The runner applies each message at once." },
+        { "text": "The agent opens a ready pull request and moves the ticket to In Review." },
+        { "text": "The daemon parks the record and posts a session report with the cost." }
+      ]
+    },
+    {
+      "id": "s7",
+      "kicker": "Rework",
+      "title": "Sent back, fixed, reviewed again",
+      "cues": [
+        { "text": "If the merger blocks the pull request, the ticket goes to Rework, and the agent runs again." },
+        { "text": "The prompt adds a Rework section: fix only what the report marks as blocking." },
+        { "text": "The agent pushes to the same branch, marks the pull request ready, and moves the ticket to In Review." },
+        { "text": "The merger then reviews only the delta." },
+        { "text": "Meanwhile, a question on the pull request starts a short answer run. The ticket state does not change." }
+      ]
+    },
+    {
+      "id": "s8",
+      "kicker": "When an attempt stops",
+      "title": "Continuations, retries and backoff",
+      "cues": [
+        { "text": "An attempt ends as done, continuation, failed or fenced." },
+        { "text": "A continuation runs the same attempt again, after a cooldown if nothing changed." },
+        { "text": "A failure starts a new attempt after a backoff: 10, 20, 40 seconds, and up to 5 minutes.", "say": "A failure starts a new attempt after a backoff: ten, twenty, forty seconds, and up to five minutes." },
+        { "text": "If the agent goes silent for two windows, the daemon stops it and says so on the ticket." },
+        { "text": "The branch and the Workpad stay, so the next attempt continues the work." }
+      ]
+    },
+    {
+      "id": "s9",
+      "kicker": "People in the loop",
+      "title": "Questions and holds",
+      "cues": [
+        { "text": "When the agent needs a decision that is not its own, it calls symphony_ask.", "say": "When the agent needs a decision that is not its own, it calls symphony ask." },
+        { "text": "Slack or Discord gets a message, and a person answers from Tern, the CLI or the API.", "say": "Slack or Discord gets a message, and a person answers from Tern, the C L I or the API." },
+        { "text": "If nobody answers in 15 minutes, the agent goes on and records its assumption.", "say": "If nobody answers in fifteen minutes, the agent goes on and records its assumption." },
+        { "text": "A person can also hold the ticket, with symphony takeover." },
+        { "text": "The daemon stops the attempt and keeps the workspace. symphony release gives it back.", "say": "The daemon stops the attempt and keeps the workspace. Symphony release gives it back." }
+      ]
+    },
+    {
+      "id": "s10",
+      "kicker": "Other kinds of ticket",
+      "title": "Investigations, sub-issues, several repositories",
+      "cues": [
+        { "text": "An investigation asks for an answer, not a change. Its GitHub token can only read." },
+        { "text": "The agent writes a report on the ticket, files the follow-up work, and moves it to Done." },
+        { "text": "A large ticket becomes sub-issues, with the parent's labels and blocking relations." },
+        { "text": "Evidence, such as a test log, attaches to the ticket." },
+        { "text": "Two repo: labels make a multi-repository ticket, with one token and one pull request per repository.", "say": "Two repo labels make a multi-repository ticket, with one token and one pull request per repository." }
+      ]
+    },
+    {
+      "id": "s11",
+      "kicker": "Reconcile and learn",
+      "title": "Reconcile, sweep, and learnings after Done",
+      "cues": [
+        { "text": "Each tick first reconciles every tracked ticket with the tracker." },
+        { "text": "A ticket that left the active states is parked. It keeps its workspace and uses no slot." },
+        { "text": "When the ticket is Done, the daemon starts a retrospective, then deletes the workspace." },
+        { "text": "The reflector reads the diff, the reviews, the CI and the Workpad, and proposes at most three lessons.", "say": "The reflector reads the diff, the reviews, the C I and the Workpad, and proposes at most three lessons." },
+        { "text": "Code curates them into AGENTS.md, within a line budget. Unused lessons decay.", "say": "Code curates them into the agents file, within a line budget. Unused lessons decay." },
+        { "text": "It opens a learnings pull request. A person must review and merge it." },
+        { "text": "A nightly sweep starts the retrospectives that were missed in the last seven days." }
+      ]
+    },
+    {
+      "id": "s12",
+      "kicker": "Proof",
+      "title": "Certified on kind and against mocks",
+      "cues": [
+        { "text": "On a kind cluster, a new ticket reached its runner Job in 7.7 seconds.", "say": "On a kind cluster, a new ticket reached its runner Job in seven point seven seconds." },
+        { "text": "A steer reached the agent in 13 milliseconds, and the next attempt resumed the same session.", "say": "A steer reached the agent in thirteen milliseconds, and the next attempt resumed the same session." },
+        { "text": "In the mocked run, the ticket reached In Review with a ready pull request in 22 seconds.", "say": "In the mocked run, the ticket reached In Review with a ready pull request in twenty-two seconds." },
+        { "text": "The investigation's push and pull request were refused, and the other scenarios passed." }
+      ]
+    }
+  ]
+}

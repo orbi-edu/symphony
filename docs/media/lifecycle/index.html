@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Symphony: one ticket, end to end</title>
+<link rel="stylesheet" href="../lib/style.css">
+<style>
+  /* A pull request comment as GitHub renders it (dark). */
+  .ghc { position: absolute; border: 2px solid #30363d; border-radius: 14px; background: #0d1117; overflow: hidden; }
+  .ghc .hd { display: flex; align-items: center; gap: 14px; padding: 12px 22px; background: #161b22; border-bottom: 2px solid #30363d;
+             font-size: 28px; color: #9da7b3; }
+  .ghc .hd b { color: #e6edf3; }
+  .ghc .bd { padding: 16px 24px; font-size: 28px; line-height: 1.38; color: #e6edf3; }
+  .ghc .bd p { margin: 0 0 12px; }
+  .ghc .bd h4 { margin: 12px 0 8px; font-size: 32px; }
+  .ghc code { font-family: var(--mono); font-size: 26px; background: #262c36; padding: 1px 8px; border-radius: 6px; }
+  .ghc .box { display: inline-block; width: 22px; height: 22px; border: 2px solid #9da7b3; border-radius: 4px; vertical-align: -3px; margin-right: 8px; }
+  .yaml { white-space: pre; }
+  .yaml .k { color: var(--blue); }
+  .yaml .c { color: #6f7f94; }
+  .yaml .v { color: var(--amber); }
+  .yaml .g { color: var(--green); }
+  /* A chat message as Slack or Discord shows it (dark). */
+  .msg { position: absolute; border: 2px solid #3a3f4a; border-radius: 14px; background: #1a1d21; padding: 18px 24px; font-size: 28px; line-height: 1.4; color: #d1d2d3; }
+  .msg .who { font-weight: 800; color: #ffffff; margin-right: 12px; }
+  .msg .app { font-size: 22px; font-weight: 700; color: #1d1c1d; background: #b8bcc2; border-radius: 4px; padding: 1px 6px; vertical-align: 3px; }
+  .msg .when { color: #8a8d91; font-size: 26px; margin-left: 10px; }
+  .msg p { margin: 8px 0 0; }
+  /* A row of a list: a node with one line of content. */
+  .rowline { display: flex; gap: 20px; align-items: center; font-size: 28px; line-height: 1.25; height: 100%; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script src="../lib/engine.js"></script>
+<script src="scenes.js"></script>
+<script>
+  // capture.mjs sets window.TIMING before this runs.
+  D.video(window.TIMING, SCENES);
+  window.READY = Engine.ready();
+  const params = new URLSearchParams(location.search);
+  if (params.has("t")) window.READY.then(() => Engine.seek(parseFloat(params.get("t"))));
+</script>
+</body>
+</html>

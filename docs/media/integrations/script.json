@@ -1,0 +1,128 @@
+{
+  "voice": "af_heart",
+  "speed": 1.15,
+  "pads": { "sceneLead": 0.35, "cueGap": 0.22, "sceneTail": 0.5, "intro": 0.3, "outro": 1.6 },
+  "scenes": [
+    {
+      "id": "s1",
+      "kicker": "Integrations",
+      "title": "Trackers and notifications",
+      "cues": [
+        { "text": "Symphony reads its tickets from a tracker, and it posts notices to a chat." },
+        { "text": "The tracker is Linear, or GitHub Issues on a Projects board." },
+        { "text": "One key in WORKFLOW.md picks it: tracker.kind.", "say": "One key in the workflow file picks it: tracker kind." },
+        { "text": "The notices go to Slack, to Discord, or to both." }
+      ]
+    },
+    {
+      "id": "s2",
+      "kicker": "States",
+      "title": "The board holds the states",
+      "cues": [
+        { "text": "With Linear, the states are the team's workflow states." },
+        { "text": "With GitHub, they are the options of the board's Status field." },
+        { "text": "Todo, In Progress and Rework are active. The implementer works there." },
+        { "text": "In Review and Merging are parked. There the merger owns the ticket." },
+        { "text": "Done, Canceled and Duplicate are terminal. On GitHub, so is a closed issue." }
+      ]
+    },
+    {
+      "id": "s3",
+      "kicker": "Tickets",
+      "title": "Identifiers, labels and repositories",
+      "cues": [
+        { "text": "A Linear ticket keeps its key, like ENG-42.", "say": "A Linear ticket keeps its key, like E N G forty-two." },
+        { "text": "A GitHub ticket is the repository name and the issue number, like app-42.", "say": "A GitHub ticket is the repository name and the issue number, like app forty-two." },
+        { "text": "A ticket needs every required label, such as symphony, to be dispatched." },
+        { "text": "A repo label names the repository. On GitHub, the default is the issue's own." }
+      ]
+    },
+    {
+      "id": "s4",
+      "kicker": "Plans",
+      "title": "Sub-issues and dependencies",
+      "cues": [
+        { "text": "An agent can split a large ticket into sub-issues, in one tool call." },
+        { "text": "On Linear, their order becomes blocks relations." },
+        { "text": "On GitHub, they go on the board in the first active state, with blocked-by dependencies." },
+        { "text": "Only these links hold a ticket back, until every blocker is terminal. A parent link does not." },
+        { "text": "The tool is idempotent. A second call makes no second issue." }
+      ]
+    },
+    {
+      "id": "s5",
+      "kicker": "Comments",
+      "title": "The Workpad and evidence",
+      "cues": [
+        { "text": "The agent keeps one comment on the ticket, headed Workpad, and edits it in place." },
+        { "text": "It writes through linear_graphql or github_graphql, run on the host.", "say": "It writes through linear graphql or github graphql, run on the host." },
+        { "text": "On Linear, evidence is an uploaded file of up to 25 MB, attached to the issue.", "say": "On Linear, evidence is an uploaded file of up to twenty-five megabytes, attached to the issue." },
+        { "text": "GitHub has no API to upload a file to an issue. So evidence is text, in a collapsible comment." },
+        { "text": "That comment holds at most 65,536 characters. A screenshot is refused.", "say": "That comment holds at most sixty-five thousand, five hundred thirty-six characters. A screenshot is refused." }
+      ]
+    },
+    {
+      "id": "s6",
+      "kicker": "Closing",
+      "title": "Close, reopen, and closing keywords",
+      "cues": [
+        { "text": "When Symphony moves a GitHub ticket to a terminal state, it closes the issue." },
+        { "text": "Done closes it as completed, the others as not planned. Any other state reopens it." },
+        { "text": "The pull request description starts with Closes and the issue reference." },
+        { "text": "When the train merges, GitHub closes the issue, and the board's Item closed workflow sets Done." },
+        { "text": "With Linear, the Linear and GitHub integration moves the ticket to Done." },
+        { "text": "The merger finds the ticket by the branch, a reference, a closing keyword, or the title." }
+      ]
+    },
+    {
+      "id": "s7",
+      "kicker": "Notices",
+      "title": "Seven events, on Slack and Discord",
+      "cues": [
+        { "text": "Seven events go to the chat, from a question for a person to a red main." },
+        { "text": "Each configured channel gets each event." },
+        { "text": "Slack takes a bot token and a channel, or an incoming webhook. Discord takes a bot, or a channel webhook." },
+        { "text": "When both methods are set, the bot wins." },
+        { "text": "With no channel, nothing is sent. And a failed notice never fails a run." }
+      ]
+    },
+    {
+      "id": "s8",
+      "kicker": "Mentions",
+      "title": "Only mapped users are pinged",
+      "cues": [
+        { "text": "notify.users maps a GitHub login to a Slack member, and to a Discord user.", "say": "notify users maps a GitHub login to a Slack member, and to a Discord user." },
+        { "text": "When a pull request goes back to octocat, the notice mentions octocat's mapped user." },
+        { "text": "A login with no mapping gets no mention." },
+        { "text": "On Discord, allowed mentions let only that user be pinged. Never a role, everyone, or here." },
+        { "text": "A Discord message holds at most 2,000 characters. The text is cut first.", "say": "A Discord message holds at most two thousand characters. The text is cut first." }
+      ]
+    },
+    {
+      "id": "s9",
+      "kicker": "Webhooks",
+      "title": "Into the API",
+      "cues": [
+        { "text": "The API takes webhooks on two routes: one for Linear, one for GitHub." },
+        { "text": "Each checks an HMAC signature over the raw body.", "say": "Each checks an H MAC signature over the raw body." },
+        { "text": "Ticket events wake the daemon. Pull request and CI events wake the merger of that repository.", "say": "Ticket events wake the daemon. Pull request and C I events wake the merger of that repository." },
+        { "text": "With the GitHub tracker, issue and board events wake the daemon too." },
+        { "text": "A webhook is only a hint. The loop reads the source again, so a lost delivery costs only time." },
+        { "text": "Setup makes both secrets and URLs, and shows the secrets only once.", "say": "Setup makes both secrets and U R Ls, and shows the secrets only once." }
+      ]
+    },
+    {
+      "id": "s10",
+      "kicker": "Main watch",
+      "title": "A red main opens a ticket",
+      "cues": [
+        { "text": "The merger's main watch reads the finished CI runs on main.", "say": "The merger's main watch reads the finished C I runs on main." },
+        { "text": "When main turns red, it opens one ticket with the logs of the failed jobs." },
+        { "text": "On Linear, it goes on the board's team or project. On GitHub, it is an issue on the board." },
+        { "text": "Its routing labels make the daemon dispatch an agent to fix main." },
+        { "text": "When main is green again, the watch comments, moves the ticket to Done, and sends a notice." },
+        { "text": "In the mocked runs, the ticket opened in 2.3 seconds on Linear, and in 2.7 seconds on GitHub.", "say": "In the mocked runs, the ticket opened in two point three seconds on Linear, and in two point seven seconds on GitHub." }
+      ]
+    }
+  ]
+}

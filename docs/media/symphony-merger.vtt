@@ -1,0 +1,321 @@
+WEBVTT
+
+s1.1
+00:00:00.650 --> 00:00:03.378
+The merger takes a pull request from ready to merged.
+
+s1.2
+00:00:03.378 --> 00:00:05.731
+One merger runs for each repository.
+
+s1.3
+00:00:05.731 --> 00:00:11.298
+Only AI agents review. No person approves, and no outside review service takes part.
+
+s1.4
+00:00:11.298 --> 00:00:14.839
+First, agents review the pull request and write one report.
+
+s1.5
+00:00:14.839 --> 00:00:18.632
+Then a deterministic merge train rebases, tests and merges it.
+
+s1.6
+00:00:18.632 --> 00:00:22.054
+Agents help in the train only when a rebase conflicts.
+
+s2.1
+00:00:22.404 --> 00:00:28.045
+GitHub webhooks wake the merger: pull requests, check runs, workflow runs and pushes to main.
+
+s2.2
+00:00:28.045 --> 00:00:31.084
+Each webhook wakes only the merger of its repository.
+
+s2.3
+00:00:31.084 --> 00:00:34.837
+If a webhook is lost, a safety poll runs every 30 seconds.
+
+s2.4
+00:00:34.837 --> 00:00:39.308
+Two review workers run by default, beside one train loop and the main watch.
+
+s2.5
+00:00:39.308 --> 00:00:42.485
+A heartbeat tells the API that the merger is alive.
+
+s2.6
+00:00:42.485 --> 00:00:46.787
+A worker claims a pull request for two minutes, and renews the claim while it works.
+
+s2.7
+00:00:46.787 --> 00:00:51.248
+If a pod dies, its claims expire, and another worker takes the pull request.
+
+s2.8
+00:00:51.248 --> 00:00:55.856
+The queue takes bypassed pull requests first, then re-reviews, then first reviews.
+
+s2.9
+00:00:55.856 --> 00:00:59.118
+In each group, the oldest ready pull request goes first.
+
+s2.10
+00:00:59.118 --> 00:01:05.151
+A pull request is eligible when it is open, ready, based on main, and its head has a check run.
+
+s3.1
+00:01:05.501 --> 00:01:08.597
+Before a review, the merger probes the model of each role.
+
+s3.2
+00:01:08.597 --> 00:01:12.081
+The agent must read a secret value from a file and return it.
+
+s3.3
+00:01:12.081 --> 00:01:15.691
+If a probe fails, the worker waits from one minute up to ten minutes.
+
+s3.4
+00:01:15.691 --> 00:01:17.769
+Next come deterministic prechecks.
+
+s3.5
+00:01:17.769 --> 00:01:22.269
+They catch fixup commits, large files, local paths, broken links and secrets.
+
+s3.6
+00:01:22.269 --> 00:01:25.674
+The repository can add its own checks, such as a lint command.
+
+s3.7
+00:01:25.674 --> 00:01:28.572
+Then reviewer agents read the diff in parallel lanes.
+
+s3.8
+00:01:28.572 --> 00:01:32.224
+The default lanes are correctness, security and spec, and design.
+
+s3.9
+00:01:32.224 --> 00:01:36.046
+A reviewer reports each finding through a tool call with a fixed schema.
+
+s3.10
+00:01:36.046 --> 00:01:39.616
+An oracle on a different model checks the findings, four per call.
+
+s3.11
+00:01:39.616 --> 00:01:43.856
+A finding blocks only when the reviewer and the oracle both grade it blocking.
+
+s3.12
+00:01:43.856 --> 00:01:47.397
+These agents can only read and search. They cannot edit.
+
+s4.1
+00:01:47.747 --> 00:01:50.805
+During a review, the pull request has the in-audit label.
+
+s4.2
+00:01:50.805 --> 00:01:53.728
+Each review ends in exactly one report comment.
+
+s4.3
+00:01:53.728 --> 00:01:57.177
+Its title is Reviewed, Not merged, or Waiting for CI.
+
+s4.4
+00:01:57.177 --> 00:02:02.730
+Then come the merger, the head commit, the outcome, the CI line, and one section for each finding.
+
+s4.5
+00:02:02.730 --> 00:02:06.884
+If CI still runs, the merger posts the report now and parks the review.
+
+s4.6
+00:02:06.884 --> 00:02:09.505
+When CI ends, it edits that same comment.
+
+s4.7
+00:02:09.505 --> 00:02:13.247
+Green CI hands the pull request to the train, with the reviewed label.
+
+s4.8
+00:02:13.247 --> 00:02:17.331
+A confirmed block, a rule break or red CI sends it back to the author.
+
+s4.9
+00:02:17.331 --> 00:02:22.583
+The first time, it goes to draft with the review-requested label, and the ticket goes to Rework.
+
+s4.10
+00:02:22.583 --> 00:02:26.165
+This happens once. A later block leaves the pull request ready.
+
+s4.11
+00:02:26.165 --> 00:02:30.447
+A failed run writes no comment. Only the team channel hears about it.
+
+s5.1
+00:02:30.797 --> 00:02:34.042
+The merger keeps watching after it sends a pull request back.
+
+s5.2
+00:02:34.042 --> 00:02:37.189
+The author pushes a fix and marks the pull request ready.
+
+s5.3
+00:02:37.189 --> 00:02:40.341
+Now it is a re-review, so it goes ahead of first reviews.
+
+s5.4
+00:02:40.341 --> 00:02:43.575
+One reviewer reads only what changed since the reviewed head.
+
+s5.5
+00:02:43.575 --> 00:02:48.094
+If the author rebased, the merger first replays the reviewed commits onto the new main.
+
+s5.6
+00:02:48.094 --> 00:02:50.822
+So the delta does not contain the changes of main.
+
+s5.7
+00:02:50.822 --> 00:02:57.587
+After the one rejection, a finding blocks only if it reopens an earlier one, or is a bug near the new changes.
+
+s5.8
+00:02:57.587 --> 00:03:00.810
+A block that is confirmed again goes to an AI arbiter.
+
+s5.9
+00:03:00.810 --> 00:03:05.629
+If the arbiter upholds it, the needs-maintainer label goes on, and a person decides.
+
+s5.10
+00:03:05.629 --> 00:03:10.017
+If the arbiter dismisses every finding, the pull request goes on to the train.
+
+s5.11
+00:03:10.017 --> 00:03:15.452
+If the author pushes during a review, the review stops. The next review covers only the push.
+
+s6.1
+00:03:15.802 --> 00:03:18.541
+The train runs one step at a time, under a lease.
+
+s6.2
+00:03:18.541 --> 00:03:23.259
+It takes first the pull request that overlaps least with the recent changes on main.
+
+s6.3
+00:03:23.259 --> 00:03:26.982
+It rebases the branch onto main and pushes it with force-with-lease.
+
+s6.4
+00:03:26.982 --> 00:03:32.669
+It waits for CI on that exact head. A webhook wakes it, and it also checks every 30 seconds.
+
+s6.5
+00:03:32.669 --> 00:03:37.326
+It merges only that tested head, posts a Merged comment, and deletes the branch.
+
+s6.6
+00:03:37.326 --> 00:03:40.899
+When several pull requests wait, it chains up to four in a batch.
+
+s6.7
+00:03:40.899 --> 00:03:44.105
+CI runs only on the top, and the members merge in order.
+
+s6.8
+00:03:44.105 --> 00:03:50.232
+A red batch reruns its failed jobs once. Then it splits in halves until the bad pull request is alone.
+
+s6.9
+00:03:50.232 --> 00:03:55.874
+If a rebase conflicts, a developer agent resolves it, and a reviewer agent checks the result.
+
+s6.10
+00:03:55.874 --> 00:04:00.393
+Then the pull request gets a Rebased onto main comment and goes back to its place.
+
+s6.11
+00:04:00.393 --> 00:04:04.810
+Before each effect, the train saves its intent, so a restart repeats nothing.
+
+s6.12
+00:04:04.810 --> 00:04:10.076
+At hand-off, the ticket moves to Merging. After the merge, the tracker moves it to Done.
+
+s7.1
+00:04:10.426 --> 00:04:13.373
+The main watch reads each finished CI run on main.
+
+s7.2
+00:04:13.373 --> 00:04:17.578
+When main turns red, it opens one ticket with the logs of the failed jobs.
+
+s7.3
+00:04:17.578 --> 00:04:22.248
+The ticket has the routing labels, so the daemon dispatches an agent to fix main.
+
+s7.4
+00:04:22.248 --> 00:04:26.012
+When main is green again, it comments on the ticket and moves it to Done.
+
+s7.5
+00:04:26.012 --> 00:04:28.685
+Both events also go to Slack or Discord.
+
+s8.1
+00:04:29.035 --> 00:04:32.245
+Each repository sets its rules in a policy file.
+
+s8.2
+00:04:32.245 --> 00:04:36.916
+The merger reads that file from main, so a pull request cannot weaken its own review.
+
+s8.3
+00:04:36.916 --> 00:04:40.795
+The file sets the lanes, the checks, the merge method and the batch size.
+
+s8.4
+00:04:40.795 --> 00:04:45.378
+Operators can bypass a review, requeue a pull request, or release a stuck claim.
+
+s8.5
+00:04:45.378 --> 00:04:48.990
+They use the CLI, the API, or the Merger view in Tern.
+
+s8.6
+00:04:48.990 --> 00:04:53.318
+Each merger agent is a live session that you can follow and interrupt.
+
+s9.1
+00:04:53.668 --> 00:04:59.312
+The merger was certified on a real GitHub repository, with real CI and real agents.
+
+s9.2
+00:04:59.312 --> 00:05:02.029
+A clean pull request merged at the reviewed head.
+
+s9.3
+00:05:02.029 --> 00:05:05.655
+A real bug went back to draft once, with a confirmed finding.
+
+s9.4
+00:05:05.655 --> 00:05:09.415
+Agents resolved a rebase conflict, and the pull request merged.
+
+s9.5
+00:05:09.415 --> 00:05:14.037
+Batches of three merged with CI on the top only, also on a protected main.
+
+s9.6
+00:05:14.037 --> 00:05:17.281
+With no findings, a review took 10 to 40 seconds.
+
+s9.7
+00:05:17.281 --> 00:05:21.369
+In the mocked runs, the merger reviewed and merged on both trackers.

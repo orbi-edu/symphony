@@ -1,0 +1,104 @@
+{
+  "voice": "af_heart",
+  "speed": 1.15,
+  "pads": { "sceneLead": 0.35, "cueGap": 0.22, "sceneTail": 0.5, "intro": 0.3, "outro": 1.6 },
+  "scenes": [
+    {
+      "id": "s1",
+      "kicker": "What Seiji is",
+      "title": "A device lab for agents",
+      "cues": [
+        { "text": "Seiji lends iOS simulators on a shared Mac to agents, over MCP.", "say": "Seiji lends eye O S simulators on a shared Mac to agents, over M C P." },
+        { "text": "Each lease gets a fresh simulator. Seiji deletes it at release." },
+        { "text": "Seiji records each run: a video, the app log, a screenshot of each step, and a manifest with SHA-256s.", "say": "Seiji records each run: a video, the app log, a screenshot of each step, and a manifest with shah two fifty-six hashes." },
+        { "text": "A ticket for a mobile app needs that proof." },
+        { "text": "The agent runs the app on a real simulator. The reviewers see what happened." }
+      ]
+    },
+    {
+      "id": "s2",
+      "kicker": "Connect it",
+      "title": "One preset, one secret header",
+      "cues": [
+        { "text": "An admin adds Seiji with one command and the seiji preset." },
+        { "text": "The token goes in on standard input, as an Authorization header. Symphony never shows it again." },
+        { "text": "The preset fills the HTTP API root, a 65-minute timeout, two agent variables, and a cleanup rule.", "say": "The preset fills the H T T P API root, a sixty-five minute timeout, two agent variables, and a cleanup rule." },
+        { "text": "Symphony stores a plain definition. Explicit flags win over the preset." },
+        { "text": "Tern's Admin, MCP screen has the same preset.", "say": "Tern's Admin, M C P screen has the same preset." },
+        { "text": "Test lists Seiji's 23 tools and the protocol, 2025-11-25.", "say": "Test lists Seiji's twenty-three tools and the protocol version from November 2025." },
+        { "text": "It also reads Seiji's /v1/me, and shows the user and the quota.", "say": "It also reads Seiji's me route, and shows the user and the quota." }
+      ]
+    },
+    {
+      "id": "s3",
+      "kicker": "The token",
+      "title": "The Seiji token never reaches the agent",
+      "cues": [
+        { "text": "Symphony keeps the Seiji token in a Secret." },
+        { "text": "The agent gets SEIJI_TOKEN. That is its own session token, not Seiji's.", "say": "The agent gets seiji token. That is its own session token, not Seiji's." },
+        { "text": "SEIJI_URL points at the gateway, not at Seiji.", "say": "Seiji U R L points at the gateway, not at Seiji." },
+        { "text": "The gateway checks the session token. Then it sends the stored token to Seiji." },
+        { "text": "It does this for MCP calls and for the HTTP API: uploads, evidence files, and /v1/me.", "say": "It does this for M C P calls and for the H T T P API: uploads, evidence files, and the me route." },
+        { "text": "It rewrites Seiji's links to the gateway, so the agent can follow them." },
+        { "text": "Viewer pages take no token, so the gateway does not proxy them." }
+      ]
+    },
+    {
+      "id": "s4",
+      "kicker": "One attempt",
+      "title": "An attempt with a device",
+      "cues": [
+        { "text": "The ticket ENG-163 is a crash on the sign-in screen.", "say": "The ticket E N G one sixty-three is a crash on the sign-in screen." },
+        { "text": "The agent fixes it, then acquires an iPhone simulator." },
+        { "text": "It uploads the build through SEIJI_URL. The upload streams through the gateway.", "say": "It uploads the build through Seiji U R L. The upload streams through the gateway." },
+        { "text": "It runs the sign-in flow with run_actions. Seiji records the run.", "say": "It runs the sign-in flow with run actions. Seiji records the run." },
+        { "text": "export_evidence returns a Markdown report. The agent puts it in the pull request body.", "say": "Export evidence returns a Markdown report. The agent puts it in the pull request body." },
+        { "text": "Reviewers cannot open Seiji's links, so the agent attaches the files to the ticket." },
+        { "text": "Linear takes evidence.zip. A GitHub issue takes report.md.", "say": "Linear takes the evidence zip. A GitHub issue takes the report as Markdown." }
+      ]
+    },
+    {
+      "id": "s5",
+      "kicker": "Cleanup",
+      "title": "No forgotten devices",
+      "cues": [
+        { "text": "A lease costs budget until it ends." },
+        { "text": "The gateway records each lease that acquire_device returns.", "say": "The gateway records each lease that acquire device returns." },
+        { "text": "When the attempt ends, Symphony releases every lease that is still held." },
+        { "text": "If the runner crashes, a sweep every 60 seconds releases the leases of expired sessions.", "say": "If the runner crashes, a sweep every sixty seconds releases the leases of expired sessions." },
+        { "text": "It keeps trying for 24 hours, then it gives up.", "say": "It keeps trying for twenty-four hours, then it gives up." },
+        { "text": "Without this, a device waits for Seiji's idle reaper, 15 minutes by default.", "say": "Without this, a device waits for Seiji's idle reaper, fifteen minutes by default." }
+      ]
+    },
+    {
+      "id": "s6",
+      "kicker": "Watch from Tern",
+      "title": "Watch the device the agent uses",
+      "cues": [
+        { "text": "A session that holds a device shows a Device row." },
+        { "text": "Press W to watch the device, view only.", "say": "Press W to watch the device, view only." },
+        { "text": "Shift W gives you control, after a confirmation.", "say": "Shift W gives you control, after a confirmation." },
+        { "text": "Your taps reach the device at once, and other people may be watching." },
+        { "text": "Each press gets a fresh link from symphony mcp viewer. The link opens once, within 60 seconds.", "say": "Each press gets a fresh link from symphony M C P viewer. The link opens once, within sixty seconds." },
+        { "text": "Only a lease that a live session holds can be watched." },
+        { "text": "Seiji's own Tern plugin can run next to Symphony's. They share no id, key or command." }
+      ]
+    },
+    {
+      "id": "s7",
+      "kicker": "Proof and limits",
+      "title": "What is tested, and what is not",
+      "cues": [
+        { "text": "Mocked scenario 13 passed every check in 55.9 seconds.", "say": "Mocked scenario thirteen passed every check in fifty-five point nine seconds." },
+        { "text": "The cleanup released the one held lease 0.02 seconds after the attempt.", "say": "The cleanup released the one held lease two hundredths of a second after the attempt." },
+        { "text": "The mock saw only the stored token. The session token never reached it." },
+        { "text": "A test with the real Seiji ran through the gateway. Real omp listed the 23 tools.", "say": "A test with the real Seiji ran through the gateway. Real O M P listed the twenty-three tools." },
+        { "text": "Real Seiji refused the session token with 401, and accepted the stored token.", "say": "Real Seiji refused the session token with four oh one, and accepted the stored token." },
+        { "text": "No real device was booted yet. That needs a Mac with Xcode simulators." },
+        { "text": "All agents share one Seiji user, with its budget and its concurrency limit." },
+        { "text": "On Kubernetes, Seiji needs a public TLS name in listen.allowedHosts.", "say": "On Kubernetes, Seiji needs a public T L S name in its allowed hosts list." },
+        { "text": "The Seiji guide in the docs has every step." }
+      ]
+    }
+  ]
+}

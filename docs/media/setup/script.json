@@ -1,0 +1,126 @@
+{
+  "voice": "af_heart",
+  "speed": 1.15,
+  "pads": { "sceneLead": 0.35, "cueGap": 0.22, "sceneTail": 0.5, "intro": 0.3, "outro": 1.6 },
+  "scenes": [
+    {
+      "id": "s1",
+      "kicker": "Install and set up",
+      "title": "Two ways to run Symphony",
+      "cues": [
+        { "text": "Symphony runs in two ways." },
+        { "text": "Kubernetes: k3s on one VM, or kind for evaluation.", "say": "Kubernetes: K 3 S on one V M, or kind for evaluation." },
+        { "text": "There, each ticket gets its own pod." },
+        { "text": "Local mode: one process on the host, with no isolation." },
+        { "text": "Both use the same setup." }
+      ]
+    },
+    {
+      "id": "s2",
+      "kicker": "Minimal install",
+      "title": "Redis, the API and a bootstrap token",
+      "cues": [
+        { "text": "A new install starts with only Redis and the API.", "say": "A new install starts with only Red-iss and the API." },
+        { "text": "You apply the manifests. They make empty Secrets that setup fills later." },
+        { "text": "You fill one Secret yourself, with a bootstrap admin token." },
+        { "text": "Then you log in with that token, and run symphony setup." },
+        { "text": "In local mode, the process prints an admin token at its first start." }
+      ]
+    },
+    {
+      "id": "s3",
+      "kicker": "Before setup",
+      "title": "Nothing crash-loops",
+      "cues": [
+        { "text": "Until setup is complete, the other components wait." },
+        { "text": "The daemon keeps its heartbeat, and logs daemon setup incomplete once a minute at most." },
+        { "text": "Each merger idles, and logs merger not configured with what it lacks." },
+        { "text": "The assistant writes an idle heartbeat." },
+        { "text": "Health checks stay green, so Kubernetes does not restart them." },
+        { "text": "Jobs end with a setup incomplete event." }
+      ]
+    },
+    {
+      "id": "s4",
+      "kicker": "In the terminal",
+      "title": "symphony setup",
+      "cues": [
+        { "text": "In a terminal, symphony setup starts the wizard." },
+        { "text": "It shows a progress bar, and does the GitHub App first." },
+        { "text": "A step that is done asks: Change it?" },
+        { "text": "Secrets go into hidden prompts." },
+        { "text": "If the API refuses a value, you see why, and you can try again." },
+        { "text": "Scripts use one subcommand per step. Secrets come from standard input." },
+        { "text": "symphony setup --status prints the checklist.", "say": "symphony setup, dash dash status, prints the checklist." }
+      ]
+    },
+    {
+      "id": "s5",
+      "kicker": "In Tern",
+      "title": "The Setup view",
+      "cues": [
+        { "text": "Tern has the same flow in its Setup view." },
+        { "text": "Other people see a banner. For an admin, Setup opens by itself." },
+        { "text": "It shows the steps, the progress, and a card for the selected step." },
+        { "text": "Secret fields are masked." },
+        { "text": "A refused value is not saved, and the card says why." },
+        { "text": "A saved step shows what the API found." }
+      ]
+    },
+    {
+      "id": "s6",
+      "kicker": "Seven steps",
+      "title": "Each one checks the real service",
+      "cues": [
+        { "text": "Setup has seven steps. The API checks each value against the real service before it saves it." },
+        { "text": "Four steps are required." },
+        { "text": "Tracker: the Linear key and team, or the GitHub board and its status field." },
+        { "text": "GitHub App: it mints a token, lists the repositories, and reports missing permissions." },
+        { "text": "Repositories: the App must reach the default repository." },
+        { "text": "On Kubernetes, each repository also needs a running merger." },
+        { "text": "Models: each role needs a stored key or a host credential." },
+        { "text": "Three steps are optional." },
+        { "text": "Notifications send a test message first." },
+        { "text": "The assistant checks the Slack tokens, and the Discord message content intent." },
+        { "text": "Webhooks wait for one signed delivery from each source." },
+        { "text": "Setup is complete when every required step is done." }
+      ]
+    },
+    {
+      "id": "s7",
+      "kicker": "Secrets",
+      "title": "Write-only, and kept out of Redis",
+      "cues": [
+        { "text": "Credentials are write-only. No response, log or audit entry contains them." },
+        { "text": "On Kubernetes, they go into named Secrets." },
+        { "text": "In local mode, they go to secrets.env in the root directory.", "say": "In local mode, they go to secrets dot env in the root directory." },
+        { "text": "Redis holds none of them.", "say": "Red-iss holds none of them." },
+        { "text": "Webhook secrets are the exception. Setup shows them once." },
+        { "text": "To get new ones, you rotate them." }
+      ]
+    },
+    {
+      "id": "s8",
+      "kicker": "After a save",
+      "title": "Restarts and the public URL",
+      "cues": [
+        { "text": "On Kubernetes, a saved credential reaches the components through a restart." },
+        { "text": "The order is the daemon, each merger, the assistant, and the API last." },
+        { "text": "In local mode, a change applies at once." },
+        { "text": "SYMPHONY_PUBLIC_URL is the address where people and vendors reach the API.", "say": "Symphony public URL is the address where people and vendors reach the API." },
+        { "text": "Setup uses it for the webhook URLs. Without it, they use the address of the request." }
+      ]
+    },
+    {
+      "id": "s9",
+      "kicker": "Next",
+      "title": "Symphony is ready",
+      "cues": [
+        { "text": "When every required step is done, Symphony is ready." },
+        { "text": "Create your first ticket, and move it to an active state." },
+        { "text": "Follow it with symphony status, or in Tern." },
+        { "text": "The full guide is docs/install.md.", "say": "The full guide is in the docs folder, in install dot M D." }
+      ]
+    }
+  ]
+}

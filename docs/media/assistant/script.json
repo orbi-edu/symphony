@@ -1,0 +1,120 @@
+{
+  "voice": "af_heart",
+  "speed": 1.15,
+  "pads": { "sceneLead": 0.35, "cueGap": 0.22, "sceneTail": 0.5, "intro": 0.3, "outro": 1.6 },
+  "scenes": [
+    {
+      "id": "s1",
+      "kicker": "The assistant",
+      "title": "A chat bot that answers, researches and plans",
+      "cues": [
+        { "text": "The assistant is a chat bot on Slack and Discord." },
+        { "text": "It answers questions about your code and your Symphony install." },
+        { "text": "It researches a topic, and it plans work as tickets." },
+        { "text": "A person confirms a plan before any ticket exists." },
+        { "text": "It runs as one deployment that dials out to Slack and Discord, so it needs no public URL.", "say": "It runs as one deployment that dials out to Slack and Discord, so it needs no public U R L." }
+      ]
+    },
+    {
+      "id": "s2",
+      "kicker": "Three modes",
+      "title": "Ask, research and plan",
+      "cues": [
+        { "text": "Mention it in an allowed channel, send it a direct message, or reply in its thread." },
+        { "text": "A plain question goes to the assistant role." },
+        { "text": "It posts Working on it at once, then edits that message as the answer streams." },
+        { "text": "Start with research, and the researcher digs through the code, the tracker and the web." },
+        { "text": "Start with plan, and the planner turns a goal into tickets." },
+        { "text": "Each mode is a team role with its own model." },
+        { "text": "A follow-up without a mode word keeps the thread's role." }
+      ]
+    },
+    {
+      "id": "s3",
+      "kicker": "What it can use",
+      "title": "Citations and read-only tools",
+      "cues": [
+        { "text": "The agents read your repositories at origin main." },
+        { "text": "A code citation names the repository, the path and the line." },
+        { "text": "The assistant turns it into a link to GitHub, at the commit the agent read." },
+        { "text": "The agent can read, grep, glob and search the web." },
+        { "text": "Symphony status shows tickets, sessions, the merger queue and recent failures." },
+        { "text": "Tracker search looks up tickets in Linear or GitHub." },
+        { "text": "It cannot run commands, change files, push, comment, or move a ticket." },
+        { "text": "Its environment holds no chat, tracker or GitHub App credential." }
+      ]
+    },
+    {
+      "id": "s4",
+      "kicker": "Proposals",
+      "title": "A plan waits for a person's click",
+      "cues": [
+        { "text": "The planner never creates tickets. It calls propose tickets." },
+        { "text": "The assistant posts the plan with three buttons." },
+        { "text": "Create puts the tickets in Backlog, with a repository label." },
+        { "text": "Create and start uses the first active state and the symphony label, so the daemon picks them up." },
+        { "text": "Dismiss creates nothing." },
+        { "text": "Only a person mapped in notify.users can click.", "say": "Only a person mapped in notify users can click." },
+        { "text": "Anyone else gets a private answer, and nothing is created." },
+        { "text": "The audit actor is that person's GitHub login." }
+      ]
+    },
+    {
+      "id": "s5",
+      "kicker": "Idempotency and audit",
+      "title": "Safe to click twice, with real blocking links",
+      "cues": [
+        { "text": "A claim key lets one click work at a time." },
+        { "text": "A second click meanwhile hears that the tickets are being created." },
+        { "text": "Each created ticket is recorded by its key." },
+        { "text": "So a double click, or a retry after a failure, never creates a ticket twice." },
+        { "text": "Parents and blockers come first, and a child becomes a sub-issue." },
+        { "text": "Each blocked-by becomes a real blocking relation in the tracker.", "say": "Each blocked by becomes a real blocking relation in the tracker." },
+        { "text": "If the tracker refuses a link, the assistant says so in a comment on the ticket." },
+        { "text": "The audit log records the creation, with the login and the identifiers." }
+      ]
+    },
+    {
+      "id": "s6",
+      "kicker": "In Tern",
+      "title": "Each thread is an assist session",
+      "cues": [
+        { "text": "Each chat thread is an assist session, and Tern's Sessions view lists it." },
+        { "text": "The row shows the mode, the transport, the channel and the thread." },
+        { "text": "Open it to follow the turn live." },
+        { "text": "A steer reaches the running turn." },
+        { "text": "A follow-up becomes the thread's next question, and the answer goes to the chat." },
+        { "text": "At most three turns run at once. After 30 idle minutes, the session ends.", "say": "At most three turns run at once. After thirty idle minutes, the session ends." }
+      ]
+    },
+    {
+      "id": "s7",
+      "kicker": "Setup",
+      "title": "The Slack app token and the Discord intent",
+      "cues": [
+        { "text": "The assistant reuses the bots of the notifications step." },
+        { "text": "On Slack, turn on Socket Mode, and make an app-level token with connections write." },
+        { "text": "On Discord, turn on the Message Content intent of the bot." },
+        { "text": "Then run symphony setup assistant, with the channels and the repositories." },
+        { "text": "The app token comes from standard input or a hidden prompt." },
+        { "text": "The API checks both Slack tokens, and the intent on Discord." },
+        { "text": "Then it publishes the settings in WORKFLOW and restarts the assistant.", "say": "Then it publishes the settings in the workflow, and restarts the assistant." },
+        { "text": "In Tern, the same form is the Assistant step of Setup." }
+      ]
+    },
+    {
+      "id": "s8",
+      "kicker": "Proof",
+      "title": "Mocked certification, scenarios 9 to 11",
+      "cues": [
+        { "text": "The mocked certification tested the assistant end to end." },
+        { "text": "On Slack, the envelope was acked in three milliseconds." },
+        { "text": "The answer, with its code citation, came after about ten seconds." },
+        { "text": "A mapped click created three tickets in Linear in half a second, with a blocking relation." },
+        { "text": "An unmapped click was refused, and a double click created nothing." },
+        { "text": "On Discord, with the GitHub tracker, the same flow passed." },
+        { "text": "Every check passed." }
+      ]
+    }
+  ]
+}

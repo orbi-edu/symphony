@@ -1,0 +1,106 @@
+{
+  "voice": "af_heart",
+  "speed": 1.15,
+  "pads": { "sceneLead": 0.35, "cueGap": 0.22, "sceneTail": 0.5, "intro": 0.3, "outro": 1.6 },
+  "scenes": [
+    {
+      "id": "s1",
+      "kicker": "Why",
+      "title": "More tools for agents, picked per role",
+      "cues": [
+        { "text": "Symphony can give its agents more tools through MCP servers.", "say": "Symphony can give its agents more tools through M C P servers." },
+        { "text": "A server can search the web, read a wiki, or look up an error tracker." },
+        { "text": "An admin picks the servers, and the agent roles that get them." },
+        { "text": "When an agent starts, Symphony writes its role's servers into the agent's private config." },
+        { "text": "The agent sees each tool next to its usual tools." }
+      ]
+    },
+    {
+      "id": "s2",
+      "kicker": "Transports and roles",
+      "title": "Three transports, and the team roles",
+      "cues": [
+        { "text": "A server uses one of three transports." },
+        { "text": "Streamable HTTP and the older SSE transport reach a remote server.", "say": "Streamable H T T P and the older S S E transport reach a remote server." },
+        { "text": "A stdio server is a process that runs next to the agent.", "say": "A standard I O server is a process that runs next to the agent." },
+        { "text": "Each server lists the agent roles that get it." },
+        { "text": "A role without servers gets no MCP tools.", "say": "A role without servers gets no M C P tools." }
+      ]
+    },
+    {
+      "id": "s3",
+      "kicker": "How a request flows",
+      "title": "Agent, gateway, server",
+      "cues": [
+        { "text": "A remote server points to the sandbox gateway, not to the real URL.", "say": "A remote server points to the sandbox gateway, not to the real U R L." },
+        { "text": "Each agent session mints its own token, for its session and its role." },
+        { "text": "Redis keeps only a hash of it, and the agent sends it as a bearer." },
+        { "text": "The gateway checks the token, the server, and the role." },
+        { "text": "If any check fails, it answers 403, and never says which check.", "say": "If any check fails, it answers four oh three, and never says which check." },
+        { "text": "Otherwise it drops the agent's token, and adds the stored secret headers." },
+        { "text": "The token is revoked when the session ends, or expires after four hours." }
+      ]
+    },
+    {
+      "id": "s4",
+      "kicker": "Guard rails",
+      "title": "Only Symphony's servers load",
+      "cues": [
+        { "text": "Symphony ignores every other MCP config.", "say": "Symphony ignores every other M C P config." },
+        { "text": "The agent's settings turn project configs off, so a repository's own .omp/mcp.json has no effect.", "say": "The agent's settings turn project configs off, so a repository's own M C P config has no effect." },
+        { "text": "They also set tools.xdev to false, so a read-only role gains no write tool.", "say": "They also set tools dot x dev to false, so a read-only role gains no write tool." },
+        { "text": "A stdio server gets no secret headers, and no env variable that looks like a credential.", "say": "A standard I O server gets no secret headers, and no variable that looks like a credential." },
+        { "text": "Its command must exist in the image where the agent runs." }
+      ]
+    },
+    {
+      "id": "s5",
+      "kicker": "Local mode",
+      "title": "A plugin and an overlay, your agent dir untouched",
+      "cues": [
+        { "text": "In local mode, the engines keep the host's omp agent dir, with its logins.", "say": "In local mode, the engines keep the host's O M P agent folder, with its logins." },
+        { "text": "Symphony writes a plugin and a settings overlay into the attempt's private dir.", "say": "Symphony writes a plugin and a settings overlay into the attempt's private folder." },
+        { "text": "The engine starts with --plugin-dir and --config.", "say": "The engine starts with the plugin dir and config flags." },
+        { "text": "The overlay wins over the host's settings, so the repository config stays off." }
+      ]
+    },
+    {
+      "id": "s6",
+      "kicker": "Add a server",
+      "title": "Admin › MCP in Tern, or the CLI",
+      "cues": [
+        { "text": "Admins add servers in Tern, under Admin, MCP.", "say": "Admins add servers in Tern, under Admin, M C P." },
+        { "text": "Each row shows the transport, the roles, the headers and the state." },
+        { "text": "Secret headers are write-only. Tern shows their names, never their values." },
+        { "text": "Test connects through the gateway, and lists the tools or the error." },
+        { "text": "The CLI does the same, with set, headers, test and list.", "say": "The C L I does the same, with set, headers, test and list." },
+        { "text": "Headers come as JSON on standard input, so no value appears in an argument.", "say": "Headers come as Jason on standard input, so no value appears in an argument." }
+      ]
+    },
+    {
+      "id": "s7",
+      "kicker": "Limits",
+      "title": "What to expect",
+      "cues": [
+        { "text": "On Kubernetes, the gateway reads a mounted Secret." },
+        { "text": "The kubelet updates it after about a minute, so a change can take a minute to work.", "say": "The cube-let updates it after about a minute, so a change can take a minute to work." },
+        { "text": "A running agent keeps its servers until its session ends." },
+        { "text": "In local mode, your own ~/.omp/agent/mcp.json still loads.", "say": "In local mode, your own M C P config, in your home O M P folder, still loads." }
+      ]
+    },
+    {
+      "id": "s8",
+      "kicker": "Proof",
+      "title": "Scenario 12: MCP through the gateway",
+      "cues": [
+        { "text": "Scenario 12 of the mocked certification ran MCP through the gateway.", "say": "Scenario twelve of the mocked certification ran M C P through the gateway." },
+        { "text": "An admin stored a mock server with two secret headers, and its test listed two tools." },
+        { "text": "The repository named its own server too. It got no request." },
+        { "text": "The coding agent called the tool, and the result reached the ticket in 16 seconds.", "say": "The coding agent called the tool, and the result reached the ticket in sixteen seconds." },
+        { "text": "The mock saw the stored headers, and never the agent's token." },
+        { "text": "At the end, the revoked token got 403 at the gateway.", "say": "At the end, the revoked token got four oh three at the gateway." },
+        { "text": "The assistant used the same route, and answered on Slack in 9 seconds.", "say": "The assistant used the same route, and answered on Slack in nine seconds." }
+      ]
+    }
+  ]
+}

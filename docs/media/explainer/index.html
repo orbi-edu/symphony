@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Symphony explainer</title>
+<link rel="stylesheet" href="../lib/style.css">
+</head>
+<body>
+<div id="stage"></div>
+<script src="../lib/engine.js"></script>
+<script src="scenes.js"></script>
+<script src="teaser.js"></script>
+<script>
+  // capture.mjs sets window.TIMING and window.MODE before this runs.
+  // Open the page by hand with ?mode=teaser, or with a timing file pasted into window.TIMING.
+  const params = new URLSearchParams(location.search);
+  const mode = window.MODE || params.get("mode") || "video";
+  if (mode === "teaser") buildTeaser(); else D.video(window.TIMING, SCENES);
+  window.READY = Engine.ready();
+  if (params.has("t")) window.READY.then(() => Engine.seek(parseFloat(params.get("t"))));
+</script>
+</body>
+</html>

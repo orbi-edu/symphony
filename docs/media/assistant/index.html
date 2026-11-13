@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Symphony: the assistant in Slack and Discord</title>
+<link rel="stylesheet" href="../lib/style.css">
+<style>
+  /* A chat thread as Slack or Discord render it (dark). */
+  .chat { position: absolute; border-radius: 14px; overflow: hidden; }
+  .chat .hd { display: flex; align-items: center; gap: 14px; padding: 10px 22px; font-size: 28px; }
+  .chat .hd b { font-weight: 700; }
+  .chat .bd { padding: 8px 0 10px; }
+  .chat .msg { display: flex; gap: 16px; padding: 8px 22px; }
+  .chat .av { flex: none; width: 50px; height: 50px; border-radius: 10px; display: flex; align-items: center; justify-content: center;
+              font-size: 28px; font-weight: 800; color: #0b0f17; }
+  .chat .mb { min-width: 0; flex: 1; }
+  .chat .who { font-size: 26px; line-height: 1.25; }
+  .chat .who b { margin-right: 10px; }
+  .chat .badge { font-size: 18px; font-weight: 700; padding: 1px 6px; border-radius: 4px; vertical-align: 3px; }
+  .chat .tx { font-size: 26px; line-height: 1.36; }
+  .chat .tx p { margin: 0 0 4px; }
+  .chat .tx code { font-family: var(--mono); font-size: 24px; padding: 0 6px; border-radius: 5px; }
+  .chat .note { font-size: 22px; margin-bottom: 2px; }
+  .chat .btns { display: flex; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
+  .chat .btns span { font-size: 24px; font-weight: 700; padding: 6px 18px; white-space: nowrap; }
+  .chat .muted { opacity: 0.7; }
+
+  .chat.slack { background: #1a1d21; border: 2px solid #35373b; color: #d1d2d3; }
+  .chat.slack .hd { background: #222529; border-bottom: 2px solid #35373b; color: #ababad; }
+  .chat.slack .hd b, .chat.slack .who b { color: #ffffff; }
+  .chat.slack .badge { background: #35373b; color: #ababad; }
+  .chat.slack .av { border-radius: 10px; }
+  .chat.slack a, .chat.slack .ln { color: #1d9bd1; }
+  .chat.slack .mention { color: #1d9bd1; background: rgba(29, 155, 209, 0.16); border-radius: 4px; padding: 0 3px; }
+  .chat.slack code { background: #2c2d30; color: #e8912d; }
+  .chat.slack .btns span { border: 2px solid #565856; border-radius: 6px; color: #d1d2d3; }
+  .chat.slack .btns .p { background: #007a5a; border-color: #007a5a; color: #fff; }
+  .chat.slack .btns .d { color: #e01e5a; }
+  .chat.slack .eph { background: rgba(29, 155, 209, 0.08); }
+
+  .chat.discord { background: #313338; border: 2px solid #3f4147; color: #dbdee1; }
+  .chat.discord .hd { background: #2b2d31; border-bottom: 2px solid #1f2023; color: #949ba4; }
+  .chat.discord .hd b, .chat.discord .who b { color: #f2f3f5; }
+  .chat.discord .badge { background: #5865f2; color: #fff; }
+  .chat.discord .av { border-radius: 50%; }
+  .chat.discord a, .chat.discord .ln { color: #00a8fc; }
+  .chat.discord .mention { color: #c9cdfb; background: rgba(88, 101, 242, 0.3); border-radius: 4px; padding: 0 3px; }
+  .chat.discord code { background: #2b2d31; color: #dbdee1; }
+  .chat.discord .btns span { border-radius: 4px; color: #fff; background: #4e5058; }
+  .chat.discord .btns .p { background: #5865f2; }
+  .chat.discord .btns .d { background: #da373c; }
+
+  .yaml { white-space: pre; }
+  .yaml .k { color: var(--blue); }
+  .yaml .c { color: #6f7f94; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script src="../lib/engine.js"></script>
+<script src="scenes.js"></script>
+<script>
+  // capture.mjs sets window.TIMING before this runs.
+  D.video(window.TIMING, SCENES);
+  window.READY = Engine.ready();
+  const params = new URLSearchParams(location.search);
+  if (params.has("t")) window.READY.then(() => Engine.seek(parseFloat(params.get("t"))));
+</script>
+</body>
+</html>

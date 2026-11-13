@@ -1,0 +1,257 @@
+WEBVTT
+
+s1.1
+00:00:00.650 --> 00:00:03.581
+This is one ticket in Symphony, from the board to Done.
+
+s1.2
+00:00:03.581 --> 00:00:08.012
+A person writes the ticket in Linear, or as an issue on a GitHub Projects board.
+
+s1.3
+00:00:08.012 --> 00:00:11.535
+The daemon picks it up, and a runner starts one coding agent for it.
+
+s1.4
+00:00:11.535 --> 00:00:15.759
+The agent works in its own workspace pod and opens a ready pull request.
+
+s1.5
+00:00:15.759 --> 00:00:18.502
+The merger reviews the pull request and merges it.
+
+s1.6
+00:00:18.502 --> 00:00:22.039
+After Done, a reflector looks back and proposes lessons.
+
+s2.1
+00:00:22.389 --> 00:00:25.735
+The daemon dispatches a ticket only when every rule holds.
+
+s2.2
+00:00:25.735 --> 00:00:29.621
+The ticket has the required labels, symphony in the default workflow.
+
+s2.3
+00:00:29.621 --> 00:00:35.043
+It is in an active state: Todo, In Progress or Rework. In Review and Merging are parked.
+
+s2.4
+00:00:35.043 --> 00:00:40.310
+A repo: label names the repository. Without one, the default repository applies.
+
+s2.5
+00:00:40.310 --> 00:00:44.278
+Its blockers are terminal, no person holds it, and a slot is free.
+
+s3.1
+00:00:44.628 --> 00:00:49.124
+When a ticket changes, the tracker sends a signed webhook to the control API.
+
+s3.2
+00:00:49.124 --> 00:00:54.397
+The API wakes the daemon at once. A safety poll also runs every 15 seconds.
+
+s3.3
+00:00:54.397 --> 00:01:00.673
+The daemon claims the ticket and takes a dispatch token. Only the first writer wins, so nothing starts twice.
+
+s3.4
+00:01:00.673 --> 00:01:03.040
+Then it creates a runner Job for this attempt.
+
+s3.5
+00:01:03.040 --> 00:01:07.365
+In the mocked run, the session started 44 milliseconds after the ticket.
+
+s4.1
+00:01:07.715 --> 00:01:11.551
+The runner is trusted. It keeps the tracker key and the GitHub App key.
+
+s4.2
+00:01:11.551 --> 00:01:16.004
+It creates or reuses the ticket's workspace pod, with a volume for the session.
+
+s4.3
+00:01:16.004 --> 00:01:21.551
+It mints a GitHub token for the ticket's repositories, for one hour at most, in a private file.
+
+s4.4
+00:01:21.551 --> 00:01:27.475
+The model settings and MCP servers go into a private agent dir, made fresh for each attempt.
+
+s4.5
+00:01:27.475 --> 00:01:32.281
+The pod has no ServiceAccount token, and it cannot reach the API or Redis.
+
+s4.6
+00:01:32.281 --> 00:01:36.481
+The runner starts omp in the pod, through the Kubernetes API.
+
+s5.1
+00:01:36.831 --> 00:01:40.865
+WORKFLOW.md has the settings at the top and a prompt template below.
+
+s5.2
+00:01:40.865 --> 00:01:44.877
+The template is strict Liquid, with two values: the issue and the attempt.
+
+s5.3
+00:01:44.877 --> 00:01:49.203
+The default prompt asks for a ready pull request, and then a move to In Review.
+
+s5.4
+00:01:49.203 --> 00:01:54.699
+The first step is to move the ticket to In Progress and post the Workpad, one comment edited in place.
+
+s5.5
+00:01:54.699 --> 00:01:59.590
+On a retry, the last failure summary is added. Later turns get a short prompt.
+
+s6.1
+00:01:59.940 --> 00:02:05.324
+An attempt is a series of turns, up to 20. Before each one, the runner reads the ticket state.
+
+s6.2
+00:02:05.324 --> 00:02:09.629
+Every engine event goes to the session stream in Redis, and Tern shows it live.
+
+s6.3
+00:02:09.629 --> 00:02:13.688
+The tracker tool runs in the runner, so the tracker key never enters the pod.
+
+s6.4
+00:02:13.688 --> 00:02:18.419
+People can steer, follow up or interrupt. The runner applies each message at once.
+
+s6.5
+00:02:18.419 --> 00:02:22.449
+The agent opens a ready pull request and moves the ticket to In Review.
+
+s6.6
+00:02:22.449 --> 00:02:26.511
+The daemon parks the record and posts a session report with the cost.
+
+s7.1
+00:02:26.861 --> 00:02:31.845
+If the merger blocks the pull request, the ticket goes to Rework, and the agent runs again.
+
+s7.2
+00:02:31.845 --> 00:02:36.352
+The prompt adds a Rework section: fix only what the report marks as blocking.
+
+s7.3
+00:02:36.352 --> 00:02:41.913
+The agent pushes to the same branch, marks the pull request ready, and moves the ticket to In Review.
+
+s7.4
+00:02:41.913 --> 00:02:44.190
+The merger then reviews only the delta.
+
+s7.5
+00:02:44.190 --> 00:02:50.179
+Meanwhile, a question on the pull request starts a short answer run. The ticket state does not change.
+
+s8.1
+00:02:50.529 --> 00:02:54.015
+An attempt ends as done, continuation, failed or fenced.
+
+s8.2
+00:02:54.015 --> 00:02:58.795
+A continuation runs the same attempt again, after a cooldown if nothing changed.
+
+s8.3
+00:02:58.795 --> 00:03:04.506
+A failure starts a new attempt after a backoff: 10, 20, 40 seconds, and up to 5 minutes.
+
+s8.4
+00:03:04.506 --> 00:03:09.331
+If the agent goes silent for two windows, the daemon stops it and says so on the ticket.
+
+s8.5
+00:03:09.331 --> 00:03:13.332
+The branch and the Workpad stay, so the next attempt continues the work.
+
+s9.1
+00:03:13.682 --> 00:03:17.693
+When the agent needs a decision that is not its own, it calls symphony_ask.
+
+s9.2
+00:03:17.693 --> 00:03:23.542
+Slack or Discord gets a message, and a person answers from Tern, the CLI or the API.
+
+s9.3
+00:03:23.542 --> 00:03:28.345
+If nobody answers in 15 minutes, the agent goes on and records its assumption.
+
+s9.4
+00:03:28.345 --> 00:03:31.695
+A person can also hold the ticket, with symphony takeover.
+
+s9.5
+00:03:31.695 --> 00:03:36.401
+The daemon stops the attempt and keeps the workspace. symphony release gives it back.
+
+s10.1
+00:03:36.751 --> 00:03:41.994
+An investigation asks for an answer, not a change. Its GitHub token can only read.
+
+s10.2
+00:03:41.994 --> 00:03:46.710
+The agent writes a report on the ticket, files the follow-up work, and moves it to Done.
+
+s10.3
+00:03:46.710 --> 00:03:51.327
+A large ticket becomes sub-issues, with the parent's labels and blocking relations.
+
+s10.4
+00:03:51.327 --> 00:03:54.313
+Evidence, such as a test log, attaches to the ticket.
+
+s10.5
+00:03:54.313 --> 00:04:01.186
+Two repo: labels make a multi-repository ticket, with one token and one pull request per repository.
+
+s11.1
+00:04:01.536 --> 00:04:04.837
+Each tick first reconciles every tracked ticket with the tracker.
+
+s11.2
+00:04:04.837 --> 00:04:09.942
+A ticket that left the active states is parked. It keeps its workspace and uses no slot.
+
+s11.3
+00:04:09.942 --> 00:04:14.692
+When the ticket is Done, the daemon starts a retrospective, then deletes the workspace.
+
+s11.4
+00:04:14.692 --> 00:04:20.523
+The reflector reads the diff, the reviews, the CI and the Workpad, and proposes at most three lessons.
+
+s11.5
+00:04:20.523 --> 00:04:25.637
+Code curates them into AGENTS.md, within a line budget. Unused lessons decay.
+
+s11.6
+00:04:25.637 --> 00:04:29.610
+It opens a learnings pull request. A person must review and merge it.
+
+s11.7
+00:04:29.610 --> 00:04:34.117
+A nightly sweep starts the retrospectives that were missed in the last seven days.
+
+s12.1
+00:04:34.467 --> 00:04:39.425
+On a kind cluster, a new ticket reached its runner Job in 7.7 seconds.
+
+s12.2
+00:04:39.425 --> 00:04:44.825
+A steer reached the agent in 13 milliseconds, and the next attempt resumed the same session.
+
+s12.3
+00:04:44.825 --> 00:04:49.964
+In the mocked run, the ticket reached In Review with a ready pull request in 22 seconds.
+
+s12.4
+00:04:49.964 --> 00:04:55.330
+The investigation's push and pull request were refused, and the other scenarios passed.

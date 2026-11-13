@@ -1,0 +1,129 @@
+{
+  "voice": "af_heart",
+  "speed": 1.15,
+  "pads": { "sceneLead": 0.35, "cueGap": 0.2, "sceneTail": 0.45, "intro": 0.3, "outro": 0.9 },
+  "scenes": [
+    {
+      "id": "s1",
+      "kicker": "Overview",
+      "title": "From a ticket to merged code",
+      "cues": [
+        { "text": "Symphony runs coding agents on tickets from Linear or GitHub Issues." },
+        { "text": "Each ticket gets an agent in its own workspace." },
+        { "text": "The agent opens a pull request. A merger reviews and merges it." },
+        { "text": "People stay in control from Tern." }
+      ]
+    },
+    {
+      "id": "s2",
+      "kicker": "Architecture",
+      "title": "The parts and how they talk",
+      "cues": [
+        { "text": "Webhooks from the tracker and from GitHub reach the control API." },
+        { "text": "The API wakes the daemon. The daemon starts a runner Job." },
+        { "text": "The runner starts omp in a workspace pod." },
+        { "text": "The pod can reach the gateway, but not the API or Redis.", "say": "The pod can reach the gateway, but not the API or Red-iss." },
+        { "text": "Redis holds all shared state.", "say": "Red-iss holds all shared state." },
+        { "text": "The merger merges pull requests. An assistant bot answers in chat." },
+        { "text": "Run it on Kubernetes. One VM with k3s is enough.", "say": "Run it on Kubernetes. One V M with K 3 S is enough." },
+        { "text": "Local mode runs the API, the daemon and the runners in one process." }
+      ]
+    },
+    {
+      "id": "s3",
+      "kicker": "Ticket lifecycle",
+      "title": "The ticket state shows the progress",
+      "cues": [
+        { "text": "A ticket needs the symphony label. On GitHub, the board's Status column is its state." },
+        { "text": "The agent moves it to In Progress, then to In Review." },
+        { "text": "The merger sends it to Rework, or to Merging." },
+        { "text": "After the merge, the ticket goes to Done." },
+        { "text": "At the turn limit, the same attempt continues." },
+        { "text": "A failed attempt retries after a backoff." },
+        { "text": "A person can hold the ticket at any time." }
+      ]
+    },
+    {
+      "id": "s4",
+      "kicker": "One attempt",
+      "title": "From webhook to pull request",
+      "cues": [
+        { "text": "A tracker webhook wakes the daemon in under 3 seconds.", "say": "A tracker webhook wakes the daemon in under three seconds." },
+        { "text": "The daemon takes a dispatch token. Only that dispatch can write." },
+        { "text": "The runner makes or reuses the workspace pod." },
+        { "text": "It gets a GitHub token for the ticket's repositories only." },
+        { "text": "omp works in turns and streams each event." },
+        { "text": "It opens a ready pull request and moves the ticket to In Review." }
+      ]
+    },
+    {
+      "id": "s5",
+      "kicker": "People in the loop",
+      "title": "Follow, steer and take over in Tern",
+      "cues": [
+        { "text": "Tern shows the live sessions on the dashboard." },
+        { "text": "Open any session as a live chat." },
+        { "text": "Messages and interrupts reach the agent in under 300 milliseconds.", "say": "Messages and interrupts reach the agent in under three hundred milliseconds." },
+        { "text": "The agent can ask you a question. It never waits without a limit." },
+        { "text": "Take over a ticket to work on it with omp on your machine." },
+        { "text": "Return it, and Symphony continues." },
+        { "text": "In Slack or Discord, the assistant answers with cited code lines." },
+        { "text": "Its plans become tickets only after a mapped person confirms." },
+        { "text": "The CLI and MCP give the same controls.", "say": "The C L I and M C P give the same controls." }
+      ]
+    },
+    {
+      "id": "s6",
+      "kicker": "The merger",
+      "title": "AI review and a deterministic merge train",
+      "cues": [
+        { "text": "Each repository has its own merger." },
+        { "text": "Reviewers check the pull request in parallel lanes." },
+        { "text": "An oracle on a different model checks each finding." },
+        { "text": "A finding blocks only when both models agree." },
+        { "text": "A pull request goes back one time. After that, an arbiter decides." },
+        { "text": "A re-review reads only the new changes." },
+        { "text": "If CI still runs, the review waits for it.", "say": "If C I still runs, the review waits for it." },
+        { "text": "The train chains a batch and runs CI on the top only.", "say": "The train chains a batch and runs C I on the top only." },
+        { "text": "A red batch splits in halves until the bad pull request is alone." },
+        { "text": "Agents resolve conflicts. The train merges the exact head that CI tested.", "say": "Agents resolve conflicts. The train merges the exact head that C I tested." },
+        { "text": "When main turns red, the merger opens a ticket." }
+      ]
+    },
+    {
+      "id": "s7",
+      "kicker": "Models and credentials",
+      "title": "A model per role, keys on the trusted side",
+      "cues": [
+        { "text": "The team configuration gives each agent role its own model." },
+        { "text": "Admins save provider API keys in Tern. The API never returns them." },
+        { "text": "MCP servers give a role more tools. Their secret headers stay in the gateway.", "say": "M C P servers give a role more tools. Their secret headers stay in the gateway." },
+        { "text": "A workspace gets only its role's model key, a short-lived GitHub token, a telemetry token and an MCP session token.", "say": "A workspace gets only its role's model key, a short-lived GitHub token, a telemetry token and an M C P session token." },
+        { "text": "The Linear key, the App key, Slack or Discord tokens, and API tokens stay outside." }
+      ]
+    },
+    {
+      "id": "s8",
+      "kicker": "Proof",
+      "title": "Certified end to end",
+      "cues": [
+        { "text": "Each vendor mock follows the published specification." },
+        { "text": "With Linear and Slack, real agents passed all 8 scenarios in 278 seconds.", "say": "With Linear and Slack, real agents passed all eight scenarios in two hundred seventy-eight seconds." },
+        { "text": "With GitHub and Discord, 4 scenarios passed in 183 seconds.", "say": "With GitHub and Discord, four scenarios passed in one hundred eighty-three seconds." },
+        { "text": "The assistant passed on Slack, on Discord, and with MCP through the gateway.", "say": "The assistant passed on Slack, on Discord, and with M C P through the gateway." },
+        { "text": "A webhook started a session 44 milliseconds after the ticket.", "say": "A webhook started a session forty-four milliseconds after the ticket." }
+      ]
+    },
+    {
+      "id": "s9",
+      "kicker": "Get started",
+      "title": "Install, then set up step by step",
+      "cues": [
+        { "text": "Install the API and Redis.", "say": "Install the API and Red-iss." },
+        { "text": "Then run symphony setup, or open Setup in Tern." },
+        { "text": "Each step is checked before it is saved." },
+        { "text": "The docs have every step." }
+      ]
+    }
+  ]
+}

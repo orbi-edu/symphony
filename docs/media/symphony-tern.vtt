@@ -1,0 +1,261 @@
+WEBVTT
+
+s1.1
+00:00:00.650 --> 00:00:03.201
+The Symphony plugin brings Symphony into Tern.
+
+s1.2
+00:00:03.201 --> 00:00:08.751
+It shows what the agents do, opens live chats, and covers the merger and team administration.
+
+s1.3
+00:00:08.751 --> 00:00:14.678
+Run Symphony: Sign in, then enter your team's address and the API token an admin created for you.
+
+s1.4
+00:00:14.678 --> 00:00:19.162
+The token is masked. The symphony CLI stores it in the system keychain.
+
+s1.5
+00:00:19.162 --> 00:00:24.749
+Tern never stores it. The plugin asks the CLI for the token and keeps it in memory only.
+
+s1.6
+00:00:24.749 --> 00:00:30.069
+Install in Tern adds the live chat agent, the MCP server for your omp, and this panel.
+
+s1.7
+00:00:30.069 --> 00:00:33.903
+When you are not signed in, the panel and the status line show the next step.
+
+s1.8
+00:00:33.903 --> 00:00:38.278
+If Symphony goes down, the panel keeps the last data and shows Offline.
+
+s2.1
+00:00:38.628 --> 00:00:40.817
+Control Alt S opens the Dashboard.
+
+s2.2
+00:00:40.817 --> 00:00:44.959
+It shows the day's numbers, and the providers' rate limits of the last hour.
+
+s2.3
+00:00:44.959 --> 00:00:49.446
+Sessions that need input come first, with the agent's question and its options.
+
+s2.4
+00:00:49.446 --> 00:00:52.730
+Press A to answer. Pick an option, or write your own answer.
+
+s2.5
+00:00:52.730 --> 00:00:57.793
+Press M to send a message. If the agent is running, the message joins the current turn.
+
+s2.6
+00:00:57.793 --> 00:01:00.256
+Press I to interrupt, after a confirmation.
+
+s2.7
+00:01:00.256 --> 00:01:04.257
+Press T to take over. Symphony takeover then runs in a new tab.
+
+s2.8
+00:01:04.257 --> 00:01:08.208
+The status line shows how many agents run, and how many need input.
+
+s2.9
+00:01:08.208 --> 00:01:12.424
+It is highlighted when an agent waits for you, and says paused or offline.
+
+s3.1
+00:01:12.774 --> 00:01:18.122
+Sessions lists every session. The bracket keys filter Active, Needs input, Ended or All.
+
+s3.2
+00:01:18.122 --> 00:01:22.096
+Control Alt A picks a session and opens its live chat in a new tab.
+
+s3.3
+00:01:22.096 --> 00:01:27.044
+It is a native Tern chat through symphony acp, with the history and the live events.
+
+s3.4
+00:01:27.044 --> 00:01:30.064
+While the agent runs, your message steers the current turn.
+
+s3.5
+00:01:30.064 --> 00:01:34.593
+When it is idle, the message is a follow-up. When it asks, the message is the answer.
+
+s3.6
+00:01:34.593 --> 00:01:37.068
+To stop the agent, type slash interrupt.
+
+s3.7
+00:01:37.068 --> 00:01:42.630
+Take over holds the ticket, downloads the conversation and the branch, and opens omp on your machine.
+
+s3.8
+00:01:42.630 --> 00:01:44.553
+Return it with symphony release.
+
+s4.1
+00:01:44.903 --> 00:01:50.668
+Tickets shows each ticket's state in Symphony and on the board, the attempt, the cost and the pull request.
+
+s4.2
+00:01:50.668 --> 00:01:53.848
+Symphony does not dispatch a ticket that a person holds.
+
+s4.3
+00:01:53.848 --> 00:01:57.804
+Return to Symphony releases it, and the agents can work on it again.
+
+s5.1
+00:01:58.154 --> 00:02:02.928
+Each repository has its own merger. Control Alt M opens the Merger view.
+
+s5.2
+00:02:02.928 --> 00:02:07.855
+Mergers lists them: whether each one runs, who holds its train lease, and its current batch.
+
+s5.3
+00:02:07.855 --> 00:02:13.135
+Each table has a Repository column, so pull requests of two repositories never mix.
+
+s5.4
+00:02:13.135 --> 00:02:18.536
+On the selected pull request, B bypasses the review. It asks for a reason for the audit log.
+
+s5.5
+00:02:18.536 --> 00:02:21.319
+Q requeues the pull request, and L releases it.
+
+s5.6
+00:02:21.319 --> 00:02:25.406
+Each action goes to the merger of that pull request's repository.
+
+s6.1
+00:02:25.756 --> 00:02:28.130
+Five views are read-only, for every role.
+
+s6.2
+00:02:28.130 --> 00:02:31.076
+Repositories lists where Symphony dispatches tickets.
+
+s6.3
+00:02:31.076 --> 00:02:34.442
+Infrastructure shows the services and the cluster resources.
+
+s6.4
+00:02:34.442 --> 00:02:37.847
+Telemetry shows usage by model, by month and by session.
+
+s6.5
+00:02:37.847 --> 00:02:41.209
+Learnings shows the retrospectives and learning pull requests.
+
+s6.6
+00:02:41.209 --> 00:02:44.197
+Audit lists what people and agents asked Symphony to do.
+
+s6.7
+00:02:44.197 --> 00:02:47.827
+When a source is stale or unavailable, the view says which one.
+
+s7.1
+00:02:48.177 --> 00:02:50.587
+The Admin view needs an admin token.
+
+s7.2
+00:02:50.587 --> 00:02:53.775
+Models sets the model and the thinking level of each role.
+
+s7.3
+00:02:53.775 --> 00:02:57.545
+Enter picks a model from the pinned omp catalog, then the thinking level.
+
+s7.4
+00:02:57.545 --> 00:03:01.128
+The change stays marked until you publish it with P and a reason.
+
+s7.5
+00:03:01.128 --> 00:03:03.905
+If someone else published first, nothing is overwritten.
+
+s7.6
+00:03:03.905 --> 00:03:07.523
+The rollout shows which consumers already applied the new generation.
+
+s7.7
+00:03:07.523 --> 00:03:10.770
+Providers stores the API keys that the models use.
+
+s7.8
+00:03:10.770 --> 00:03:17.273
+C sets or replaces a key in a hidden field. The key is write-only: it never comes back through the API.
+
+s7.9
+00:03:17.273 --> 00:03:20.943
+It applies on each agent's next attempt, without a restart.
+
+s8.1
+00:03:21.293 --> 00:03:26.444
+Tokens creates team API tokens, each with a name, a role and an expiry.
+
+s8.2
+00:03:26.444 --> 00:03:30.401
+A viewer watches, an operator also acts, and an admin administers.
+
+s8.3
+00:03:30.401 --> 00:03:34.232
+A new token appears only once. After I saved it, it is gone.
+
+s8.4
+00:03:34.232 --> 00:03:37.245
+X revokes a token at once, after a confirmation.
+
+s8.5
+00:03:37.245 --> 00:03:42.896
+MCP servers give agents more tools. Each role gets only the servers enabled for it.
+
+s8.6
+00:03:42.896 --> 00:03:45.128
+Enter tests a server and lists its tools.
+
+s8.7
+00:03:45.128 --> 00:03:50.279
+Secret headers are write-only. The gateway adds them, so no secret reaches an agent.
+
+s8.8
+00:03:50.279 --> 00:03:55.757
+Team omp shows the workers' omp defaults. S applies them to your omp, in a separate profile.
+
+s9.1
+00:03:56.107 --> 00:03:58.244
+The palette has a command for each view.
+
+s9.2
+00:03:58.244 --> 00:04:04.295
+Control Alt S opens the Dashboard, Control Alt M the Merger, and Control Alt A a live chat.
+
+s9.3
+00:04:04.295 --> 00:04:09.764
+In the panel, tab switches views, the arrows or J and K select, and enter opens the chat.
+
+s9.4
+00:04:09.764 --> 00:04:13.410
+R refreshes, and Control P pauses or resumes the daemon.
+
+s9.5
+00:04:13.410 --> 00:04:16.243
+Each footer shows only the keys that your role can use.
+
+s9.6
+00:04:16.243 --> 00:04:20.844
+A confirmation opens above the footer. Enter confirms, and escape cancels.
+
+s9.7
+00:04:20.844 --> 00:04:26.083
+Pause, bypass and publish need a reason of at least eight characters, for the audit log.

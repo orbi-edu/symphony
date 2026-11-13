@@ -1,0 +1,111 @@
+{
+  "voice": "af_heart",
+  "speed": 1.15,
+  "pads": { "sceneLead": 0.35, "cueGap": 0.22, "sceneTail": 0.5, "intro": 0.3, "outro": 1.6 },
+  "scenes": [
+    {
+      "id": "s1",
+      "kicker": "Testing",
+      "title": "How Symphony is proven",
+      "cues": [
+        { "text": "Symphony is proven in layers: a fast suite, vendor mocks with real agents, real infrastructure, and Tern.", "after": 1.2 }
+      ]
+    },
+    {
+      "id": "s2",
+      "kicker": "The default suite",
+      "title": "1,353 unit and integration tests",
+      "cues": [
+        { "text": "The default suite has 1,353 tests.", "say": "The default suite has one thousand, three hundred fifty-three tests." },
+        { "text": "It needs a real Redis, but no network and no model call.", "say": "It needs a real Red-iss, but no network and no model call." },
+        { "text": "It covers every API route, the daemon, the runner, the trackers and the merger." }
+      ]
+    },
+    {
+      "id": "s3",
+      "kicker": "Vendor mocks",
+      "title": "Faithful to the published specs",
+      "cues": [
+        { "text": "The mocks copy six vendor APIs, and each is built from the vendor's published spec." },
+        { "text": "SOURCES.md pins each file with its source, its date and its sha256.", "say": "The sources file pins each file with its source, its date and its S H A two fifty-six." },
+        { "text": "Every request is checked against the spec. One outside it gets the documented error." },
+        { "text": "Five mocks answer 501 for an operation they do not serve. No mock invents data.", "say": "Five mocks answer five oh one for an operation they do not serve. No mock invents data." },
+        { "text": "Authentication and webhook signatures work as each vendor documents them." }
+      ]
+    },
+    {
+      "id": "s4",
+      "kicker": "Mocked certification",
+      "title": "The whole system, against the mocks",
+      "cues": [
+        { "text": "The mocked run starts Redis, the mocks, Symphony and the merger, on one machine.", "say": "The mocked run starts Red-iss, the mocks, Symphony and the merger, on one machine." },
+        { "text": "The agents are real: the pinned omp, on Amazon Bedrock.", "say": "The agents are real: the pinned O M P, on Amazon Bedrock." },
+        { "text": "Four configurations cover Linear with Slack, GitHub with Discord, and the chat assistant." },
+        { "text": "Every check passed, with no request outside the GitHub spec." }
+      ]
+    },
+    {
+      "id": "s5",
+      "kicker": "Scenarios 1 to 6",
+      "title": "From a ticket to a merge",
+      "cues": [
+        { "text": "In scenario 1, a webhook started the agent in 44 milliseconds.", "say": "In scenario one, a webhook started the agent in forty-four milliseconds." },
+        { "text": "It opened a ready pull request in 18.8 seconds.", "say": "It opened a ready pull request in eighteen point eight seconds." },
+        { "text": "The merger merged it in 64.8 seconds, or 55.8 on GitHub.", "say": "The merger merged it in sixty-four point eight seconds, or fifty-five point eight on GitHub." },
+        { "text": "Other scenarios covered two repositories, a read-only investigation, and sub-issues with evidence." },
+        { "text": "Then an agent answered an inline comment, and a retrospective opened a learnings pull request." }
+      ]
+    },
+    {
+      "id": "s6",
+      "kicker": "Scenarios 7 to 12",
+      "title": "Main watch, rejection, assistant, MCP",
+      "cues": [
+        { "text": "Scenario 7 opened a red main ticket in 2.3 seconds.", "say": "Scenario seven opened a red main ticket in two point three seconds." },
+        { "text": "Scenario 8 sent a real bug back in 30.3 seconds.", "say": "Scenario eight sent a real bug back in thirty point three seconds." },
+        { "text": "The assistant answered on Slack and on Discord in about 10 seconds.", "say": "The assistant answered on Slack and on Discord in about ten seconds." },
+        { "text": "A mapped click created a ticket tree. An unmapped click was refused." },
+        { "text": "Through the gateway, an MCP call never carried the agent's own token.", "say": "Through the gateway, an M C P call never carried the agent's own token." },
+        { "text": "The run found seven defects. Each fix has a regression test." },
+        { "text": "The mocks are not the vendors. Real rate limits, webhook retries and Kubernetes are not in this run." }
+      ]
+    },
+    {
+      "id": "s7",
+      "kicker": "Kubernetes on kind",
+      "title": "One real attempt on a cluster",
+      "cues": [
+        { "text": "The kind run deploys Symphony on a local Kubernetes cluster, and runs one real attempt." },
+        { "text": "From an empty machine to a deleted cluster, it took 275 seconds.", "say": "From an empty machine to a deleted cluster, it took two hundred seventy-five seconds." },
+        { "text": "A ticket became a Job in 7.7 seconds, and the agent ran at 15.3.", "say": "A ticket became a Job in seven point seven seconds, and the agent ran at fifteen point three." },
+        { "text": "Live events reached the host in 3 milliseconds. A steer applied in 13.", "say": "Live events reached the host in three milliseconds. A steer applied in thirteen." },
+        { "text": "A refresh resumed the same session, on the same pod." },
+        { "text": "Its limits: the memory tracker, one turn per attempt, and no merger." }
+      ]
+    },
+    {
+      "id": "s8",
+      "kicker": "Merger certification",
+      "title": "A real GitHub repository",
+      "cues": [
+        { "text": "The merger certification uses a real GitHub repository, real CI and real agents.", "say": "The merger certification uses a real GitHub repository, real C I and real agents." },
+        { "text": "A clean merge, a sent-back bug and a batch passed. A conflict passed on the third round." },
+        { "text": "A batch on a protected main failed first. After the fix, it passed." },
+        { "text": "With no findings, a review took 10 to 40 seconds. Eight bugs were fixed.", "say": "With no findings, a review took ten to forty seconds. Eight bugs were fixed." },
+        { "text": "Its limits: a user token, not a GitHub App, no webhooks, and a recorded tracker and chat." },
+        { "text": "Main stayed green, so the main watch opened no ticket there." }
+      ]
+    },
+    {
+      "id": "s9",
+      "kicker": "Tern",
+      "title": "Headless plugin tests",
+      "cues": [
+        { "text": "Tern's 37 tests run a real Tern server, headless, with the plugin as a fixture.", "say": "Tern's thirty-seven tests run a real Tern server, headless, with the plugin as a fixture." },
+        { "text": "One suite uses a fake API. The other uses Redis, the real API and the real CLI.", "say": "One suite uses a fake API. The other uses Red-iss, the real API and the real C L I." },
+        { "text": "A test fails if Tern logs a plugin error." },
+        { "text": "The same harness renders the screenshots in the docs." }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,133 @@
+WEBVTT
+
+s1.1
+00:00:00.650 --> 00:00:04.227
+A coding agent on a laptop works well for one person.
+
+s1.2
+00:00:04.227 --> 00:00:06.330
+A team asks harder questions.
+
+s1.3
+00:00:06.330 --> 00:00:10.533
+Each person runs agents in a different way, and nobody sees all of them.
+
+s1.4
+00:00:10.533 --> 00:00:13.870
+Who runs the agents, on which machine, and with which keys?
+
+s1.5
+00:00:13.870 --> 00:00:16.940
+How do you follow them, steer them and review their work?
+
+s1.6
+00:00:16.940 --> 00:00:20.952
+How do you merge safely, and keep credentials away from agent code?
+
+s2.1
+00:00:21.452 --> 00:00:26.472
+Symphony turns tickets into work orders, from Linear or a GitHub Projects board.
+
+s2.2
+00:00:26.472 --> 00:00:31.399
+A webhook starts the agent. When the work is done, it opens a ready pull request.
+
+s2.3
+00:00:31.399 --> 00:00:36.284
+Each attempt runs in its own pod. The tracker, App and chat keys stay outside.
+
+s2.4
+00:00:36.284 --> 00:00:41.359
+You follow, steer or take over any agent from Tern, the CLI or MCP.
+
+s2.5
+00:00:41.359 --> 00:00:46.826
+Two models review each pull request. A train merges only the head that CI tested.
+
+s2.6
+00:00:46.826 --> 00:00:51.601
+Admins choose a model for each role, and store the API keys in one place.
+
+s2.7
+00:00:51.601 --> 00:00:57.151
+After each ticket, a learnings pull request can teach the repository. A person merges it.
+
+s2.8
+00:00:57.151 --> 00:00:59.343
+Notices go to Slack or Discord.
+
+s2.9
+00:00:59.343 --> 00:01:02.870
+An assistant in chat answers questions and plans tickets.
+
+s2.10
+00:01:02.870 --> 00:01:07.729
+A first-run setup checks each value against the real service before it saves it.
+
+s3.1
+00:01:08.229 --> 00:01:11.772
+The vendor mocks follow each vendor's published specification.
+
+s3.2
+00:01:11.772 --> 00:01:17.397
+Real agents passed all 8 scenarios with Linear and Slack, and 4 with GitHub and Discord.
+
+s3.3
+00:01:17.397 --> 00:01:22.079
+The merger was certified on a real GitHub repository, with real CI.
+
+s3.4
+00:01:22.079 --> 00:01:25.745
+Each defect that these runs found now has a regression test.
+
+s3.5
+00:01:25.745 --> 00:01:30.197
+On kind, a full Kubernetes run took 275 seconds.
+
+s3.6
+00:01:30.197 --> 00:01:34.780
+Symphony is open source under the MIT License. You host it yourself.
+
+s3.7
+00:01:34.780 --> 00:01:40.710
+Models use API keys or cloud credentials. There is no OAuth or subscription login.
+
+s4.1
+00:01:41.210 --> 00:01:45.679
+It fits a team that plans work in tickets and reviews code in pull requests.
+
+s4.2
+00:01:45.679 --> 00:01:50.781
+A repository can send disputed findings to a maintainer instead of the arbiter.
+
+s4.3
+00:01:50.781 --> 00:01:55.466
+Your code must be on GitHub, and the tracker must be Linear or GitHub Projects.
+
+s4.4
+00:01:55.466 --> 00:01:59.321
+You need Kubernetes. One VM with k3s is enough.
+
+s4.5
+00:01:59.321 --> 00:02:04.227
+Local mode runs on one machine, with no container. Use it to try Symphony.
+
+s4.6
+00:02:04.227 --> 00:02:09.088
+Linear, Slack and Discord were certified against mocks, not the real services.
+
+s5.1
+00:02:09.588 --> 00:02:13.337
+Install the API and Redis with one kubectl command.
+
+s5.2
+00:02:13.337 --> 00:02:16.466
+Then run symphony setup, or open Setup in Tern.
+
+s5.3
+00:02:16.466 --> 00:02:18.689
+Each step is checked before it is saved.
+
+s5.4
+00:02:18.689 --> 00:02:21.879
+The video list in the docs covers each part in depth.

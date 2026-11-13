@@ -1,0 +1,150 @@
+{
+  "voice": "af_heart",
+  "speed": 1.15,
+  "pads": { "sceneLead": 0.35, "cueGap": 0.22, "sceneTail": 0.5, "intro": 0.3, "outro": 1.6 },
+  "scenes": [
+    {
+      "id": "s1",
+      "kicker": "The merger",
+      "title": "From a ready pull request to main",
+      "cues": [
+        { "text": "The merger takes a pull request from ready to merged." },
+        { "text": "One merger runs for each repository." },
+        { "text": "Only AI agents review. No person approves, and no outside review service takes part." },
+        { "text": "First, agents review the pull request and write one report." },
+        { "text": "Then a deterministic merge train rebases, tests and merges it." },
+        { "text": "Agents help in the train only when a rebase conflicts." }
+      ]
+    },
+    {
+      "id": "s2",
+      "kicker": "How it watches",
+      "title": "Webhooks, a safety poll, claims and a queue",
+      "cues": [
+        { "text": "GitHub webhooks wake the merger: pull requests, check runs, workflow runs and pushes to main." },
+        { "text": "Each webhook wakes only the merger of its repository." },
+        { "text": "If a webhook is lost, a safety poll runs every 30 seconds.", "say": "If a webhook is lost, a safety poll runs every thirty seconds." },
+        { "text": "Two review workers run by default, beside one train loop and the main watch." },
+        { "text": "A heartbeat tells the API that the merger is alive." },
+        { "text": "A worker claims a pull request for two minutes, and renews the claim while it works." },
+        { "text": "If a pod dies, its claims expire, and another worker takes the pull request." },
+        { "text": "The queue takes bypassed pull requests first, then re-reviews, then first reviews." },
+        { "text": "In each group, the oldest ready pull request goes first." },
+        { "text": "A pull request is eligible when it is open, ready, based on main, and its head has a check run." }
+      ]
+    },
+    {
+      "id": "s3",
+      "kicker": "One review",
+      "title": "Probe, precheck, lanes, oracle",
+      "cues": [
+        { "text": "Before a review, the merger probes the model of each role." },
+        { "text": "The agent must read a secret value from a file and return it." },
+        { "text": "If a probe fails, the worker waits from one minute up to ten minutes." },
+        { "text": "Next come deterministic prechecks." },
+        { "text": "They catch fixup commits, large files, local paths, broken links and secrets." },
+        { "text": "The repository can add its own checks, such as a lint command." },
+        { "text": "Then reviewer agents read the diff in parallel lanes." },
+        { "text": "The default lanes are correctness, security and spec, and design." },
+        { "text": "A reviewer reports each finding through a tool call with a fixed schema." },
+        { "text": "An oracle on a different model checks the findings, four per call." },
+        { "text": "A finding blocks only when the reviewer and the oracle both grade it blocking." },
+        { "text": "These agents can only read and search. They cannot edit." }
+      ]
+    },
+    {
+      "id": "s4",
+      "kicker": "What it writes on the PR",
+      "title": "One report, labels, and one draft at most",
+      "cues": [
+        { "text": "During a review, the pull request has the in-audit label." },
+        { "text": "Each review ends in exactly one report comment." },
+        { "text": "Its title is Reviewed, Not merged, or Waiting for CI.", "say": "Its title is Reviewed, Not merged, or Waiting for C I." },
+        { "text": "Then come the merger, the head commit, the outcome, the CI line, and one section for each finding.", "say": "Then come the merger, the head commit, the outcome, the C I line, and one section for each finding." },
+        { "text": "If CI still runs, the merger posts the report now and parks the review.", "say": "If C I still runs, the merger posts the report now and parks the review." },
+        { "text": "When CI ends, it edits that same comment.", "say": "When C I ends, it edits that same comment." },
+        { "text": "Green CI hands the pull request to the train, with the reviewed label.", "say": "Green C I hands the pull request to the train, with the reviewed label." },
+        { "text": "A confirmed block, a rule break or red CI sends it back to the author.", "say": "A confirmed block, a rule break or red C I sends it back to the author." },
+        { "text": "The first time, it goes to draft with the review-requested label, and the ticket goes to Rework." },
+        { "text": "This happens once. A later block leaves the pull request ready." },
+        { "text": "A failed run writes no comment. Only the team channel hears about it." }
+      ]
+    },
+    {
+      "id": "s5",
+      "kicker": "It keeps watching",
+      "title": "Fixes, delta re-reviews and the arbiter",
+      "cues": [
+        { "text": "The merger keeps watching after it sends a pull request back." },
+        { "text": "The author pushes a fix and marks the pull request ready." },
+        { "text": "Now it is a re-review, so it goes ahead of first reviews." },
+        { "text": "One reviewer reads only what changed since the reviewed head." },
+        { "text": "If the author rebased, the merger first replays the reviewed commits onto the new main." },
+        { "text": "So the delta does not contain the changes of main." },
+        { "text": "After the one rejection, a finding blocks only if it reopens an earlier one, or is a bug near the new changes." },
+        { "text": "A block that is confirmed again goes to an AI arbiter." },
+        { "text": "If the arbiter upholds it, the needs-maintainer label goes on, and a person decides." },
+        { "text": "If the arbiter dismisses every finding, the pull request goes on to the train." },
+        { "text": "If the author pushes during a review, the review stops. The next review covers only the push." }
+      ]
+    },
+    {
+      "id": "s6",
+      "kicker": "The merge train",
+      "title": "Serial, deterministic, crash-safe",
+      "cues": [
+        { "text": "The train runs one step at a time, under a lease." },
+        { "text": "It takes first the pull request that overlaps least with the recent changes on main." },
+        { "text": "It rebases the branch onto main and pushes it with force-with-lease." },
+        { "text": "It waits for CI on that exact head. A webhook wakes it, and it also checks every 30 seconds.", "say": "It waits for C I on that exact head. A webhook wakes it, and it also checks every thirty seconds." },
+        { "text": "It merges only that tested head, posts a Merged comment, and deletes the branch." },
+        { "text": "When several pull requests wait, it chains up to four in a batch." },
+        { "text": "CI runs only on the top, and the members merge in order.", "say": "C I runs only on the top, and the members merge in order." },
+        { "text": "A red batch reruns its failed jobs once. Then it splits in halves until the bad pull request is alone." },
+        { "text": "If a rebase conflicts, a developer agent resolves it, and a reviewer agent checks the result." },
+        { "text": "Then the pull request gets a Rebased onto main comment and goes back to its place." },
+        { "text": "Before each effect, the train saves its intent, so a restart repeats nothing." },
+        { "text": "At hand-off, the ticket moves to Merging. After the merge, the tracker moves it to Done." }
+      ]
+    },
+    {
+      "id": "s7",
+      "kicker": "Main watch",
+      "title": "Red main opens a ticket",
+      "cues": [
+        { "text": "The main watch reads each finished CI run on main.", "say": "The main watch reads each finished C I run on main." },
+        { "text": "When main turns red, it opens one ticket with the logs of the failed jobs." },
+        { "text": "The ticket has the routing labels, so the daemon dispatches an agent to fix main." },
+        { "text": "When main is green again, it comments on the ticket and moves it to Done." },
+        { "text": "Both events also go to Slack or Discord." }
+      ]
+    },
+    {
+      "id": "s8",
+      "kicker": "Operators",
+      "title": "Policy, actions and live sessions",
+      "cues": [
+        { "text": "Each repository sets its rules in a policy file." },
+        { "text": "The merger reads that file from main, so a pull request cannot weaken its own review." },
+        { "text": "The file sets the lanes, the checks, the merge method and the batch size." },
+        { "text": "Operators can bypass a review, requeue a pull request, or release a stuck claim." },
+        { "text": "They use the CLI, the API, or the Merger view in Tern.", "say": "They use the C L I, the API, or the Merger view in Tern." },
+        { "text": "Each merger agent is a live session that you can follow and interrupt." }
+      ]
+    },
+    {
+      "id": "s9",
+      "kicker": "Proof",
+      "title": "Certified on a real GitHub repository",
+      "cues": [
+        { "text": "The merger was certified on a real GitHub repository, with real CI and real agents.", "say": "The merger was certified on a real GitHub repository, with real C I and real agents." },
+        { "text": "A clean pull request merged at the reviewed head." },
+        { "text": "A real bug went back to draft once, with a confirmed finding." },
+        { "text": "Agents resolved a rebase conflict, and the pull request merged." },
+        { "text": "Batches of three merged with CI on the top only, also on a protected main.", "say": "Batches of three merged with C I on the top only, also on a protected main." },
+        { "text": "With no findings, a review took 10 to 40 seconds.", "say": "With no findings, a review took ten to forty seconds." },
+        { "text": "In the mocked runs, the merger reviewed and merged on both trackers." }
+      ]
+    }
+  ]
+}

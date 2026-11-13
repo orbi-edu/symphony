@@ -1,0 +1,229 @@
+WEBVTT
+
+s1.1
+00:00:00.650 --> 00:00:03.423
+The assistant is a chat bot on Slack and Discord.
+
+s1.2
+00:00:03.423 --> 00:00:06.872
+It answers questions about your code and your Symphony install.
+
+s1.3
+00:00:06.872 --> 00:00:09.830
+It researches a topic, and it plans work as tickets.
+
+s1.4
+00:00:09.830 --> 00:00:12.849
+A person confirms a plan before any ticket exists.
+
+s1.5
+00:00:12.849 --> 00:00:18.689
+It runs as one deployment that dials out to Slack and Discord, so it needs no public URL.
+
+s2.1
+00:00:19.039 --> 00:00:23.732
+Mention it in an allowed channel, send it a direct message, or reply in its thread.
+
+s2.2
+00:00:23.732 --> 00:00:26.293
+A plain question goes to the assistant role.
+
+s2.3
+00:00:26.293 --> 00:00:30.598
+It posts Working on it at once, then edits that message as the answer streams.
+
+s2.4
+00:00:30.598 --> 00:00:34.947
+Start with research, and the researcher digs through the code, the tracker and the web.
+
+s2.5
+00:00:34.947 --> 00:00:38.076
+Start with plan, and the planner turns a goal into tickets.
+
+s2.6
+00:00:38.076 --> 00:00:40.505
+Each mode is a team role with its own model.
+
+s2.7
+00:00:40.505 --> 00:00:43.695
+A follow-up without a mode word keeps the thread's role.
+
+s3.1
+00:00:44.045 --> 00:00:47.049
+The agents read your repositories at origin main.
+
+s3.2
+00:00:47.049 --> 00:00:50.766
+A code citation names the repository, the path and the line.
+
+s3.3
+00:00:50.766 --> 00:00:55.010
+The assistant turns it into a link to GitHub, at the commit the agent read.
+
+s3.4
+00:00:55.010 --> 00:00:57.928
+The agent can read, grep, glob and search the web.
+
+s3.5
+00:00:57.928 --> 00:01:02.285
+Symphony status shows tickets, sessions, the merger queue and recent failures.
+
+s3.6
+00:01:02.285 --> 00:01:05.170
+Tracker search looks up tickets in Linear or GitHub.
+
+s3.7
+00:01:05.170 --> 00:01:09.328
+It cannot run commands, change files, push, comment, or move a ticket.
+
+s3.8
+00:01:09.328 --> 00:01:13.646
+Its environment holds no chat, tracker or GitHub App credential.
+
+s4.1
+00:01:13.996 --> 00:01:17.244
+The planner never creates tickets. It calls propose tickets.
+
+s4.2
+00:01:17.244 --> 00:01:19.565
+The assistant posts the plan with three buttons.
+
+s4.3
+00:01:19.565 --> 00:01:23.251
+Create puts the tickets in Backlog, with a repository label.
+
+s4.4
+00:01:23.251 --> 00:01:28.559
+Create and start uses the first active state and the symphony label, so the daemon picks them up.
+
+s4.5
+00:01:28.559 --> 00:01:29.983
+Dismiss creates nothing.
+
+s4.6
+00:01:29.983 --> 00:01:32.798
+Only a person mapped in notify.users can click.
+
+s4.7
+00:01:32.798 --> 00:01:35.966
+Anyone else gets a private answer, and nothing is created.
+
+s4.8
+00:01:35.966 --> 00:01:38.987
+The audit actor is that person's GitHub login.
+
+s5.1
+00:01:39.337 --> 00:01:41.672
+A claim key lets one click work at a time.
+
+s5.2
+00:01:41.672 --> 00:01:45.115
+A second click meanwhile hears that the tickets are being created.
+
+s5.3
+00:01:45.115 --> 00:01:47.700
+Each created ticket is recorded by its key.
+
+s5.4
+00:01:47.700 --> 00:01:52.101
+So a double click, or a retry after a failure, never creates a ticket twice.
+
+s5.5
+00:01:52.101 --> 00:01:55.761
+Parents and blockers come first, and a child becomes a sub-issue.
+
+s5.6
+00:01:55.761 --> 00:01:59.163
+Each blocked-by becomes a real blocking relation in the tracker.
+
+s5.7
+00:01:59.163 --> 00:02:03.283
+If the tracker refuses a link, the assistant says so in a comment on the ticket.
+
+s5.8
+00:02:03.283 --> 00:02:07.804
+The audit log records the creation, with the login and the identifiers.
+
+s6.1
+00:02:08.154 --> 00:02:11.829
+Each chat thread is an assist session, and Tern's Sessions view lists it.
+
+s6.2
+00:02:11.829 --> 00:02:15.162
+The row shows the mode, the transport, the channel and the thread.
+
+s6.3
+00:02:15.162 --> 00:02:17.085
+Open it to follow the turn live.
+
+s6.4
+00:02:17.085 --> 00:02:18.929
+A steer reaches the running turn.
+
+s6.5
+00:02:18.929 --> 00:02:23.155
+A follow-up becomes the thread's next question, and the answer goes to the chat.
+
+s6.6
+00:02:23.155 --> 00:02:27.780
+At most three turns run at once. After 30 idle minutes, the session ends.
+
+s7.1
+00:02:28.130 --> 00:02:31.418
+The assistant reuses the bots of the notifications step.
+
+s7.2
+00:02:31.418 --> 00:02:35.813
+On Slack, turn on Socket Mode, and make an app-level token with connections write.
+
+s7.3
+00:02:35.813 --> 00:02:39.172
+On Discord, turn on the Message Content intent of the bot.
+
+s7.4
+00:02:39.172 --> 00:02:43.337
+Then run symphony setup assistant, with the channels and the repositories.
+
+s7.5
+00:02:43.337 --> 00:02:46.653
+The app token comes from standard input or a hidden prompt.
+
+s7.6
+00:02:46.653 --> 00:02:50.595
+The API checks both Slack tokens, and the intent on Discord.
+
+s7.7
+00:02:50.595 --> 00:02:54.313
+Then it publishes the settings in WORKFLOW and restarts the assistant.
+
+s7.8
+00:02:54.313 --> 00:02:57.593
+In Tern, the same form is the Assistant step of Setup.
+
+s8.1
+00:02:57.943 --> 00:03:01.198
+The mocked certification tested the assistant end to end.
+
+s8.2
+00:03:01.198 --> 00:03:04.116
+On Slack, the envelope was acked in three milliseconds.
+
+s8.3
+00:03:04.116 --> 00:03:07.903
+The answer, with its code citation, came after about ten seconds.
+
+s8.4
+00:03:07.903 --> 00:03:12.406
+A mapped click created three tickets in Linear in half a second, with a blocking relation.
+
+s8.5
+00:03:12.406 --> 00:03:16.038
+An unmapped click was refused, and a double click created nothing.
+
+s8.6
+00:03:16.038 --> 00:03:19.357
+On Discord, with the GitHub tracker, the same flow passed.
+
+s8.7
+00:03:19.357 --> 00:03:20.991
+Every check passed.

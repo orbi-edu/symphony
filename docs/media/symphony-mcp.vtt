@@ -1,0 +1,173 @@
+WEBVTT
+
+s1.1
+00:00:00.650 --> 00:00:04.509
+Symphony can give its agents more tools through MCP servers.
+
+s1.2
+00:00:04.509 --> 00:00:08.143
+A server can search the web, read a wiki, or look up an error tracker.
+
+s1.3
+00:00:08.143 --> 00:00:11.528
+An admin picks the servers, and the agent roles that get them.
+
+s1.4
+00:00:11.528 --> 00:00:16.256
+When an agent starts, Symphony writes its role's servers into the agent's private config.
+
+s1.5
+00:00:16.256 --> 00:00:19.542
+The agent sees each tool next to its usual tools.
+
+s2.1
+00:00:19.892 --> 00:00:22.245
+A server uses one of three transports.
+
+s2.2
+00:00:22.245 --> 00:00:27.184
+Streamable HTTP and the older SSE transport reach a remote server.
+
+s2.3
+00:00:27.184 --> 00:00:31.153
+A stdio server is a process that runs next to the agent.
+
+s2.4
+00:00:31.153 --> 00:00:33.518
+Each server lists the agent roles that get it.
+
+s2.5
+00:00:33.518 --> 00:00:36.810
+A role without servers gets no MCP tools.
+
+s3.1
+00:00:37.160 --> 00:00:41.302
+A remote server points to the sandbox gateway, not to the real URL.
+
+s3.2
+00:00:41.302 --> 00:00:45.185
+Each agent session mints its own token, for its session and its role.
+
+s3.3
+00:00:45.185 --> 00:00:48.707
+Redis keeps only a hash of it, and the agent sends it as a bearer.
+
+s3.4
+00:00:48.707 --> 00:00:51.597
+The gateway checks the token, the server, and the role.
+
+s3.5
+00:00:51.597 --> 00:00:55.477
+If any check fails, it answers 403, and never says which check.
+
+s3.6
+00:00:55.477 --> 00:00:59.460
+Otherwise it drops the agent's token, and adds the stored secret headers.
+
+s3.7
+00:00:59.460 --> 00:01:03.986
+The token is revoked when the session ends, or expires after four hours.
+
+s4.1
+00:01:04.336 --> 00:01:07.097
+Symphony ignores every other MCP config.
+
+s4.2
+00:01:07.097 --> 00:01:13.444
+The agent's settings turn project configs off, so a repository's own .omp/mcp.json has no effect.
+
+s4.3
+00:01:13.444 --> 00:01:18.574
+They also set tools.xdev to false, so a read-only role gains no write tool.
+
+s4.4
+00:01:18.574 --> 00:01:23.916
+A stdio server gets no secret headers, and no env variable that looks like a credential.
+
+s4.5
+00:01:23.916 --> 00:01:27.643
+Its command must exist in the image where the agent runs.
+
+s5.1
+00:01:27.993 --> 00:01:33.023
+In local mode, the engines keep the host's omp agent dir, with its logins.
+
+s5.2
+00:01:33.023 --> 00:01:37.372
+Symphony writes a plugin and a settings overlay into the attempt's private dir.
+
+s5.3
+00:01:37.372 --> 00:01:40.673
+The engine starts with --plugin-dir and --config.
+
+s5.4
+00:01:40.673 --> 00:01:45.431
+The overlay wins over the host's settings, so the repository config stays off.
+
+s6.1
+00:01:45.781 --> 00:01:49.025
+Admins add servers in Tern, under Admin, MCP.
+
+s6.2
+00:01:49.025 --> 00:01:52.593
+Each row shows the transport, the roles, the headers and the state.
+
+s6.3
+00:01:52.593 --> 00:01:56.962
+Secret headers are write-only. Tern shows their names, never their values.
+
+s6.4
+00:01:56.962 --> 00:02:00.198
+Test connects through the gateway, and lists the tools or the error.
+
+s6.5
+00:02:00.198 --> 00:02:03.923
+The CLI does the same, with set, headers, test and list.
+
+s6.6
+00:02:03.923 --> 00:02:08.871
+Headers come as JSON on standard input, so no value appears in an argument.
+
+s7.1
+00:02:09.221 --> 00:02:12.181
+On Kubernetes, the gateway reads a mounted Secret.
+
+s7.2
+00:02:12.181 --> 00:02:16.413
+The kubelet updates it after about a minute, so a change can take a minute to work.
+
+s7.3
+00:02:16.413 --> 00:02:19.392
+A running agent keeps its servers until its session ends.
+
+s7.4
+00:02:19.392 --> 00:02:24.766
+In local mode, your own ~/.omp/agent/mcp.json still loads.
+
+s8.1
+00:02:25.116 --> 00:02:29.654
+Scenario 12 of the mocked certification ran MCP through the gateway.
+
+s8.2
+00:02:29.654 --> 00:02:34.594
+An admin stored a mock server with two secret headers, and its test listed two tools.
+
+s8.3
+00:02:34.594 --> 00:02:38.280
+The repository named its own server too. It got no request.
+
+s8.4
+00:02:38.280 --> 00:02:42.915
+The coding agent called the tool, and the result reached the ticket in 16 seconds.
+
+s8.5
+00:02:42.915 --> 00:02:46.016
+The mock saw the stored headers, and never the agent's token.
+
+s8.6
+00:02:46.016 --> 00:02:49.218
+At the end, the revoked token got 403 at the gateway.
+
+s8.7
+00:02:49.218 --> 00:02:53.582
+The assistant used the same route, and answered on Slack in 9 seconds.

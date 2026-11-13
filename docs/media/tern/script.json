@@ -1,0 +1,276 @@
+{
+  "voice": "af_heart",
+  "speed": 1.15,
+  "pads": {
+    "sceneLead": 0.35,
+    "cueGap": 0.22,
+    "sceneTail": 0.5,
+    "intro": 0.3,
+    "outro": 1.6
+  },
+  "scenes": [
+    {
+      "id": "s1",
+      "kicker": "The Tern plugin",
+      "title": "Sign in once, the CLI keeps the token",
+      "cues": [
+        {
+          "text": "The Symphony plugin brings Symphony into Tern."
+        },
+        {
+          "text": "It shows what the agents do, opens live chats, and covers the merger and team administration."
+        },
+        {
+          "text": "Run Symphony: Sign in, then enter your team's address and the API token an admin created for you."
+        },
+        {
+          "text": "The token is masked. The symphony CLI stores it in the system keychain.",
+          "say": "The token is masked. The symphony C L I stores it in the system keychain."
+        },
+        {
+          "text": "Tern never stores it. The plugin asks the CLI for the token and keeps it in memory only.",
+          "say": "Tern never stores it. The plugin asks the C L I for the token and keeps it in memory only."
+        },
+        {
+          "text": "Install in Tern adds the live chat agent, the MCP server for your omp, and this panel.",
+          "say": "Install in Tern adds the live chat agent, the M C P server for your omp, and this panel."
+        },
+        {
+          "text": "When you are not signed in, the panel and the status line show the next step."
+        },
+        {
+          "text": "If Symphony goes down, the panel keeps the last data and shows Offline."
+        }
+      ]
+    },
+    {
+      "id": "s2",
+      "kicker": "Dashboard",
+      "title": "Needs input, actions and the status line",
+      "cues": [
+        {
+          "text": "Control Alt S opens the Dashboard."
+        },
+        {
+          "text": "It shows the day's numbers, and the providers' rate limits of the last hour."
+        },
+        {
+          "text": "Sessions that need input come first, with the agent's question and its options."
+        },
+        {
+          "text": "Press A to answer. Pick an option, or write your own answer."
+        },
+        {
+          "text": "Press M to send a message. If the agent is running, the message joins the current turn."
+        },
+        {
+          "text": "Press I to interrupt, after a confirmation."
+        },
+        {
+          "text": "Press T to take over. Symphony takeover then runs in a new tab."
+        },
+        {
+          "text": "The status line shows how many agents run, and how many need input."
+        },
+        {
+          "text": "It is highlighted when an agent waits for you, and says paused or offline."
+        }
+      ]
+    },
+    {
+      "id": "s3",
+      "kicker": "Sessions and live chat",
+      "title": "Steer, follow up, interrupt, take over",
+      "cues": [
+        {
+          "text": "Sessions lists every session. The bracket keys filter Active, Needs input, Ended or All."
+        },
+        {
+          "text": "Control Alt A picks a session and opens its live chat in a new tab."
+        },
+        {
+          "text": "It is a native Tern chat through symphony acp, with the history and the live events.",
+          "say": "It is a native Tern chat through symphony A C P, with the history and the live events."
+        },
+        {
+          "text": "While the agent runs, your message steers the current turn."
+        },
+        {
+          "text": "When it is idle, the message is a follow-up. When it asks, the message is the answer."
+        },
+        {
+          "text": "To stop the agent, type slash interrupt."
+        },
+        {
+          "text": "Take over holds the ticket, downloads the conversation and the branch, and opens omp on your machine."
+        },
+        {
+          "text": "Return it with symphony release."
+        }
+      ]
+    },
+    {
+      "id": "s4",
+      "kicker": "Tickets",
+      "title": "Tickets and holds",
+      "cues": [
+        {
+          "text": "Tickets shows each ticket's state in Symphony and on the board, the attempt, the cost and the pull request."
+        },
+        {
+          "text": "Symphony does not dispatch a ticket that a person holds."
+        },
+        {
+          "text": "Return to Symphony releases it, and the agents can work on it again."
+        }
+      ]
+    },
+    {
+      "id": "s5",
+      "kicker": "Merger",
+      "title": "One merger per repository",
+      "cues": [
+        {
+          "text": "Each repository has its own merger. Control Alt M opens the Merger view."
+        },
+        {
+          "text": "Mergers lists them: whether each one runs, who holds its train lease, and its current batch."
+        },
+        {
+          "text": "Each table has a Repository column, so pull requests of two repositories never mix."
+        },
+        {
+          "text": "On the selected pull request, B bypasses the review. It asks for a reason for the audit log."
+        },
+        {
+          "text": "Q requeues the pull request, and L releases it."
+        },
+        {
+          "text": "Each action goes to the merger of that pull request's repository."
+        }
+      ]
+    },
+    {
+      "id": "s6",
+      "kicker": "Read-only views",
+      "title": "Repositories, Infrastructure, Telemetry, Learnings, Audit",
+      "cues": [
+        {
+          "text": "Five views are read-only, for every role."
+        },
+        {
+          "text": "Repositories lists where Symphony dispatches tickets."
+        },
+        {
+          "text": "Infrastructure shows the services and the cluster resources."
+        },
+        {
+          "text": "Telemetry shows usage by model, by month and by session."
+        },
+        {
+          "text": "Learnings shows the retrospectives and learning pull requests."
+        },
+        {
+          "text": "Audit lists what people and agents asked Symphony to do."
+        },
+        {
+          "text": "When a source is stale or unavailable, the view says which one."
+        }
+      ]
+    },
+    {
+      "id": "s7",
+      "kicker": "Admin",
+      "title": "Models per role and provider keys",
+      "cues": [
+        {
+          "text": "The Admin view needs an admin token."
+        },
+        {
+          "text": "Models sets the model and the thinking level of each role."
+        },
+        {
+          "text": "Enter picks a model from the pinned omp catalog, then the thinking level."
+        },
+        {
+          "text": "The change stays marked until you publish it with P and a reason."
+        },
+        {
+          "text": "If someone else published first, nothing is overwritten."
+        },
+        {
+          "text": "The rollout shows which consumers already applied the new generation."
+        },
+        {
+          "text": "Providers stores the API keys that the models use."
+        },
+        {
+          "text": "C sets or replaces a key in a hidden field. The key is write-only: it never comes back through the API."
+        },
+        {
+          "text": "It applies on each agent's next attempt, without a restart."
+        }
+      ]
+    },
+    {
+      "id": "s8",
+      "kicker": "Admin",
+      "title": "Tokens, MCP servers and team omp",
+      "cues": [
+        {
+          "text": "Tokens creates team API tokens, each with a name, a role and an expiry."
+        },
+        {
+          "text": "A viewer watches, an operator also acts, and an admin administers."
+        },
+        {
+          "text": "A new token appears only once. After I saved it, it is gone."
+        },
+        {
+          "text": "X revokes a token at once, after a confirmation."
+        },
+        {
+          "text": "MCP servers give agents more tools. Each role gets only the servers enabled for it.",
+          "say": "M C P servers give agents more tools. Each role gets only the servers enabled for it."
+        },
+        {
+          "text": "Enter tests a server and lists its tools."
+        },
+        {
+          "text": "Secret headers are write-only. The gateway adds them, so no secret reaches an agent."
+        },
+        {
+          "text": "Team omp shows the workers' omp defaults. S applies them to your omp, in a separate profile."
+        }
+      ]
+    },
+    {
+      "id": "s9",
+      "kicker": "Keyboard first",
+      "title": "Palette, shortcuts and footers",
+      "cues": [
+        {
+          "text": "The palette has a command for each view."
+        },
+        {
+          "text": "Control Alt S opens the Dashboard, Control Alt M the Merger, and Control Alt A a live chat."
+        },
+        {
+          "text": "In the panel, tab switches views, the arrows or J and K select, and enter opens the chat."
+        },
+        {
+          "text": "R refreshes, and Control P pauses or resumes the daemon."
+        },
+        {
+          "text": "Each footer shows only the keys that your role can use."
+        },
+        {
+          "text": "A confirmation opens above the footer. Enter confirms, and escape cancels."
+        },
+        {
+          "text": "Pause, bypass and publish need a reason of at least eight characters, for the audit log."
+        }
+      ]
+    }
+  ]
+}

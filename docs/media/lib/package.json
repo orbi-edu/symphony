@@ -1,0 +1,8 @@
+{
+  "name": "symphony-explainer-render",
+  "private": true,
+  "description": "Render tooling for docs/media. render.sh installs it in a throwaway directory.",
+  "dependencies": {
+    "playwright-core": "1.65.1"
+  }
+}

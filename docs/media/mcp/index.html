@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Symphony: MCP servers for agents</title>
+<link rel="stylesheet" href="../lib/style.css">
+<style>
+  /* A table row: cells side by side in one node. */
+  .rowc { display: flex; gap: 22px; align-items: center; font-size: 28px; line-height: 1.25; }
+  .rowc b { flex: none; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script src="../lib/engine.js"></script>
+<script src="scenes.js"></script>
+<script>
+  // capture.mjs sets window.TIMING before this runs.
+  D.video(window.TIMING, SCENES);
+  window.READY = Engine.ready();
+  const params = new URLSearchParams(location.search);
+  if (params.has("t")) window.READY.then(() => Engine.seek(parseFloat(params.get("t"))));
+</script>
+</body>
+</html>

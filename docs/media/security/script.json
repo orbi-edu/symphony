@@ -1,0 +1,274 @@
+{
+  "voice": "af_heart",
+  "speed": 1.15,
+  "pads": {
+    "sceneLead": 0.35,
+    "cueGap": 0.22,
+    "sceneTail": 0.5,
+    "intro": 0.3,
+    "outro": 1.6
+  },
+  "scenes": [
+    {
+      "id": "s1",
+      "kicker": "Trust zones",
+      "title": "Agent code is untrusted",
+      "cues": [
+        {
+          "text": "Symphony treats agent code as untrusted."
+        },
+        {
+          "text": "People run the CLI and the Tern plugin, with an API token.",
+          "say": "People run the C L I and the Tern plugin, with an API token."
+        },
+        {
+          "text": "The edge is a Cloudflare Tunnel. It only dials out."
+        },
+        {
+          "text": "The trusted side runs the API, the daemon, the runners, the merger and Redis.",
+          "say": "The trusted side runs the API, the daemon, the runners, the merger and Red-iss."
+        },
+        {
+          "text": "It keeps the integration credentials, and makes every write that needs them."
+        },
+        {
+          "text": "The agent runs in a workspace pod, which gets only the credentials of its own attempt."
+        }
+      ]
+    },
+    {
+      "id": "s2",
+      "kicker": "Model providers",
+      "title": "API keys only, and write-only",
+      "cues": [
+        {
+          "text": "Agents call model providers with API keys."
+        },
+        {
+          "text": "Host cloud credentials, such as Amazon Bedrock, and custom endpoints with no authentication also work."
+        },
+        {
+          "text": "Symphony has no provider OAuth and no subscription login.",
+          "say": "Symphony has no provider O auth and no subscription login."
+        },
+        {
+          "text": "An admin stores a key from Tern or the CLI.",
+          "say": "An admin stores a key from Tern or the C L I."
+        },
+        {
+          "text": "Keys are write-only. Tern shows only whether a key is set.",
+          "after": 0.6
+        }
+      ]
+    },
+    {
+      "id": "s3",
+      "kicker": "The workspace pod",
+      "title": "A closed network and no Kubernetes token",
+      "cues": [
+        {
+          "text": "Each attempt runs in its own workspace pod."
+        },
+        {
+          "text": "Its NetworkPolicy allows no ingress, and egress only to the gateway, DNS and public addresses.",
+          "say": "Its network policy allows no ingress, and egress only to the gateway, D N S and public addresses."
+        },
+        {
+          "text": "Private ranges are excluded: no API, Redis, node or metadata endpoint.",
+          "say": "Private ranges are excluded: no API, Red-iss, node or metadata endpoint."
+        },
+        {
+          "text": "The pod mounts no ServiceAccount token, so it cannot call the Kubernetes API.",
+          "say": "The pod mounts no service account token, so it cannot call the Kubernetes API."
+        },
+        {
+          "text": "Nothing connects into the pod. The runner uses pods/exec.",
+          "say": "Nothing connects into the pod. The runner uses pods exec."
+        },
+        {
+          "text": "Public egress is open, so agent code can leak only its own credentials."
+        }
+      ]
+    },
+    {
+      "id": "s4",
+      "kicker": "Inside a workspace",
+      "title": "Four credentials, and no others",
+      "cues": [
+        {
+          "text": "A workspace gets four credentials."
+        },
+        {
+          "text": "The model credential of its role, and a GitHub token for the ticket's repositories."
+        },
+        {
+          "text": "The telemetry token of the dispatch, and one MCP token for each agent session.",
+          "say": "The telemetry token of the dispatch, and one M C P token for each agent session."
+        },
+        {
+          "text": "The runner writes them into private files."
+        },
+        {
+          "text": "The pod never holds the Linear key, the App private key, chat tokens or API tokens.",
+          "after": 0.6
+        }
+      ]
+    },
+    {
+      "id": "s5",
+      "kicker": "GitHub token",
+      "title": "A narrow scope that lasts one hour",
+      "cues": [
+        {
+          "text": "A normal ticket gets the GitHub scope ghapp.WORKSPACE.",
+          "say": "A normal ticket gets the GitHub scope G H app dot workspace."
+        },
+        {
+          "text": "It writes code and pull requests, and reads checks, actions and statuses."
+        },
+        {
+          "text": "It has no issues, projects or workflows permission."
+        },
+        {
+          "text": "An investigation gets ghapp.READ_ONLY, so GitHub refuses its push or pull request.",
+          "say": "An investigation gets G H app dot read only, so GitHub refuses its push or pull request."
+        },
+        {
+          "text": "A token lives at most one hour. The runner renews it between turns."
+        }
+      ]
+    },
+    {
+      "id": "s6",
+      "kicker": "MCP servers",
+      "title": "Secret headers stay in the gateway",
+      "cues": [
+        {
+          "text": "An admin picks MCP servers for each agent role.",
+          "say": "An admin picks M C P servers for each agent role."
+        },
+        {
+          "text": "Their secret headers live in a Secret that only the gateway mounts."
+        },
+        {
+          "text": "The gateway drops the agent's Authorization and adds the stored headers."
+        },
+        {
+          "text": "Each agent session gets its own MCP token, for one role.",
+          "say": "Each agent session gets its own M C P token, for one role."
+        },
+        {
+          "text": "Another role, or a disabled server, gets a 403.",
+          "say": "Another role, or a disabled server, gets a four oh three."
+        },
+        {
+          "text": "The token is revoked when the session ends."
+        },
+        {
+          "text": "Symphony ignores repository MCP configs, and turns tools.xdev off.",
+          "say": "Symphony ignores repository M C P configs, and turns tools dot x dev off.",
+          "after": 0.6
+        }
+      ]
+    },
+    {
+      "id": "s7",
+      "kicker": "The trusted side",
+      "title": "Setup secrets, Kubernetes roles, webhooks",
+      "cues": [
+        {
+          "text": "Setup checks each integration credential with its service, then saves it in a Secret."
+        },
+        {
+          "text": "Only an admin can write them, and no response or log shows them."
+        },
+        {
+          "text": "Each identity has a namespaced Role. The API only patches Secrets that exist before setup.",
+          "say": "Each identity has a namespaced role. The API only patches Secrets that exist before setup."
+        },
+        {
+          "text": "Webhooks need a valid HMAC signature, and they only wake a loop.",
+          "say": "Webhooks need a valid H MAC signature, and they only wake a loop."
+        },
+        {
+          "text": "Fencing makes sure that only the current dispatch of a ticket can change state."
+        }
+      ]
+    },
+    {
+      "id": "s8",
+      "kicker": "API tokens",
+      "title": "Three roles, hashed, limited, audited",
+      "cues": [
+        {
+          "text": "API tokens have three roles. A viewer reads."
+        },
+        {
+          "text": "An operator also acts: pause, hold, interrupt and bypass."
+        },
+        {
+          "text": "An admin also manages tokens, provider keys and setup."
+        },
+        {
+          "text": "The API stores only a SHA-256 hash of each secret.",
+          "say": "The API stores only a shaw two fifty-six hash of each secret."
+        },
+        {
+          "text": "A token gets 600 requests a minute. Above a limit, the API answers 429.",
+          "say": "A token gets six hundred requests a minute. Above a limit, the API answers four twenty-nine."
+        },
+        {
+          "text": "The API audits every command and every provider change.",
+          "after": 1.0
+        }
+      ]
+    },
+    {
+      "id": "s9",
+      "kicker": "The assistant",
+      "title": "Read-only agents, and a person confirms",
+      "cues": [
+        {
+          "text": "The assistant answers in Slack and Discord. Every message is untrusted."
+        },
+        {
+          "text": "Its agents can only read and search. They have no bash, edit or write."
+        },
+        {
+          "text": "They hold no chat, tracker or App credential, and read code with a read-only token."
+        },
+        {
+          "text": "An agent can propose tickets, but a proposal creates nothing."
+        },
+        {
+          "text": "Only a person mapped in notify.users can confirm.",
+          "say": "Only a person mapped in notify dot users can confirm.",
+          "after": 1.2
+        }
+      ]
+    },
+    {
+      "id": "s10",
+      "kicker": "Local mode",
+      "title": "No container, the same user",
+      "cues": [
+        {
+          "text": "Local mode has no container. The agent runs as the host user."
+        },
+        {
+          "text": "Symphony strips its own secrets from the agent's environment. That is hygiene, not a boundary."
+        },
+        {
+          "text": "With a GitHub App, each attempt still gets a scoped token in a private file."
+        },
+        {
+          "text": "There is no NetworkPolicy, and your own MCP config still loads.",
+          "say": "There is no network policy, and your own M C P config still loads."
+        },
+        {
+          "text": "Use a dedicated user, and run only tickets from people you trust with a shell."
+        }
+      ]
+    }
+  ]
+}

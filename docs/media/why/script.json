@@ -1,0 +1,189 @@
+{
+  "voice": "af_heart",
+  "speed": 1.15,
+  "pads": {
+    "sceneLead": 0.35,
+    "cueGap": 0.22,
+    "sceneTail": 0.5,
+    "intro": 0.3,
+    "outro": 1.6
+  },
+  "scenes": [
+    {
+      "id": "s1",
+      "kicker": "The problem",
+      "title": "One agent on a laptop is not a team setup",
+      "cues": [
+        {
+          "text": "A coding agent on a laptop works well for one person.",
+          "after": 0.25
+        },
+        {
+          "text": "A team asks harder questions.",
+          "after": 0.25
+        },
+        {
+          "text": "Each person runs agents in a different way, and nobody sees all of them.",
+          "after": 0.25
+        },
+        {
+          "text": "Who runs the agents, on which machine, and with which keys?",
+          "after": 0.25
+        },
+        {
+          "text": "How do you follow them, steer them and review their work?",
+          "after": 0.25
+        },
+        {
+          "text": "How do you merge safely, and keep credentials away from agent code?",
+          "after": 0.25
+        }
+      ]
+    },
+    {
+      "id": "s2",
+      "kicker": "What you get",
+      "title": "Tickets in, merged pull requests out",
+      "cues": [
+        {
+          "text": "Symphony turns tickets into work orders, from Linear or a GitHub Projects board.",
+          "after": 0.25
+        },
+        {
+          "text": "A webhook starts the agent. When the work is done, it opens a ready pull request.",
+          "after": 0.25
+        },
+        {
+          "text": "Each attempt runs in its own pod. The tracker, App and chat keys stay outside.",
+          "after": 0.25
+        },
+        {
+          "text": "You follow, steer or take over any agent from Tern, the CLI or MCP.",
+          "say": "You follow, steer or take over any agent from Tern, the C L I or M C P.",
+          "after": 0.25
+        },
+        {
+          "text": "Two models review each pull request. A train merges only the head that CI tested.",
+          "say": "Two models review each pull request. A train merges only the head that C I tested.",
+          "after": 0.25
+        },
+        {
+          "text": "Admins choose a model for each role, and store the API keys in one place.",
+          "after": 0.25
+        },
+        {
+          "text": "After each ticket, a learnings pull request can teach the repository. A person merges it.",
+          "after": 0.25
+        },
+        {
+          "text": "Notices go to Slack or Discord.",
+          "after": 0.25
+        },
+        {
+          "text": "An assistant in chat answers questions and plans tickets.",
+          "after": 0.25
+        },
+        {
+          "text": "A first-run setup checks each value against the real service before it saves it.",
+          "after": 0.25
+        }
+      ]
+    },
+    {
+      "id": "s3",
+      "kicker": "Why trust it",
+      "title": "Tested end to end, open and self-hosted",
+      "cues": [
+        {
+          "text": "The vendor mocks follow each vendor's published specification.",
+          "after": 0.25
+        },
+        {
+          "text": "Real agents passed all 8 scenarios with Linear and Slack, and 4 with GitHub and Discord.",
+          "say": "Real agents passed all eight scenarios with Linear and Slack, and four with GitHub and Discord.",
+          "after": 0.25
+        },
+        {
+          "text": "The merger was certified on a real GitHub repository, with real CI.",
+          "say": "The merger was certified on a real GitHub repository, with real C I.",
+          "after": 0.25
+        },
+        {
+          "text": "Each defect that these runs found now has a regression test.",
+          "after": 0.25
+        },
+        {
+          "text": "On kind, a full Kubernetes run took 275 seconds.",
+          "say": "On kind, a full Kubernetes run took two hundred seventy-five seconds.",
+          "after": 0.25
+        },
+        {
+          "text": "Symphony is open source under the MIT License. You host it yourself.",
+          "say": "Symphony is open source under the M I T License. You host it yourself.",
+          "after": 0.25
+        },
+        {
+          "text": "Models use API keys or cloud credentials. There is no OAuth or subscription login.",
+          "say": "Models use API keys or cloud credentials. There is no O Auth or subscription login.",
+          "after": 0.25
+        }
+      ]
+    },
+    {
+      "id": "s4",
+      "kicker": "Is it for you?",
+      "title": "Where it fits, and where it does not",
+      "cues": [
+        {
+          "text": "It fits a team that plans work in tickets and reviews code in pull requests.",
+          "after": 0.25
+        },
+        {
+          "text": "A repository can send disputed findings to a maintainer instead of the arbiter.",
+          "after": 0.25
+        },
+        {
+          "text": "Your code must be on GitHub, and the tracker must be Linear or GitHub Projects.",
+          "after": 0.25
+        },
+        {
+          "text": "You need Kubernetes. One VM with k3s is enough.",
+          "say": "You need Kubernetes. One V M with K 3 S is enough.",
+          "after": 0.25
+        },
+        {
+          "text": "Local mode runs on one machine, with no container. Use it to try Symphony.",
+          "after": 0.25
+        },
+        {
+          "text": "Linear, Slack and Discord were certified against mocks, not the real services.",
+          "after": 0.25
+        }
+      ]
+    },
+    {
+      "id": "s5",
+      "kicker": "Get started",
+      "title": "Install, then set up",
+      "cues": [
+        {
+          "text": "Install the API and Redis with one kubectl command.",
+          "say": "Install the API and Red-iss with one kube control command.",
+          "after": 0.25
+        },
+        {
+          "text": "Then run symphony setup, or open Setup in Tern.",
+          "after": 0.25
+        },
+        {
+          "text": "Each step is checked before it is saved.",
+          "after": 0.25
+        },
+        {
+          "text": "The video list in the docs covers each part in depth.",
+          "after": 0.25
+        }
+      ]
+    }
+  ]
+}
