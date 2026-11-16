@@ -171,6 +171,17 @@ kubernetes:
 
 The packages are private on the first push. Make them public in the package settings on GitHub, or give the cluster an image pull Secret.
 
+To publish manually without creating a release tag, open **Actions › images › Run workflow**.
+Choose the branch or tag to build and enter its `pyproject.toml` version without the `v` prefix.
+The build rejects a version mismatch. With the GitHub CLI, run:
+
+```sh
+gh workflow run images.yml --ref main -f version=0.1.0
+```
+
+Manual runs publish the same version and rolling tags (`latest`, `node`, `dotnet9`, `dotnet10`).
+They can overwrite those tags. They do not create a Git tag or a GitHub Release.
+
 #### Build the images
 
 `scripts/build_images.sh` builds both families. It reads the `omp` pin from `src/symphony/edge.py`.

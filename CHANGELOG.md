@@ -7,6 +7,11 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Manual image publishing through the `images` workflow, with an explicit version checked
+  against `pyproject.toml`.
+
 ## [0.1.0] - 2026-11-16
 
 The first public release. [docs/features.md](docs/features.md) lists each feature and the test

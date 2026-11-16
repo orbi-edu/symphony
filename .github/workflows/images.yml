@@ -3,6 +3,12 @@ name: images
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version from pyproject.toml, without v; also updates rolling tags"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -29,6 +35,10 @@ jobs:
         env:
           PLATFORM: linux/amd64,linux/arm64
           SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
+          VERSION: ${{ inputs.version }}
         run: |
           owner="${GITHUB_REPOSITORY_OWNER,,}"
-          REGISTRY="ghcr.io/$owner" VERSION="${GITHUB_REF_NAME#v}" scripts/build_images.sh
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          REGISTRY="ghcr.io/$owner" VERSION="$VERSION" scripts/build_images.sh
