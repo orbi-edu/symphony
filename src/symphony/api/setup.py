@@ -291,8 +291,14 @@ class SetupService:
         )
         kubernetes = getattr(self.s.secrets, "mode", "kubernetes") == "kubernetes"
         without = [repo for repo in repositories if repo not in mergers] if kubernetes else []
-        detail = {"default_repo": default, "repositories": repositories, "mergers": mergers,
-                  "without_merger": without}
+        # base_branches: from the values dict (just published) or from the current WORKFLOW.
+        raw_bb = values.get("kubernetes.base_branches")
+        if raw_bb is not None:
+            bb = json.loads(raw_bb) if isinstance(raw_bb, str) else raw_bb
+        else:
+            bb = self._current_base_branches()
+        detail = {"default_repo": default, "base_branches": bb, "repositories": repositories,
+                  "mergers": mergers, "without_merger": without}
         if not repositories:
             return self._step("todo", detail)
         if without:
@@ -582,7 +588,8 @@ class SetupService:
 
     def put_repositories(self, caller: Caller, body: RepositoriesBody) -> dict:
         default = body.default_repo.lower() if body.default_repo else None
-        if default and all(self._app_env()):
+        app_ok = all(self._app_env())
+        if default and app_ok:
             try:
                 installed = self._app(projects=False)["repositories"]
             except checks.SetupError as exc:
@@ -591,12 +598,86 @@ class SetupService:
                 raise ApiError(
                     422, "repo_not_installed", f"the GitHub App is not installed on {default}"
                 )
-        self._publish(caller, {"kubernetes.default_repo": default or ""})
+
+        # Resolve the new base_branches map (None means "don't touch").
+        patch: dict = {"kubernetes.default_repo": default or ""}
+        base_branches: dict[str, str] | None = None
+        old_bb = self._current_base_branches()
+        if body.base_branches is not None:
+            base_branches = {}
+            for repo, branch in body.base_branches.items():
+                repo = repo.lower()
+                if branch:
+                    self._verify_branch(repo, branch)
+                    base_branches[repo] = branch
+            patch["kubernetes.base_branches"] = base_branches
+
+        self._publish(caller, patch)
+
+        # Restart merger and assistant only when the map actually changed, so that
+        # an unchanged save (e.g. Tern prefilling the same values) doesn't cycle pods.
+        restarted: list[str] = []
+        if base_branches is not None and base_branches != old_bb:
+            store = self._store()
+            restarted = store.restart(["github-app"])
+
         self.invalidate()
-        self._audit(caller, "repositories", default or "none")
-        step = self._repositories_step({"kubernetes.default_repo": default or ""})
-        return {"default_repo": default, "mergers": step["detail"]["mergers"],
-                "without_merger": step["detail"]["without_merger"]}
+        # Audit includes the base_branches change.
+        target = default or "none"
+        if base_branches is not None and base_branches:
+            target += "; base_branches: " + ", ".join(
+                f"{r}={b}" for r, b in sorted(base_branches.items()))
+        self._audit(caller, "repositories", target)
+        values = {"kubernetes.default_repo": default or ""}
+        if base_branches is not None:
+            values["kubernetes.base_branches"] = json.dumps(base_branches)
+        step = self._repositories_step(values)
+        return {"default_repo": default,
+                "base_branches": base_branches if base_branches is not None else self._current_base_branches(),
+                "mergers": step["detail"]["mergers"],
+                "without_merger": step["detail"]["without_merger"],
+                "restarted": restarted}
+
+    def _verify_branch(self, repo: str, branch: str) -> None:
+        """Check that `branch` exists on `repo` via the GitHub App token.
+
+        Skipped when no GitHub App is configured (the branch will be validated at
+        runtime by the merger's fetch). Any non-404 error besides 2xx raises
+        ``branch_not_verified`` so the operator sees what happened."""
+        if not all(self._app_env()):
+            return  # no App configured — skip verification
+        try:
+            app = self._app(projects=False)
+        except checks.SetupError as exc:
+            raise _as_api(exc) from None
+        token = app["token"]
+        from urllib.parse import quote
+
+        try:
+            resp = self.http.get(
+                f"{checks.github_api_url()}/repos/{repo}/branches/{quote(branch, safe='')}",
+                headers={"Authorization": f"Bearer {token}",
+                         "Accept": "application/vnd.github+json"},
+                timeout=checks.TIMEOUT_S,
+            )
+        except httpx.HTTPError:
+            raise ApiError(422, "branch_not_verified",
+                           f"could not reach GitHub to verify branch {branch!r} on {repo}") from None
+        if resp.status_code == 404:
+            raise ApiError(422, "branch_not_found",
+                           f"branch {branch!r} not found on {repo}")
+        if resp.status_code >= 300:
+            raise ApiError(422, "branch_not_verified",
+                           f"GitHub answered {resp.status_code} verifying branch {branch!r} on {repo}")
+
+    def _current_base_branches(self) -> dict[str, str]:
+        """The current base_branches from WORKFLOW."""
+        try:
+            raw = self._values().get("kubernetes.base_branches") or "{}"
+            parsed = json.loads(raw) if isinstance(raw, str) else (raw or {})
+            return parsed if isinstance(parsed, dict) else {}
+        except (ApiError, WorkflowError, ValueError):
+            return {}
 
     def _record_test(self, channel: str, result: dict) -> dict:
         record = {**result, "at": int(time.time() * 1000)}
@@ -783,6 +864,7 @@ class GitHubAppBody(BaseModel):
 class RepositoriesBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     default_repo: Annotated[str, Field(pattern=r"^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$")] | None = None
+    base_branches: dict[str, str | None] | None = None
 
 
 class SlackBody(BaseModel):

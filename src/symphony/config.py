@@ -102,6 +102,10 @@ class Config:
     # runtime -> image reference; merged over the edge's built-in defaults, so an
     # operator can repoint one runtime at their own registry without listing all of them.
     agent_images: dict = field(default_factory=dict)
+    # Per-repository base branch override: `owner/repo` (lowercased) → branch name.
+    # When set, the merger, assistant and reflector treat this branch as the repository's
+    # main branch instead of the auto-detected `origin/HEAD`.
+    base_branches: dict = field(default_factory=dict)
     # The workspace pod runs a container daemon only if allowed to: dockerd needs a
     # privileged container (the K8s counterpart of Modal's experimental vm_runtime).
     # Off by default — turning it on is an isolation trade-off the operator must own.
@@ -178,6 +182,22 @@ class Config:
         terminal_states IN FULL (all spellings + Duplicate)."""
         return self.reflect_on if self.reflect_on is not None else self.terminal_states
 
+    def base_branch(self, repo: str) -> str | None:
+        """The configured base branch for `repo`, or None (auto-detect)."""
+        return self.base_branches.get(repo.lower()) or None
+
+
+
+def base_branches_env(cfg: Config, repos: tuple[str, ...] | list[str]) -> str:
+    """Space-separated `owner/name=branch` pairs for target repos with a base branch override.
+
+    Returns "" when no repo has an override. Used as the SYMPHONY_BASE_BRANCHES env var."""
+    pairs = []
+    for repo in repos:
+        branch = cfg.base_branch(repo)
+        if branch:
+            pairs.append(f"{repo.lower()}={branch}")
+    return " ".join(pairs)
 
 TRACKER_KINDS = ("linear", "github", "memory")
 
@@ -617,6 +637,11 @@ def parse_workflow(text: str, env: Mapping[str, str] | None = None) -> Config:
         isinstance(k, str) and isinstance(v, str) for k, v in raw_images.items()
     ):
         raise ConfigError("kubernetes.agent_images must map runtime names to image references")
+    raw_branches = k8s_blk.get("base_branches") or {}
+    if not isinstance(raw_branches, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in raw_branches.items()
+    ):
+        raise ConfigError("kubernetes.base_branches must map repositories to branch names")
     if not isinstance(tracker.get("provider", {}) or {}, dict):
         raise ConfigError("tracker.provider must be a mapping")
     if tracker["kind"] == "github":
@@ -723,6 +748,7 @@ def parse_workflow(text: str, env: Mapping[str, str] | None = None) -> Config:
         agent_runtime=_typed(k8s_blk, "agent_runtime", str, defaults.agent_runtime),
         agent_image=_typed(k8s_blk, "agent_image", str, None),
         agent_images=dict(k8s_blk.get("agent_images") or {}),
+        base_branches={k.lower(): v for k, v in raw_branches.items()},
         privileged_agents=_typed(k8s_blk, "privileged_agents", bool, defaults.privileged_agents),
         runtime_class=_typed(k8s_blk, "runtime_class", str, None),
         storage_class=_typed(k8s_blk, "storage_class", str, None),

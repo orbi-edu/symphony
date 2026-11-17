@@ -149,6 +149,7 @@ The hooks get these variables:
 |---|---|
 | `SYMPHONY_TARGET_REPO` | The primary repository, `owner/name`. |
 | `SYMPHONY_TARGET_REPOS` | All the ticket's repositories, primary first, separated by spaces. |
+| `SYMPHONY_BASE_BRANCHES` | Space-separated `owner/name=branch` pairs for target repos with a base branch override (`kubernetes.base_branches`). Absent when no repo has an override. |
 | `SYMPHONY_WORKSPACE` | Local mode only: the workspace directory (also the current directory). |
 | `GITHUB_SERVER_URL` and the other endpoint variables | Only when they are set on the host. See [Endpoints](#endpoints). |
 
@@ -197,6 +198,7 @@ On Kubernetes, these keys control the workspaces and the Jobs. Local mode ignore
 | `kubernetes.session_volume_size` | string | `1Gi` | The size of each session PVC. |
 | `kubernetes.image_pull_secrets` | list of strings | `[]` | The pull Secrets of the workspace pods. |
 | `kubernetes.default_repo` | string | `null` | The repository (`owner/name`) of tickets that have no `repo:` label. A ticket's own label always wins. The merger also uses it when `SYMPHONY_MERGER_REPO` is empty. |
+| `kubernetes.base_branches` | map of repo to branch | `{}` | Per-repository base branch override (`owner/name` → branch). When set, the merger, assistant, reflector and workspace treat this branch as the repository's main branch instead of the auto-detected remote default. |
 | `kubernetes.egress_allowlist` | list of strings | `[]` | Symphony parses this key. The current code does not enforce it. A plain NetworkPolicy filters by IP address, not by domain name. |
 | `kubernetes.redispatch_cooldown_s` | integer | `900` | The cooldown of a continuation when the ticket did not change. See [concepts.md](concepts.md#cooldown). |
 | `kubernetes.sandbox.cpu` | number | `2` | The CPU request and limit of a workspace pod. |

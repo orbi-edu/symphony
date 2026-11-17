@@ -271,7 +271,7 @@ A ticket names its repositories with `repo:owner/name` labels. With GitHub, a ti
 In a multi-repository ticket:
 
 - The **primary** repository is the default repository when it is one of the labels. Otherwise it is the first label.
-- The `after_create` hook gets `SYMPHONY_TARGET_REPO` (the primary) and `SYMPHONY_TARGET_REPOS` (all, primary first, separated by spaces).
+- The `after_create` hook gets `SYMPHONY_TARGET_REPO` (the primary), `SYMPHONY_TARGET_REPOS` (all, primary first, separated by spaces), and `SYMPHONY_BASE_BRANCHES` (space-separated `owner/name=branch` pairs for repos with a base branch override; absent when none).
 - The default `WORKFLOW.md` clones the primary into `/workspace` and each other repository into `/workspace/repos/<name>`.
 - The GitHub token covers all the ticket's repositories and no others.
 - Each repository that changes gets its own branch and pull request. The merger Deployment of each repository reviews and merges the pull request of that repository.

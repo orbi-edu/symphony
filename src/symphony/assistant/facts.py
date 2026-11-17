@@ -156,9 +156,12 @@ def no_write_access(repo: str) -> FactError:
 class FactPRs:
     """Opens the team fact PR over the GitHub REST API with an App installation token."""
 
-    def __init__(self, token_for: Callable[[str], str], *, api_url: str, transport=None) -> None:
+    def __init__(self, token_for: Callable[[str], str], *, api_url: str,
+                 base_branch_for: Callable[[str], str | None] | None = None,
+                 transport=None) -> None:
         self.token_for = token_for  # repo → a token with PERMISSIONS on it
         self.api_url = api_url.rstrip("/")
+        self.base_branch_for = base_branch_for
         self.transport = transport  # httpx transport (tests)
 
     def open(self, fid: str, doc: dict, login: str) -> dict:
@@ -184,8 +187,12 @@ class FactPRs:
                     raise FactError(f"GitHub answered {resp.status_code} to {method} {url.split('?')[0]}")
                 return resp
 
-            meta = call("GET", f"/repos/{repo}").json()
-            base = meta.get("default_branch") or "main"
+            override = self.base_branch_for(repo) if self.base_branch_for is not None else None
+            if override:
+                base = override
+            else:
+                meta = call("GET", f"/repos/{repo}").json()
+                base = meta.get("default_branch") or "main"
             branch = branch_of(fid)
             owner = repo.split("/", 1)[0]
             pulls = call("GET", f"/repos/{repo}/pulls",

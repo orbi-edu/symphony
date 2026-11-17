@@ -86,6 +86,7 @@ class ReadOnlyRepos:
         *,
         server_url: str,
         token_for: Callable[[str], Callable[[], str]] | None = None,
+        base_branch_for: Callable[[str], str | None] | None = None,
         refresh_s: float = MIRROR_REFRESH_S,
         clock: Callable[[], float] = time.monotonic,
         logger=None,
@@ -95,6 +96,7 @@ class ReadOnlyRepos:
         self.repos = repos
         self.server_url = server_url.rstrip("/")
         self.token_for = token_for
+        self.base_branch_for = base_branch_for
         self.refresh_s = refresh_s
         self.clock = clock
         self.log = logger
@@ -152,8 +154,9 @@ class ReadOnlyRepos:
         mirror = self._mirrors.get(repo)
         if mirror is None:
             token = self.token_for(repo) if self.token_for is not None else None
+            main = self.base_branch_for(repo) if self.base_branch_for is not None else None
             mirror = Mirror(os.path.join(self.root, "mirrors", repo),
-                            f"{self.server_url}/{repo}.git", token=token)
+                            f"{self.server_url}/{repo}.git", main=main, token=token)
             self._mirrors[repo] = mirror
         mirror.ensure()
         mirror.fetch()

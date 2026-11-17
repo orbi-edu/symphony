@@ -141,6 +141,9 @@ def _summaries(step_id: str, d: dict) -> str:
             f": {', '.join(repos)}" if repos else "")
     if step_id == "repositories":
         parts = [f"default {d['default_repo']}" if d.get("default_repo") else "no default"]
+        bb = d.get("base_branches") or {}
+        if bb:
+            parts.append(f"base branch for {', '.join(sorted(bb))}")
         if d.get("mergers"):
             parts.append(f"merger for {', '.join(d['mergers'])}")
         if not d.get("repositories"):
@@ -285,13 +288,17 @@ def github_app_text(doc: dict, style: Style) -> str:
     return "\n".join(lines + _restarted(doc))
 
 
-def put_repositories(api: Api, default_repo: str | None) -> dict:
+def put_repositories(api: Api, default_repo: str | None,
+                     base_branches: dict[str, str | None] | None = None) -> dict:
+    body: dict = {}
     if default_repo is not None:
         repo = default_repo.strip().lower()
         if repo.count("/") != 1 or repo.startswith("/") or repo.endswith("/"):
             raise SetupError("invalid_repo", f"Use owner/name, not {default_repo!r}.")
-        default_repo = repo
-    return api.raw("PUT", "/v1/setup/repositories", json_body={"default_repo": default_repo}).body
+        body["default_repo"] = repo
+    if base_branches is not None:
+        body["base_branches"] = base_branches
+    return api.raw("PUT", "/v1/setup/repositories", json_body=body).body
 
 
 def repositories_text(doc: dict, style: Style) -> str:
@@ -301,11 +308,15 @@ def repositories_text(doc: dict, style: Style) -> str:
     else:
         lines = [style("No default repository. Each ticket must name its repository with a "
                        "`repo:` label.", "green")]
+    bb = doc.get("base_branches") or {}
+    if bb:
+        for r, b in sorted(bb.items()):
+            lines.append(f"  Base branch for {r}: {b}")
     without = doc.get("without_merger") or []
     if without:
         lines.append(style(f"Warning: no merger is registered for {', '.join(without)} yet. "
                            "Deploy a merger for each repository.", "yellow"))
-    return "\n".join(lines)
+    return "\n".join(lines + _restarted(doc))
 
 
 def put_notifications(api: Api, channel: str, values: dict | None) -> dict:
@@ -645,8 +656,23 @@ class Wizard:
             repo = self.text("  Default repository owner/name (none: each ticket names its "
                              "repository with a `repo:` label)", default or "none")
             repo = "" if repo.lower() == "none" else repo
+            existing_bb = detail.get("base_branches") or {}
+            bb_default = " ".join(f"{r}={b}" for r, b in sorted(existing_bb.items())) if existing_bb else ""
+            bb_raw = self.text("  Base branches (owner/name=branch, space-separated; empty: auto)",
+                               bb_default)
+            base_branches: dict[str, str | None] | None = None
+            if bb_raw.strip():
+                base_branches = {}
+                for pair in bb_raw.strip().split():
+                    if "=" not in pair:
+                        self.say(self.style(f"  ✗ Expected owner/name=branch, got {pair!r}.", "red"))
+                        return False
+                    r, _, b = pair.partition("=")
+                    base_branches[r.lower()] = b or None
+            elif existing_bb:
+                base_branches = {}
             doc = self.attempt("Saving the repository", lambda: put_repositories(
-                self.api, repo or None))
+                self.api, repo or None, base_branches=base_branches))
             if doc is None:
                 return False
             self.say(repositories_text(doc, self.style))

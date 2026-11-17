@@ -62,6 +62,7 @@ local F = {
 	installation_id = { id = "installation_id", label = "Installation ID", help = "The number at the end of the installation's settings URL.", placeholder = "45678901" },
 	private_key = { id = "private_key", label = "Private key", help = "Paste the whole .pem file, including the BEGIN and END lines.", placeholder = "-----BEGIN RSA PRIVATE KEY-----   paste with ⌘V", secret = true, multiline = true },
 	default_repo = { id = "default_repo", label = "Default repository", help = "owner/name. Tickets without a repo: label go here.", placeholder = "acme/web" },
+	base_branches = { id = "base_branches", label = "Base branches", help = "owner/name=branch, separated by spaces. Each overrides the branch Symphony treats as main. Empty: auto-detect from the remote.", placeholder = "acme/app=develop", optional = true },
 	slack_channel = { id = "channel", label = "Slack channel", help = "The channel ID or name the bot posts to. Invite the bot to it first.", placeholder = "#eng-symphony" },
 	slack_token = { id = "token", label = "Bot token", help = "The Slack app's bot token (xoxb-…).", placeholder = "xoxb-…", secret = true },
 	discord_channel = { id = "channel", label = "Discord channel ID", help = "Right-click the channel › Copy Channel ID (developer mode on).", placeholder = "1234567890123456789" },
@@ -70,7 +71,7 @@ local F = {
 	slack_channels = { id = "slack_channels", label = "Slack channels", help = "Channel IDs where it answers @mentions, separated by spaces. Direct messages always work.", placeholder = "C0123ABCD", optional = true },
 	app_token = { id = "app_token", label = "Slack app token", help = "The app-level token (xapp-…) with connections:write, for Socket Mode. Leave it empty to keep the stored one.", placeholder = "xapp-…", secret = true, optional = true },
 	discord_channels = { id = "discord_channels", label = "Discord channels", help = "Channel IDs where it answers @mentions, separated by spaces. The bot needs the Message Content intent.", placeholder = "123456789012345678", optional = true },
-	assistant_repos = { id = "repos", label = "Repositories", help = "owner/name, separated by spaces. It reads them at origin/main. Empty: every repository Symphony routes to.", placeholder = "acme/app", optional = true },
+	assistant_repos = { id = "repos", label = "Repositories", help = "owner/name, separated by spaces. It reads them at their base branch. Empty: every repository Symphony routes to.", placeholder = "acme/app", optional = true },
 }
 
 -- The fields a step shows in its current mode.
@@ -84,7 +85,7 @@ local function fields(state: any, step: string?): { Field }
 	elseif step == "github_app" then
 		return { F.app_id, F.installation_id, F.private_key }
 	elseif step == "repositories" then
-		return { F.default_repo }
+		return { F.default_repo, F.base_branches }
 	elseif step == "notifications" then
 		local provider = m.notify
 		if m[provider] == "webhook" then
@@ -180,7 +181,19 @@ end
 local function first_field(state: any, cx: any)
 	local list = fields(state, state.sel)
 	state.focus = if #list > 0 then list[1].id else nil
-	if state.sel == "assistant" then
+	if state.sel == "repositories" then
+		local b = bucket(state, "repositories")
+		local s = find(state, "repositories")
+		local d = (s and type(s.detail) == "table") and s.detail or {}
+		if b.base_branches == nil and type(d.base_branches) == "table" then
+			local parts = {}
+			for repo, branch in d.base_branches do
+				table.insert(parts, tostring(repo) .. "=" .. tostring(branch))
+			end
+			table.sort(parts)
+			b.base_branches = table.concat(parts, " ")
+		end
+	elseif state.sel == "assistant" then
 		-- The channels already set start in the fields, so a change starts from them.
 		local b = bucket(state, "assistant")
 		local d = assistant_detail(state)
@@ -302,10 +315,28 @@ local function command(state: any): ({ string }?, string?, string?)
 		end
 		return { "setup", "github-app", "--app-id", v("app_id"), "--installation-id", v("installation_id"), "--json" }, v("private_key") .. "\n", nil
 	elseif step == "repositories" then
-		if not string.match(v("default_repo"), "^[%w%.%-_]+/[%w%.%-_]+$") then
-			return nil, nil, "Enter the repository as owner/name."
+		local repo = v("default_repo")
+		local bb = v("base_branches")
+		-- At least default_repo or base_branches must be given.
+		local has_repo = string.match(repo, "^[%w%.%-_]+/[%w%.%-_]+$")
+		local has_bb = bb ~= ""
+		if not has_repo and not has_bb then
+			return nil, nil, "Enter the repository as owner/name, or set a base branch."
 		end
-		return { "setup", "repositories", "--default-repo", v("default_repo"), "--json" }, nil, nil
+		local args = { "setup", "repositories" }
+		if has_repo then
+			table.insert(args, "--default-repo")
+			table.insert(args, repo)
+		end
+		for _, pair in words(bb) do
+			if not string.find(pair, "=", 1, true) then
+				return nil, nil, "Enter each base branch as owner/name=branch."
+			end
+			table.insert(args, "--branch")
+			table.insert(args, pair)
+		end
+		table.insert(args, "--json")
+		return args, nil, nil
 	elseif step == "notifications" then
 		local provider = m.notify
 		if m[provider] == "webhook" then
@@ -537,6 +568,11 @@ local function detail_rows(s: any): { { Spans } }
 		end
 	elseif s.id == "repositories" then
 		table.insert(rows, { "Default", if d.default_repo then { ui.span(d.default_repo, "mono") } else { ui.span("none: every ticket needs a repo: label", "muted") } })
+		if type(d.base_branches) == "table" then
+			for repo, branch in d.base_branches do
+				table.insert(rows, { "Base branch", { ui.span(tostring(repo) .. " → " .. tostring(branch), "mono") } })
+			end
+		end
 		if type(d.mergers) == "table" and #d.mergers > 0 then
 			table.insert(rows, { "Mergers running", { ui.span(names(d.mergers), "mono") } })
 		end
