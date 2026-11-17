@@ -53,7 +53,8 @@ _ROUTE_REASONS = {
     "repo-not-authorized": "The runtime reported repository authorization failure.",
     "unknown-runtime": "The runtime: label names an unknown runtime.",
     "unknown-component": "The component: label names an unknown component.",
-    "conflicting-runtime-labels": "Multiple runtime: or component: labels conflict.",
+    "conflicting-runtime-labels": "Multiple runtime: labels conflict.",
+    "conflicting-component-labels": "Multiple component: labels conflict.",
 }
 # Pod `component` label → the stable service role code the API exposes.
 _ROLES = {

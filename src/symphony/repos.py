@@ -79,12 +79,13 @@ COMPONENT_PREFIX = 'component:'
 UNKNOWN_RUNTIME = 'unknown-runtime'
 UNKNOWN_COMPONENT = 'unknown-component'
 CONFLICTING_RUNTIMES = 'conflicting-runtime-labels'
+CONFLICTING_COMPONENTS = 'conflicting-component-labels'
 
 
 def parse_runtime_labels(labels: Iterable[str]) -> tuple[str | None, str | None]:
     """Extract runtime: and component: labels. Returns (runtime, component)."""
-    runtimes = [l[len(RUNTIME_PREFIX):].strip().lower() for l in labels if l.lower().startswith(RUNTIME_PREFIX)]
-    components = [l[len(COMPONENT_PREFIX):].strip().lower() for l in labels if l.lower().startswith(COMPONENT_PREFIX)]
+    runtimes = [lbl[len(RUNTIME_PREFIX):].strip().lower() for lbl in labels if lbl.lower().startswith(RUNTIME_PREFIX)]
+    components = [lbl[len(COMPONENT_PREFIX):].strip().lower() for lbl in labels if lbl.lower().startswith(COMPONENT_PREFIX)]
     runtime = runtimes[0] if len(runtimes) == 1 else None
     component = components[0] if len(components) == 1 else None
     return runtime, component
@@ -98,14 +99,14 @@ def validate_runtime_component(
 ) -> str | None:
     """Returns an undispatchable reason, or None if OK."""
     label_list = list(labels)
-    runtimes = [l[len(RUNTIME_PREFIX):].strip().lower() for l in label_list if l.lower().startswith(RUNTIME_PREFIX)]
-    components = [l[len(COMPONENT_PREFIX):].strip().lower() for l in label_list if l.lower().startswith(COMPONENT_PREFIX)]
+    runtimes = [lbl[len(RUNTIME_PREFIX):].strip().lower() for lbl in label_list if lbl.lower().startswith(RUNTIME_PREFIX)]
+    components = [lbl[len(COMPONENT_PREFIX):].strip().lower() for lbl in label_list if lbl.lower().startswith(COMPONENT_PREFIX)]
     if len(runtimes) > 1:
         return CONFLICTING_RUNTIMES
     if runtimes and runtimes[0] not in valid_runtimes:
         return UNKNOWN_RUNTIME
     if len(components) > 1:
-        return CONFLICTING_RUNTIMES  # reuse: at most one component
+        return CONFLICTING_COMPONENTS
     if components:
         repo_comps = cfg_components.get(primary_repo.lower(), {}) if primary_repo else {}
         if components[0] not in repo_comps:

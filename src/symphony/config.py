@@ -229,8 +229,8 @@ def resolve_workspace(cfg: Config, issue) -> tuple[str, str | None, str | None]:
     """
     primary = issue.target_repo
     # Extract runtime: and component: labels
-    runtime_labels = [l for l in issue.labels if l.lower().startswith('runtime:')]
-    component_labels = [l for l in issue.labels if l.lower().startswith('component:')]
+    runtime_labels = [lbl for lbl in issue.labels if lbl.lower().startswith('runtime:')]
+    component_labels = [lbl for lbl in issue.labels if lbl.lower().startswith('component:')]
 
     component_name: str | None = None
     component_path: str | None = None

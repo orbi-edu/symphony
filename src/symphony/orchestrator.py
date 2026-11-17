@@ -427,9 +427,19 @@ def tick(
     # A parked issue is remembered, not owned: it holds no slot and must not block a
     # dispatch when the ticket comes back to an active state.
     tracked_ids = {iid for iid, e in tracked.items() if e.get("status") != PARKED}
-    for issue in dispatch_order(
-        [i for i in active if i.id not in held and eligible(i, cfg, tracked_ids)]
-    ):
+    valid_runtimes = known_runtimes(cfg)
+    candidates = []
+    for i in active:
+        if i.id in held or not eligible(i, cfg, tracked_ids):
+            continue
+        rc_reason = validate_runtime_component(
+            i.labels, i.target_repo, cfg.components, valid_runtimes
+        )
+        if rc_reason:
+            fx.emit("issue_not_routable", issue_id=i.id, identifier=i.identifier, reason=rc_reason)
+            continue
+        candidates.append(i)
+    for issue in dispatch_order(candidates):
         if not admission_open():
             break
         if not _has_slot(cfg, busy, per_state, issue.state):
@@ -452,17 +462,6 @@ def tick(
         seq = entry["dispatch_seq"]
         if not state.acquire_dispatch_token(kv, issue.id, seq, owner, now_ms):
             fx.emit("dispatch_token_lost", issue_id=issue.id, attempt=1)
-            continue
-        # Validate runtime/component labels before dispatch.
-        rc_reason = validate_runtime_component(
-            issue.labels, issue.target_repo, cfg.components, known_runtimes(cfg)
-        )
-        if rc_reason:
-            entry.update(
-                status="blocked", undispatchable_reason=rc_reason, updated_at=now_ms,
-            )
-            kv.put(state.issue_key(issue.id), entry)
-            fx.emit("issue_not_routable", issue_id=issue.id, reason=rc_reason)
             continue
         runtime, component, component_path = resolve_workspace(cfg, issue)
         entry.update(title=issue.title, target_repo=issue.target_repo,

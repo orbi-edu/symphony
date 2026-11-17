@@ -397,14 +397,30 @@ local function command(state: any): ({ string }?, string?, string?)
 				end
 			end
 		end
-		-- Components: same merge-then-clear pattern.
+		-- Components: same merge-then-clear pattern (`owner/name:component=` removes one).
+		local comp_kept = {}
 		for _, pair in words(comp) do
-			if not string.find(pair, "=", 1, true) then
-				return nil, nil, "Enter each component as owner/name:comp=path@runtime."
+			local key = string.match(pair, "^([%w%.%-_]+/[%w%.%-_]+:[%w%-]+)=.+$")
+			if not key then
+				return nil, nil, "Enter each component as owner/name:component=path@runtime."
 			end
+			comp_kept[string.lower(key)] = true
 			table.insert(args, "--component")
 			table.insert(args, pair)
 		end
+		local saved_comp = s and type(s.detail) == "table" and s.detail.components
+		if type(saved_comp) == "table" then
+			for name, comps in saved_comp do
+				if type(comps) == "table" then
+					for cname in comps do
+						local key = tostring(name) .. ":" .. tostring(cname)
+						if not comp_kept[string.lower(key)] then
+							table.insert(args, "--component")
+							table.insert(args, key .. "=")
+						end
+					end
+				end
+			end
 		end
 		table.insert(args, "--json")
 		return args, nil, nil

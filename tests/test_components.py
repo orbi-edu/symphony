@@ -15,6 +15,7 @@ from symphony.config import (
     resolve_workspace,
 )
 from symphony.repos import (
+    CONFLICTING_COMPONENTS,
     CONFLICTING_RUNTIMES,
     UNKNOWN_COMPONENT,
     UNKNOWN_RUNTIME,
@@ -219,7 +220,7 @@ class TestValidateRuntimeComponent:
     def test_multiple_component_labels_conflict(self):
         assert validate_runtime_component(
             ["component:api", "component:web"], "acme/app", COMPONENTS, VALID_RUNTIMES
-        ) == CONFLICTING_RUNTIMES
+        ) == CONFLICTING_COMPONENTS
 
 
 # ---------------------------------------------------------------------------
@@ -369,7 +370,7 @@ def test_workflow_renders_without_component():
 # ---------------------------------------------------------------------------
 
 def test_workspace_needs_recreate_when_image_differs():
-    from symphony.kube import workspace_needs_recreate, WORKSPACE_CONTAINER
+    from symphony.kube import WORKSPACE_CONTAINER, workspace_needs_recreate
     container = SimpleNamespace(name=WORKSPACE_CONTAINER, image="symphony-agent:node")
     pod = SimpleNamespace(spec=SimpleNamespace(containers=[container]))
     cfg = SimpleNamespace(agent_image=None, agent_images={}, agent_runtime="node")
@@ -380,7 +381,7 @@ def test_workspace_needs_recreate_when_image_differs():
 
 
 def test_workspace_needs_recreate_with_agent_image_override():
-    from symphony.kube import workspace_needs_recreate, WORKSPACE_CONTAINER
+    from symphony.kube import WORKSPACE_CONTAINER, workspace_needs_recreate
     container = SimpleNamespace(name=WORKSPACE_CONTAINER, image="custom:tag")
     pod = SimpleNamespace(spec=SimpleNamespace(containers=[container]))
     cfg = SimpleNamespace(agent_image="custom:tag", agent_images={}, agent_runtime="node")
@@ -437,3 +438,103 @@ def test_known_runtimes():
     assert "dotnet10" in rts
     assert "polyglot" in rts
     assert "custom" in rts
+
+
+# ---------------------------------------------------------------------------
+# 12. Orchestrator: unknown component is not claimed; fixing label dispatches
+# ---------------------------------------------------------------------------
+
+def test_unknown_component_not_claimed_then_dispatches():
+    """An issue with an unknown component: label is filtered out before claim_issue.
+    After the label is fixed, the next tick dispatches it normally."""
+    from symphony import state
+    from symphony.orchestrator import tick
+
+    cfg = _cfg(
+        agent_runtime="node",
+        components={"acme/app": {"api": {"path": "api"}}},
+    )
+
+    class FakeKV:
+        def __init__(self):
+            self.store: dict = {}
+        def get(self, key, default=None):
+            return self.store.get(key, default)
+        def put(self, key, value, *, skip_if_exists=False):
+            if skip_if_exists and key in self.store:
+                return False
+            self.store[key] = value
+            return True
+        def delete(self, key):
+            self.store.pop(key, None)
+        def keys(self):
+            return list(self.store.keys())
+
+    class FakeTracker:
+        def __init__(self, issues):
+            self._issues = issues
+        def fetch_issues_by_states(self, states):
+            return [i for i in self._issues if i.state in states]
+
+    class FakeEffects:
+        def __init__(self):
+            self.events = []
+            self.spawned = []
+        def emit(self, event, **kw):
+            self.events.append((event, kw))
+        def spawn_runner(self, issue, attempt, seq):
+            self.spawned.append((issue.id, attempt, seq))
+        def is_call_running(self, _cid):
+            return False
+        def cancel_runner(self, *a, **kw):
+            pass
+        def kill_agent_process(self, _name):
+            pass
+        def release_workspace(self, _iid, _entry):
+            pass
+
+    from symphony.trackers.base import Issue
+
+    bad_issue = Issue(
+        id="i1", identifier="ENG-1", title="Add endpoint",
+        description="", state="Todo", state_type="active",
+        labels=("symphony", "repo:acme/app", "component:nonexistent"),
+        target_repo="acme/app", target_repos=("acme/app",),
+        dispatchable=True, priority=1, created_at="2026-01-01T00:00:00Z",
+    )
+
+    kv = FakeKV()
+    fx = FakeEffects()
+    tracker = FakeTracker([bad_issue])
+
+    # Tick 1: the issue is eligible but fails runtime/component validation.
+    tick(
+        kv=kv, tracker=tracker, cfg=cfg, now_ms=1000, owner="d1",
+        fx=fx, admission_open=lambda: True,
+    )
+    # Must NOT have been claimed (no entry in kv).
+    assert kv.get(state.issue_key("i1")) is None
+    assert fx.spawned == []
+    assert any(ev == "issue_not_routable" for ev, _ in fx.events)
+
+    # Fix the label and re-tick.
+    fixed_issue = Issue(
+        id="i1", identifier="ENG-1", title="Add endpoint",
+        description="", state="Todo", state_type="active",
+        labels=("symphony", "repo:acme/app", "component:api"),
+        target_repo="acme/app", target_repos=("acme/app",),
+        dispatchable=True, priority=1, created_at="2026-01-01T00:00:00Z",
+    )
+    tracker2 = FakeTracker([fixed_issue])
+    fx2 = FakeEffects()
+    tick(
+        kv=kv, tracker=tracker2, cfg=cfg, now_ms=2000, owner="d1",
+        fx=fx2, admission_open=lambda: True,
+    )
+    # Now it should be claimed and dispatched.
+    assert fx2.spawned == [("i1", 1, 1)]
+    entry = kv.get(state.issue_key("i1"))
+    assert entry is not None
+    assert entry.get("runtime") == "node"
+    assert entry.get("component") == "api"
+    assert entry.get("component_path") == "api"
