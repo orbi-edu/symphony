@@ -81,11 +81,16 @@ def test_a_rotated_bearer_is_refused(gateway):
     assert _traces(gateway).status_code == 401
 
 
-def test_workspace_pod_carries_no_host_credential_and_no_api_token():
+def test_workspace_pod_carries_no_host_credential_and_no_api_token(monkeypatch):
     """The agent receives only staged credentials, never a Secret binding or API token."""
+    from symphony import endpoints
     from symphony.config import Config
     from symphony.kube import _workspace_manifest
 
+    # Endpoint overrides (GITHUB_API_URL, …) are forwarded on purpose, for GitHub Enterprise
+    # Server. GitHub Actions sets them on every runner, so clear them for this check.
+    for name in endpoints.NAMES:
+        monkeypatch.delenv(name, raising=False)
     manifest = _workspace_manifest(Config(tracker_kind="memory"), "ws-x", "img")
     spec = manifest["spec"]
     assert spec["automountServiceAccountToken"] is False

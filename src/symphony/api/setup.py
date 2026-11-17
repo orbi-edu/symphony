@@ -61,6 +61,7 @@ import threading
 import time
 import uuid
 from typing import Annotated, Any, Literal
+from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, Depends, Request
@@ -587,56 +588,49 @@ class SetupService:
                 "missing_permissions": app["missing_permissions"], "restarted": restarted}
 
     def put_repositories(self, caller: Caller, body: RepositoriesBody) -> dict:
-        default = body.default_repo.lower() if body.default_repo else None
-        app_ok = all(self._app_env())
-        if default and app_ok:
-            try:
-                installed = self._app(projects=False)["repositories"]
-            except checks.SetupError as exc:
-                raise _as_api(exc) from None
-            if default not in installed:
-                raise ApiError(
-                    422, "repo_not_installed", f"the GitHub App is not installed on {default}"
-                )
+        sent = body.model_fields_set
+        if not sent & {"default_repo", "base_branches"}:
+            raise ApiError(422, "invalid_request", "send default_repo and/or base_branches")
+        patch: dict = {}
+        if "default_repo" in sent:
+            default = body.default_repo.lower() if body.default_repo else None
+            if default and all(self._app_env()):
+                try:
+                    installed = self._app(projects=False)["repositories"]
+                except checks.SetupError as exc:
+                    raise _as_api(exc) from None
+                if default not in installed:
+                    raise ApiError(
+                        422, "repo_not_installed", f"the GitHub App is not installed on {default}"
+                    )
+            patch["kubernetes.default_repo"] = default or ""
+        else:  # only base_branches: the default repository stays as published
+            default = (self._values().get("kubernetes.default_repo") or "").lower() or None
 
-        # Resolve the new base_branches map (None means "don't touch").
-        patch: dict = {"kubernetes.default_repo": default or ""}
-        base_branches: dict[str, str] | None = None
-        old_bb = self._current_base_branches()
+        old = self._current_base_branches()
+        branches = old
         if body.base_branches is not None:
-            base_branches = {}
+            branches = {}
             for repo, branch in body.base_branches.items():
-                repo = repo.lower()
                 if branch:
-                    self._verify_branch(repo, branch)
-                    base_branches[repo] = branch
-            patch["kubernetes.base_branches"] = base_branches
-
+                    self._verify_branch(repo.lower(), branch)
+                    branches[repo.lower()] = branch
+            patch["kubernetes.base_branches"] = json.dumps(branches, sort_keys=True)
         self._publish(caller, patch)
-
-        # Restart merger and assistant only when the map actually changed, so that
-        # an unchanged save (e.g. Tern prefilling the same values) doesn't cycle pods.
-        restarted: list[str] = []
-        if base_branches is not None and base_branches != old_bb:
-            store = self._store()
-            restarted = store.restart(["github-app"])
-
+        # The merger and the assistant read the base branch once per process, so restart
+        # them, but only on a real change: Tern sends the prefilled map on every save.
+        restarted = self._store().restart(["github-app"]) if branches != old else []
         self.invalidate()
-        # Audit includes the base_branches change.
         target = default or "none"
-        if base_branches is not None and base_branches:
-            target += "; base_branches: " + ", ".join(
-                f"{r}={b}" for r, b in sorted(base_branches.items()))
+        if branches != old:
+            target += "; base_branches: " + (
+                ", ".join(f"{r}={b}" for r, b in sorted(branches.items())) or "none")
         self._audit(caller, "repositories", target)
-        values = {"kubernetes.default_repo": default or ""}
-        if base_branches is not None:
-            values["kubernetes.base_branches"] = json.dumps(base_branches)
-        step = self._repositories_step(values)
-        return {"default_repo": default,
-                "base_branches": base_branches if base_branches is not None else self._current_base_branches(),
+        step = self._repositories_step({"kubernetes.default_repo": default or "",
+                                        "kubernetes.base_branches": branches})
+        return {"default_repo": default, "base_branches": branches,
                 "mergers": step["detail"]["mergers"],
-                "without_merger": step["detail"]["without_merger"],
-                "restarted": restarted}
+                "without_merger": step["detail"]["without_merger"], "restarted": restarted}
 
     def _verify_branch(self, repo: str, branch: str) -> None:
         """Check that `branch` exists on `repo` via the GitHub App token.
@@ -651,11 +645,11 @@ class SetupService:
         except checks.SetupError as exc:
             raise _as_api(exc) from None
         token = app["token"]
-        from urllib.parse import quote
-
+        # `git/ref/heads/{ref}` takes a ref with slashes (`release/1.0`); `branches/{branch}`
+        # does not.
         try:
             resp = self.http.get(
-                f"{checks.github_api_url()}/repos/{repo}/branches/{quote(branch, safe='')}",
+                f"{checks.github_api_url()}/repos/{repo}/git/ref/heads/{quote(branch, safe='/')}",
                 headers={"Authorization": f"Bearer {token}",
                          "Accept": "application/vnd.github+json"},
                 timeout=checks.TIMEOUT_S,

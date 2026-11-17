@@ -130,8 +130,15 @@ def test_each_step_command_against_the_real_api(env, capsys):
     code, _, err = env.run(capsys, "setup", "repositories", "--default-repo", "acme/lib")
     assert err.startswith(f"error: {render.ERROR_TEXT['repo_not_installed']} Details: ")
     code, out, _ = env.run(capsys, "setup", "repositories", "--default-repo", "Acme/App", "--json")
-    assert json.loads(out) == {"default_repo": "acme/app", "mergers": ["acme/app"],
-                               "without_merger": []}
+    assert json.loads(out) == {"default_repo": "acme/app", "base_branches": {},
+                               "mergers": ["acme/app"], "without_merger": [], "restarted": []}
+    # `--branch` alone edits one entry and leaves the default repository as it is.
+    code, out, _ = env.run(capsys, "setup", "repositories", "--branch", "acme/app=main", "--json")
+    doc = json.loads(out)
+    assert (doc["default_repo"], doc["base_branches"]) == ("acme/app", {"acme/app": "main"})
+    code, out, _ = env.run(capsys, "setup", "repositories", "--branch", "acme/app=", "--json")
+    doc = json.loads(out)
+    assert (doc["default_repo"], doc["base_branches"]) == ("acme/app", {})
 
     # Notifications: the API sends a test message before it stores the channel.
     code, _, err = env.run(capsys, "setup", "notifications", "slack", "--channel", "C0SYMPHONY",
