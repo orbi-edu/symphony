@@ -11,6 +11,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Manual image publishing through the `images` workflow, with an explicit version checked
   against `pyproject.toml`.
+- `polyglot` agent runtime: a workspace image with .NET 10, Node 22 and Python 3 for
+  repositories that mix .NET, Node and Python.
 
 ### Fixed
 

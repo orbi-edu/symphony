@@ -95,7 +95,7 @@ class Config:
         }
     )
     runner: dict = field(default_factory=lambda: {"timeout_s": 14400, "wallclock_guard_s": 12600})
-    agent_runtime: str = "node"  # sandbox image family: node | dotnet9 | dotnet10 (edge registry)
+    agent_runtime: str = "node"  # sandbox image family: node | dotnet9 | dotnet10 | polyglot (edge registry)
     # Explicit image override for the workspace pod (replaces the Modal port's
     # snapshot_image): when set, it wins over the agent_images/agent_runtime lookup.
     agent_image: str | None = None

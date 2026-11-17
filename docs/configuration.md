@@ -187,7 +187,7 @@ On Kubernetes, these keys control the workspaces and the Jobs. Local mode ignore
 |---|---|---|---|
 | `kubernetes.app_name` | string | `symphony` | The `app` label of the pods that Symphony makes, and the prefix of derived names (`<app_name>-runner`, `<app_name>-workflow`, `<app_name>-gateway`). |
 | `kubernetes.namespace` | string | `null` | The namespace of the workspaces and the Jobs. `null` means the namespace of the daemon. |
-| `kubernetes.agent_runtime` | string | `node` | The image family of the workspace: `node`, `dotnet9` or `dotnet10`. It applies to all tickets. An unknown value falls back to `node` with the warning `unknown_agent_runtime_using_default`. |
+| `kubernetes.agent_runtime` | string | `node` | The image family of the workspace: `node`, `dotnet9`, `dotnet10` or `polyglot`. It applies to all tickets. An unknown value falls back to `node` with the warning `unknown_agent_runtime_using_default`. |
 | `kubernetes.agent_images` | map of runtime to image | `{}` | Image references for each runtime. They replace the built-in values `symphony-agent:<runtime>`. Point them at your registry. |
 | `kubernetes.agent_image` | string | `null` | One image for all workspaces. It wins over `agent_images` and `agent_runtime`. |
 | `kubernetes.privileged_agents` | boolean | `false` | Run the workspace container as privileged, so `dockerd` can start. |

@@ -39,7 +39,7 @@ Each line gives one feature and how it is verified. "Mocked" means the
 | B9 | One workspace per ticket (pod and sessions volume, resumed across attempts) | `test_workspace.py`, Kind |
 | B10 | Runner per attempt: turn loop, `max_turns`, timeouts, wall-clock guard | `test_runner.py`, Kind |
 | B11 | omp RPC with auto-approve and a session directory (omp 18.20.2) | `test_omp_rpc.py`, `test_runner_real.py` (opt-in), Kind |
-| B12 | Images per runtime (`node`, `dotnet9`, `dotnet10`) | `test_deploy.py`, Kind (image build) |
+| B12 | Images per runtime (`node`, `dotnet9`, `dotnet10`, `polyglot`) | `test_deploy.py`, Kind (image build) |
 | B13 | Docker in the workspace (privileged) and `runtime_class` (sysbox, kata) | `test_deploy.py` |
 | B14 | The tracker tool (`linear_graphql` or `github_graphql`) is a host tool; the tracker credential never enters the workspace | `test_hosttools.py`, `test_gateway.py`, `test_github_tracker.py` |
 | B15 | GitHub App tokens per attempt, scoped to the repositories of the ticket | `test_ghapp.py`, Mocked 1 and 2 |

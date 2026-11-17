@@ -142,7 +142,7 @@ Symphony has two image families. Both have the same `omp` pin, `OMP_VERSION` in 
 | Image | Runs |
 |---|---|
 | `symphony-orchestrator` | API, gateway, daemon, mergers, assistant, sweep, runner and reflector Jobs |
-| `symphony-agent` (`node`, `dotnet9`, `dotnet10`) | Workspace pods |
+| `symphony-agent` (`node`, `dotnet9`, `dotnet10`, `polyglot`) | Workspace pods |
 
 #### Published images
 
@@ -167,6 +167,7 @@ kubernetes:
     node: ghcr.io/<owner>/symphony-agent:node-<version>
     dotnet9: ghcr.io/<owner>/symphony-agent:dotnet9-<version>
     dotnet10: ghcr.io/<owner>/symphony-agent:dotnet10-<version>
+    polyglot: ghcr.io/<owner>/symphony-agent:polyglot-<version>
 ```
 
 The packages are private on the first push. Make them public in the package settings on GitHub, or give the cluster an image pull Secret.
@@ -179,7 +180,7 @@ The build rejects a version mismatch. With the GitHub CLI, run:
 gh workflow run images.yml --ref main -f version=0.1.0
 ```
 
-Manual runs publish the same version and rolling tags (`latest`, `node`, `dotnet9`, `dotnet10`).
+Manual runs publish the same version and rolling tags (`latest`, `node`, `dotnet9`, `dotnet10`, `polyglot`).
 They can overwrite those tags. They do not create a Git tag or a GitHub Release.
 
 #### Build the images
@@ -191,7 +192,7 @@ They can overwrite those tags. They do not create a Git tag or a GitHub Release.
 | `REGISTRY` | empty | Push to `<REGISTRY>/symphony-*` after the build. |
 | `TAG` | `latest` | The tag of the orchestrator image. |
 | `VERSION` | empty | A release. It must equal the version in `pyproject.toml`. Also tags `symphony-orchestrator:<VERSION>` and `symphony-agent:<runtime>-<VERSION>`. |
-| `RUNTIMES` | `node dotnet9 dotnet10` | The agent runtimes to build. |
+| `RUNTIMES` | `node dotnet9 dotnet10 polyglot` | The agent runtimes to build. |
 | `IMAGES` | `orchestrator agent` | The image families to build. |
 | `PLATFORM` | empty | The target platforms, for example `linux/amd64` when you build on an arm64 machine. Two or more (`linux/amd64,linux/arm64`) build with `docker buildx build --push`, with an SBOM and provenance. They need `REGISTRY` and a buildx builder that can push. |
 | `WITH_DOCKER` | `1` | Install the Docker engine in the agent images. |

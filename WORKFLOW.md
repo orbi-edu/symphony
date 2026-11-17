@@ -97,7 +97,7 @@ kubernetes:
   # null ⇒ the namespace the daemon itself runs in (in-cluster detection). Everything —
   # workspace pods, runner Jobs, Services — lives in this ONE namespace.
   namespace: null
-  # node | dotnet9 | dotnet10 (workspace image family, see kubernetes.agent_images).
+  # node | dotnet9 | dotnet10 | polyglot (workspace image family, see kubernetes.agent_images).
   # GLOBAL, not per issue — a board driving repositories of different stacks gets one
   # runtime for all of them, unlike the target repositories, which are a property of the
   # ticket.
@@ -108,6 +108,7 @@ kubernetes:
     node: symphony-agent:node
     dotnet9: symphony-agent:dotnet9
     dotnet10: symphony-agent:dotnet10
+    polyglot: symphony-agent:polyglot
   # agent_image: my.registry/custom:tag   # outright override
   sandbox: { cpu: 2, memory_mib: 4096, timeout_s: 14400, idle_timeout_s: 1800 }
   runner: { timeout_s: 14400, wallclock_guard_s: 12600 }

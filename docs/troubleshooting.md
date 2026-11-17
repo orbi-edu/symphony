@@ -197,7 +197,7 @@ kubectl -n symphony get pvc
 | Sign | Fix |
 |---|---|
 | `ImagePullBackOff` | Point `kubernetes.agent_images` (or `agent_image`) at an image that exists. Add `kubernetes.image_pull_secrets` for a private registry. With images imported into k3s, use a tag other than `latest`. |
-| `unknown_agent_runtime_using_default` in the runner log | Set `kubernetes.agent_runtime` to `node`, `dotnet9` or `dotnet10`, or add the runtime to `kubernetes.agent_images`. |
+| `unknown_agent_runtime_using_default` in the runner log | Set `kubernetes.agent_runtime` to `node`, `dotnet9`, `dotnet10` or `polyglot`, or add the runtime to `kubernetes.agent_images`. |
 | PVC `Pending` | Make sure that a default StorageClass exists, or set `kubernetes.storage_class`. |
 | `Insufficient cpu` or `Insufficient memory` | Lower `kubernetes.sandbox.cpu` or `memory_mib`, lower the concurrency, or add nodes. |
 | The runner log shows `workspace_pod_dead_recreating` | The pod reached `kubernetes.sandbox.timeout_s` or the node evicted it. The runner makes a new one. No action is necessary. |

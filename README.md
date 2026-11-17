@@ -18,7 +18,7 @@ Symphony runs coding agents on tickets from Linear or from a GitHub Projects boa
 | Area | Features |
 |---|---|
 | Orchestration | Dispatch by webhook in under 3 s, safety poll, concurrency limits, retries with backoff, stall detection, anti-runaway cooldown, fencing against duplicate work |
-| Workspaces | One pod and one session volume for each ticket, images for `node`, `dotnet9` and `dotnet10`, optional Docker (privileged, Sysbox or Kata) |
+| Workspaces | One pod and one session volume for each ticket, images for `node`, `dotnet9`, `dotnet10` and `polyglot`, optional Docker (privileged, Sysbox or Kata) |
 | Trackers | Linear, or issues on a GitHub Projects (v2) board with the `Status` field as the state. A memory tracker for tests and local mode. |
 | Tickets | Multi-repository tickets, planning tickets with sub-issues and a blocking order, read-only investigations, questions to people that never block a run |
 | Merger | Parallel review lanes, oracle on a different model, one rejection rule, AI arbiter, delta re-review, merge train with batches and bisection, AI conflict resolution, main-branch watch |

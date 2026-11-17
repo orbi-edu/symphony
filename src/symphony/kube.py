@@ -43,6 +43,7 @@ DEFAULT_AGENT_IMAGES: dict[str, str] = {
     "node": "symphony-agent:node",
     "dotnet9": "symphony-agent:dotnet9",
     "dotnet10": "symphony-agent:dotnet10",
+    "polyglot": "symphony-agent:polyglot",
 }
 
 # Generous on purpose: a cold node pulling the .NET SDK image takes minutes, and giving
