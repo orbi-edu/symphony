@@ -312,8 +312,9 @@ def test_repositories_need_the_app_installation_and_a_live_merger(setup):
     ok = env.client.put("/v1/setup/repositories", headers=env.admin,
                         json={"default_repo": "Acme/App"})
     assert ok.status_code == 200
-    assert ok.json() == {"default_repo": "acme/app", "base_branches": {}, "mergers": [],
-                         "without_merger": ["acme/app"], "restarted": []}
+    assert ok.json() == {"default_repo": "acme/app", "base_branches": {},
+                         "repo_runtimes": {}, "components": {},
+                         "mergers": [], "without_merger": ["acme/app"], "restarted": []}
     step = steps(env)["repositories"]
     assert step["status"] == "error" and step["error"]["code"] == "merger_missing"
     env.merger._repos = ["acme/app"]

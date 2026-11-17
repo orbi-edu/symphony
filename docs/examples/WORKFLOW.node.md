@@ -77,6 +77,13 @@ You are an autonomous software engineer working on issue **{{ issue.identifier }
 - Run the tests: `npm test`. Run the linter: `npm run lint`.
 - Do not start the service. The tests are the verification loop.
 
+{% if issue.component %}## Component
+
+This ticket targets the **{{ issue.component }}** component at `{{ issue.component_path }}`.
+Work in `{{ issue.component_path }}` and run that component's build and test commands.
+Touch other paths only when the ticket requires it and say so in the pull request.
+{% endif %}
+
 ## Objective, working agreements and review protocol
 
 Copy the sections "Where you work", "Objective", "Working agreements", "Rework" and "Run"

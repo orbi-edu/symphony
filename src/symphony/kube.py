@@ -98,14 +98,15 @@ def reflector_job_name(identifier: str) -> str:
     return f"sym-reflect-{dns_name(workspace_key(identifier), 24)}"
 
 
-def agent_image_for(cfg) -> str:
+def agent_image_for(cfg, runtime: str | None = None) -> str:
     if cfg.agent_image:
         return cfg.agent_image
     images = {**DEFAULT_AGENT_IMAGES, **(cfg.agent_images or {})}
-    if cfg.agent_runtime not in images:
-        log.warning("unknown_agent_runtime_using_default", runtime=cfg.agent_runtime)
+    rt = runtime or cfg.agent_runtime
+    if rt not in images:
+        log.warning("unknown_agent_runtime_using_default", runtime=rt)
         return images["node"]
-    return images[cfg.agent_runtime]
+    return images[rt]
 
 
 def orchestrator_image() -> str:
@@ -426,7 +427,7 @@ def get_workspace(core, ns: str, name: str):
         raise
 
 
-def create_workspace(core, ns: str, cfg, name: str) -> bool:
+def create_workspace(core, ns: str, cfg, name: str, runtime: str | None = None) -> bool:
     """Create the workspace pod (and its session PVC) and wait for it to run.
 
     Returns True when THIS caller created it; False when it lost the create race and
@@ -442,13 +443,27 @@ def create_workspace(core, ns: str, cfg, name: str) -> bool:
                 raise
     created = True
     try:
-        core.create_namespaced_pod(ns, _workspace_manifest(cfg, name, agent_image_for(cfg)))
+        core.create_namespaced_pod(ns, _workspace_manifest(cfg, name, agent_image_for(cfg, runtime)))
     except ApiException as exc:
         if exc.status != 409:
             raise
         created = False  # lost the create race — reattach
     wait_workspace_ready(core, ns, name)
     return created
+
+
+def workspace_needs_recreate(pod, cfg, runtime: str | None = None) -> bool:
+    """True when the running pod's image differs from the resolved image.
+
+    Used to rebuild the workspace when the runtime changes between attempts
+    (e.g., a component label is added). The session PVC is kept."""
+    if pod is None:
+        return False
+    target_image = agent_image_for(cfg, runtime)
+    for container in (pod.spec.containers or []):
+        if container.name == WORKSPACE_CONTAINER:
+            return container.image != target_image
+    return False
 
 
 def wait_workspace_ready(

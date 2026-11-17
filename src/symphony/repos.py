@@ -72,3 +72,43 @@ def resolve_target_repos(
         return (), MIXED_OWNERS
     primary = default.lower() if default and default.lower() in repos else repos[0]
     return (primary, *(repo for repo in repos if repo != primary)), None
+
+
+RUNTIME_PREFIX = 'runtime:'
+COMPONENT_PREFIX = 'component:'
+UNKNOWN_RUNTIME = 'unknown-runtime'
+UNKNOWN_COMPONENT = 'unknown-component'
+CONFLICTING_RUNTIMES = 'conflicting-runtime-labels'
+CONFLICTING_COMPONENTS = 'conflicting-component-labels'
+
+
+def parse_runtime_labels(labels: Iterable[str]) -> tuple[str | None, str | None]:
+    """Extract runtime: and component: labels. Returns (runtime, component)."""
+    runtimes = [lbl[len(RUNTIME_PREFIX):].strip().lower() for lbl in labels if lbl.lower().startswith(RUNTIME_PREFIX)]
+    components = [lbl[len(COMPONENT_PREFIX):].strip().lower() for lbl in labels if lbl.lower().startswith(COMPONENT_PREFIX)]
+    runtime = runtimes[0] if len(runtimes) == 1 else None
+    component = components[0] if len(components) == 1 else None
+    return runtime, component
+
+
+def validate_runtime_component(
+    labels: Iterable[str],
+    primary_repo: str | None,
+    cfg_components: dict,
+    valid_runtimes: frozenset[str],
+) -> str | None:
+    """Returns an undispatchable reason, or None if OK."""
+    label_list = list(labels)
+    runtimes = [lbl[len(RUNTIME_PREFIX):].strip().lower() for lbl in label_list if lbl.lower().startswith(RUNTIME_PREFIX)]
+    components = [lbl[len(COMPONENT_PREFIX):].strip().lower() for lbl in label_list if lbl.lower().startswith(COMPONENT_PREFIX)]
+    if len(runtimes) > 1:
+        return CONFLICTING_RUNTIMES
+    if runtimes and runtimes[0] not in valid_runtimes:
+        return UNKNOWN_RUNTIME
+    if len(components) > 1:
+        return CONFLICTING_COMPONENTS
+    if components:
+        repo_comps = cfg_components.get(primary_repo.lower(), {}) if primary_repo else {}
+        if components[0] not in repo_comps:
+            return UNKNOWN_COMPONENT
+    return None

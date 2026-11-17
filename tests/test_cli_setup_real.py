@@ -131,6 +131,7 @@ def test_each_step_command_against_the_real_api(env, capsys):
     assert err.startswith(f"error: {render.ERROR_TEXT['repo_not_installed']} Details: ")
     code, out, _ = env.run(capsys, "setup", "repositories", "--default-repo", "Acme/App", "--json")
     assert json.loads(out) == {"default_repo": "acme/app", "base_branches": {},
+                               "repo_runtimes": {}, "components": {},
                                "mergers": ["acme/app"], "without_merger": [], "restarted": []}
     # `--branch` alone edits one entry and leaves the default repository as it is.
     code, out, _ = env.run(capsys, "setup", "repositories", "--branch", "acme/app=main", "--json")

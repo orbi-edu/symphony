@@ -90,7 +90,8 @@ def test_a_token_is_shown_once_and_stored_only_as_a_hash(redis_client):
     tokens = apitokens.TokenStore(redis_client, NS)
     token, record = tokens.create("alice", "operator", actor="admin")
     assert token.startswith("sym_") and "hash" not in record
-    assert token.split("_")[2] not in str(redis_client.hgetall(tokens.key))
+    # The secret is url-safe base64, which may itself contain "_": split only twice.
+    assert token.split("_", 2)[2] not in str(redis_client.hgetall(tokens.key))
     assert tokens.verify(token)["role"] == "operator"
     assert tokens.verify(token[:-1] + ("A" if token[-1] != "A" else "B")) is None
 

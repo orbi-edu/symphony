@@ -117,6 +117,8 @@ _FIELDS = {
     "kubernetes.agent_runtime": _Field("agent_runtime"),
     "kubernetes.agent_images": _Field("agent_images", "json"),
     "kubernetes.base_branches": _Field("base_branches", "json"),
+    "kubernetes.repo_runtimes": _Field("repo_runtimes", "json"),
+    "kubernetes.components": _Field("components", "json"),
     "kubernetes.agent_image": _Field("agent_image", optional=True),
     "kubernetes.sandbox.cpu": _Field("sandbox.cpu", "number", 0.001),
     "kubernetes.sandbox.memory_mib": _Field("sandbox.memory_mib", "integer"),
@@ -309,6 +311,42 @@ def _check_value(key: str, value: Any, namespace: str, *, submitted: bool) -> An
                     or _BRANCH_BAD.search(branch)
                 ):
                     raise _invalid(key, "Values must be valid git branch names.")
+            return {k.lower(): v for k, v in value.items()}
+        if key == "kubernetes.repo_runtimes":
+            if not isinstance(value, Mapping) or len(value) > _MAX_ITEMS:
+                raise _invalid(key, "Use a bounded JSON object.")
+            for repo, runtime in value.items():
+                if not isinstance(repo, str) or not _REPO.fullmatch(repo):
+                    raise _invalid(key, "Keys must be owner/name repositories.")
+                if not isinstance(runtime, str) or not runtime.strip() or len(runtime) > 63 or not _LABEL.fullmatch(runtime):
+                    raise _invalid(key, "Values must be valid runtime names.")
+            return {k.lower(): v for k, v in value.items()}
+        if key == "kubernetes.components":
+            if not isinstance(value, Mapping) or len(value) > _MAX_ITEMS:
+                raise _invalid(key, "Use a bounded JSON object.")
+            _COMP_NAME = re.compile(r'[a-z0-9][a-z0-9-]*\Z')
+            _COMP_PATH = re.compile(r'[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*\Z')
+            for repo, comps in value.items():
+                if not isinstance(repo, str) or not _REPO.fullmatch(repo):
+                    raise _invalid(key, "Keys must be owner/name repositories.")
+                if not isinstance(comps, Mapping) or len(comps) > 64:
+                    raise _invalid(key, "Each repository's components must be a bounded mapping.")
+                for cname, cdef in comps.items():
+                    if not isinstance(cname, str) or not _COMP_NAME.fullmatch(cname):
+                        raise _invalid(key, f"Component name {cname!r} must match [a-z0-9][a-z0-9-]*.")
+                    if not isinstance(cdef, Mapping):
+                        raise _invalid(key, f"Component {cname!r} must be a mapping with 'path'.")
+                    cpath = cdef.get('path')
+                    if not isinstance(cpath, str) or not cpath or '..' in cpath or cpath.startswith('/'):
+                        raise _invalid(key, f"Component {cname!r} path must be relative without '..'.")
+                    if not _COMP_PATH.fullmatch(cpath):
+                        raise _invalid(key, f"Component {cname!r} path is invalid.")
+                    crt = cdef.get('runtime')
+                    if crt is not None and (not isinstance(crt, str) or not crt.strip() or len(crt) > 63):
+                        raise _invalid(key, f"Component {cname!r} runtime must be a string.")
+                    unknown = set(cdef) - {'path', 'runtime'}
+                    if unknown:
+                        raise _invalid(key, f"Component {cname!r} has unknown keys: {', '.join(sorted(unknown))}.")
             return {k.lower(): v for k, v in value.items()}
         if key == "notify.users":
             # service (`slack`, `discord`) -> GitHub login -> that service's user id.

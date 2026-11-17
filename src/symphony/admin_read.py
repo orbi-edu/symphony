@@ -51,6 +51,10 @@ _ROUTE_REASONS = {
     "malformed-repo-designation": "Repository designation is malformed.",
     "mixed-owner-repo-designation": "Repository designations name more than one owner.",
     "repo-not-authorized": "The runtime reported repository authorization failure.",
+    "unknown-runtime": "The runtime: label names an unknown runtime.",
+    "unknown-component": "The component: label names an unknown component.",
+    "conflicting-runtime-labels": "Multiple runtime: labels conflict.",
+    "conflicting-component-labels": "Multiple component: labels conflict.",
 }
 # Pod `component` label → the stable service role code the API exposes.
 _ROLES = {
@@ -176,6 +180,8 @@ def _run(issue_id: str, entry: dict) -> dict | None:
         "attempt": _count(entry.get("attempt")),
         "seq": seq,
         "runtime": _name(entry.get("runtime")),
+        "component": _name(entry.get("component")),
+        "componentPath": _text(entry.get("component_path"), 200),
         "model": _name(entry.get("model")),
         "workspace": _name(entry.get("sandbox_name")),
         "tokens": _count(tokens.get("total")),

@@ -12,7 +12,8 @@ from collections.abc import Callable, Iterable
 from typing import Protocol
 
 from . import prwatch, state, telemetry
-from .config import Config
+from .config import Config, known_runtimes, resolve_workspace
+from .repos import validate_runtime_component
 from .trackers.base import Issue, TrackerAdapter, TrackerUnavailable
 
 ORPHAN_CLAIM_TICKS = 2
@@ -426,9 +427,19 @@ def tick(
     # A parked issue is remembered, not owned: it holds no slot and must not block a
     # dispatch when the ticket comes back to an active state.
     tracked_ids = {iid for iid, e in tracked.items() if e.get("status") != PARKED}
-    for issue in dispatch_order(
-        [i for i in active if i.id not in held and eligible(i, cfg, tracked_ids)]
-    ):
+    valid_runtimes = known_runtimes(cfg)
+    candidates = []
+    for i in active:
+        if i.id in held or not eligible(i, cfg, tracked_ids):
+            continue
+        rc_reason = validate_runtime_component(
+            i.labels, i.target_repo, cfg.components, valid_runtimes
+        )
+        if rc_reason:
+            fx.emit("issue_not_routable", issue_id=i.id, identifier=i.identifier, reason=rc_reason)
+            continue
+        candidates.append(i)
+    for issue in dispatch_order(candidates):
         if not admission_open():
             break
         if not _has_slot(cfg, busy, per_state, issue.state):
@@ -452,9 +463,11 @@ def tick(
         if not state.acquire_dispatch_token(kv, issue.id, seq, owner, now_ms):
             fx.emit("dispatch_token_lost", issue_id=issue.id, attempt=1)
             continue
+        runtime, component, component_path = resolve_workspace(cfg, issue)
         entry.update(title=issue.title, target_repo=issue.target_repo,
                      target_repos=list(issue.target_repos),
-                     runtime=cfg.agent_runtime, model=cfg.engine_model,
+                     runtime=runtime, component=component, component_path=component_path,
+                     model=cfg.engine_model,
                      tracker_state=issue.state, tracker_state_type=issue.state_type)
         kv.put(state.issue_key(issue.id), entry)
         if not admission_open():

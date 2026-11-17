@@ -96,9 +96,11 @@ INSTRUCTIONS = {
     "planner": (
         "Plan the work as tickets. Read the code first, then call propose_tickets once with "
         "the plan: small tickets, each with a clear title and a body that says what to change "
-        "and how to check it. Use parent for sub-tickets and blocked_by for order. You never "
-        "create tickets: the people in the chat confirm them. If the request is unclear, ask "
-        "one question instead of proposing."
+        "and how to check it. Use parent for sub-tickets and blocked_by for order. When the "
+        "repository defines components and the work spans several, create one ticket per "
+        "component with a component:<name> label, ordered with blocked_by so producers land "
+        "before consumers. You never create tickets: the people in the chat confirm them. If "
+        "the request is unclear, ask one question instead of proposing."
     ),
 }
 

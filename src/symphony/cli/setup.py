@@ -144,6 +144,13 @@ def _summaries(step_id: str, d: dict) -> str:
         bb = d.get("base_branches") or {}
         if bb:
             parts.append(f"base branch for {', '.join(sorted(bb))}")
+        rt = d.get("repo_runtimes") or {}
+        if rt:
+            parts.append(f"runtime for {', '.join(sorted(rt))}")
+        comps = d.get("components") or {}
+        if comps:
+            total = sum(len(v) for v in comps.values() if isinstance(v, dict))
+            parts.append(f"{_plural(total, 'component')}")
         if d.get("mergers"):
             parts.append(f"merger for {', '.join(d['mergers'])}")
         if not d.get("repositories"):
@@ -289,7 +296,9 @@ def github_app_text(doc: dict, style: Style) -> str:
 
 
 def put_repositories(api: Api, default_repo: str | None, *, set_default: bool = True,
-                     base_branches: dict[str, str | None] | None = None) -> dict:
+                     base_branches: dict[str, str | None] | None = None,
+                     runtimes: dict[str, str | None] | None = None,
+                     components: dict | None = None) -> dict:
     """`default_repo` None clears it; `set_default=False` leaves it as published."""
     body: dict = {}
     if set_default:
@@ -301,6 +310,10 @@ def put_repositories(api: Api, default_repo: str | None, *, set_default: bool = 
         body["default_repo"] = default_repo
     if base_branches is not None:
         body["base_branches"] = base_branches
+    if runtimes is not None:
+        body["runtimes"] = runtimes
+    if components is not None:
+        body["components"] = components
     return api.raw("PUT", "/v1/setup/repositories", json_body=body).body
 
 
@@ -315,6 +328,19 @@ def repositories_text(doc: dict, style: Style) -> str:
     if bb:
         for r, b in sorted(bb.items()):
             lines.append(f"  Base branch for {r}: {b}")
+    rt = doc.get("repo_runtimes") or {}
+    if rt:
+        for r, v in sorted(rt.items()):
+            lines.append(f"  Runtime for {r}: {v}")
+    comps = doc.get("components") or {}
+    if comps:
+        for r, repo_comps in sorted(comps.items()):
+            if isinstance(repo_comps, dict):
+                for cname, cdef in sorted(repo_comps.items()):
+                    path = cdef.get("path", "?") if isinstance(cdef, dict) else "?"
+                    crt = cdef.get("runtime") if isinstance(cdef, dict) else None
+                    suffix = f" (runtime: {crt})" if crt else ""
+                    lines.append(f"  Component {r}:{cname} = {path}{suffix}")
     without = doc.get("without_merger") or []
     if without:
         lines.append(style(f"Warning: no merger is registered for {', '.join(without)} yet. "

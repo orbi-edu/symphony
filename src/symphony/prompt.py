@@ -45,6 +45,9 @@ def render_prompt(
     extra_guidance: str = "",
     *,
     investigation_label: str = Config.investigation_label,
+    runtime: str | None = None,
+    component: str | None = None,
+    component_path: str | None = None,
 ) -> str:
     """The Liquid context is strictly `issue` and `attempt`;
     any additional content (e.g. the L1 failure summary) goes in as guidance APPENDED to
@@ -60,6 +63,9 @@ def render_prompt(
         "issue": {
             **asdict(issue),
             "investigation": any(lbl.casefold() == label for lbl in issue.labels),
+            "component": component,
+            "component_path": component_path,
+            "runtime": runtime,
         },
         "attempt": attempt if attempt and attempt > 1 else None,
     }

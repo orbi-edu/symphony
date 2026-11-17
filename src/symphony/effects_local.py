@@ -50,7 +50,7 @@ from typing import Any
 
 from . import codehost, ghapp, state
 from . import runner as runner_mod
-from .config import Config, base_branches_env
+from .config import Config, base_branches_env, resolve_workspace
 from .edge import log, now_ms
 from .entry.run_issue import engine_env, engine_launch, installation_credential
 from .kube import runner_job_name
@@ -361,6 +361,7 @@ class LocalEffects:
         if record.cancelled.is_set():
             raise OmpError("attempt cancelled before the workspace was ready")
         repos = runner_mod.target_repos(issue)
+        runtime, component, component_path = resolve_workspace(bound, issue)
         path = self.workspace_dir(issue.identifier)
         # Before any hook: `after_create` clones with it.
         git_env = self._install_credential(record, issue, bound)
@@ -373,6 +374,8 @@ class LocalEffects:
                 "SYMPHONY_TARGET_REPOS": " ".join(repos),
                 "SYMPHONY_WORKSPACE": str(path),
                 **({"SYMPHONY_BASE_BRANCHES": bb_env} if bb_env else {}),
+                **({"SYMPHONY_COMPONENT": component} if component else {}),
+                **({"SYMPHONY_COMPONENT_PATH": component_path} if component_path else {}),
                 **git_env,
             },
             self._base_env(tracker),

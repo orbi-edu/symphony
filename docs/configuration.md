@@ -151,6 +151,8 @@ The hooks get these variables:
 | `SYMPHONY_TARGET_REPOS` | All the ticket's repositories, primary first, separated by spaces. |
 | `SYMPHONY_BASE_BRANCHES` | Space-separated `owner/name=branch` pairs for target repos with a base branch override (`kubernetes.base_branches`). Absent when no repo has an override. |
 | `SYMPHONY_WORKSPACE` | Local mode only: the workspace directory (also the current directory). |
+| `SYMPHONY_COMPONENT` | The component name from the `component:` label, when present. |
+| `SYMPHONY_COMPONENT_PATH` | The component's path, when a component applies. |
 | `GITHUB_SERVER_URL` and the other endpoint variables | Only when they are set on the host. See [Endpoints](#endpoints). |
 
 The git credential helper is ready before `after_create` runs, so `git clone` over HTTPS works with no token in the URL.
@@ -199,6 +201,8 @@ On Kubernetes, these keys control the workspaces and the Jobs. Local mode ignore
 | `kubernetes.image_pull_secrets` | list of strings | `[]` | The pull Secrets of the workspace pods. |
 | `kubernetes.default_repo` | string | `null` | The repository (`owner/name`) of tickets that have no `repo:` label. A ticket's own label always wins. The merger also uses it when `SYMPHONY_MERGER_REPO` is empty. |
 | `kubernetes.base_branches` | map of repo to branch | `{}` | Per-repository base branch override (`owner/name` → branch). When set, the merger, assistant, reflector and workspace treat this branch as the repository's main branch instead of the auto-detected remote default. |
+| `kubernetes.repo_runtimes` | map of repo to runtime | `{}` | Per-repository runtime override (`owner/name` → runtime). When a ticket targets this repository and carries no `runtime:` label, the workspace uses this runtime instead of `agent_runtime`. The runtime must be a key of `agent_images` or a built-in (`node`, `dotnet9`, `dotnet10`, `polyglot`). |
+| `kubernetes.components` | map of repo to components | `{}` | Repository components for monorepo dispatch. Each component (`owner/name` → `{name: {path, runtime?}}`) names a path in the repository and optionally a runtime. A ticket with `component:api` scopes the agent to the component's path and selects its runtime. Component names must match `[a-z0-9][a-z0-9-]*`; paths are relative without `..`. See [concepts.md](concepts.md#monorepos-and-components). |
 | `kubernetes.egress_allowlist` | list of strings | `[]` | Symphony parses this key. The current code does not enforce it. A plain NetworkPolicy filters by IP address, not by domain name. |
 | `kubernetes.redispatch_cooldown_s` | integer | `900` | The cooldown of a continuation when the ticket did not change. See [concepts.md](concepts.md#cooldown). |
 | `kubernetes.sandbox.cpu` | number | `2` | The CPU request and limit of a workspace pod. |

@@ -632,24 +632,65 @@ def cmd_setup_github_app(args) -> int:
 
 
 def cmd_setup_repositories(args) -> int:
-    """`--branch` edits one repository's entry; the others stay (the API replaces the map)."""
+    """`--branch`/`--runtime`/`--component` edit entries; the others stay (the API replaces the map)."""
     set_default = bool(args.clear_default_repo or args.default_repo is not None)
-    if not set_default and not args.branch:
+    has_flags = bool(args.branch or args.runtime or args.component)
+    if not set_default and not has_flags:
         raise CliError("missing_option",
-                       "Give --default-repo, --clear-default-repo or --branch OWNER/NAME=BRANCH.")
+                       "Give --default-repo, --clear-default-repo, --branch, --runtime, or --component.")
     api = _api()
+    step = None
+    def _step_detail():
+        nonlocal step
+        if step is None:
+            step = next((s for s in setup.get_status(api).get("steps") or []
+                         if s.get("id") == "repositories"), {})
+        return step.get("detail") or {}
     base_branches = None
     if args.branch:
-        step = next((s for s in setup.get_status(api).get("steps") or []
-                     if s.get("id") == "repositories"), {})
-        base_branches = dict((step.get("detail") or {}).get("base_branches") or {})
+        base_branches = dict(_step_detail().get("base_branches") or {})
         for pair in args.branch:
             repo, sep, branch = pair.partition("=")
             if not sep or repo.count("/") != 1:
                 raise CliError("invalid_branch", f"Use --branch owner/name=branch, not {pair!r}.")
             base_branches[repo.strip().lower()] = branch.strip() or None
+    runtimes_map = None
+    if args.runtime:
+        runtimes_map = dict(_step_detail().get("repo_runtimes") or {})
+        for pair in args.runtime:
+            repo, sep, runtime = pair.partition("=")
+            if not sep or repo.count("/") != 1:
+                raise CliError("invalid_runtime", f"Use --runtime owner/name=runtime, not {pair!r}.")
+            runtimes_map[repo.strip().lower()] = runtime.strip() or None
+    components_map = None
+    if args.component:
+        components_map = dict(_step_detail().get("components") or {})
+        for spec in args.component:
+            if ":" not in spec or "=" not in spec:
+                raise CliError("invalid_component",
+                               f"Use --component owner/name:comp=path[@runtime], not {spec!r}.")
+            repo_comp, _, path_runtime = spec.partition("=")
+            repo, _, comp = repo_comp.partition(":")
+            repo = repo.strip().lower()
+            if not path_runtime.strip():
+                # owner/name:comp= clears the component
+                if repo in components_map and comp in components_map[repo]:
+                    del components_map[repo][comp]
+                    if not components_map[repo]:
+                        del components_map[repo]
+            else:
+                if "@" in path_runtime:
+                    path, _, rt = path_runtime.rpartition("@")
+                else:
+                    path, rt = path_runtime, None
+                components_map.setdefault(repo, {})
+                cdef: dict = {"path": path.strip()}
+                if rt:
+                    cdef["runtime"] = rt.strip()
+                components_map[repo][comp.strip()] = cdef
     doc = setup.put_repositories(api, None if args.clear_default_repo else args.default_repo,
-                                 set_default=set_default, base_branches=base_branches)
+                                 set_default=set_default, base_branches=base_branches,
+                                 runtimes=runtimes_map, components=components_map)
     _emit(args, doc, lambda: setup.repositories_text(doc, _style()))
     return 0
 
@@ -1094,6 +1135,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--branch", action="append", metavar="OWNER/NAME=BRANCH",
                    help="set the base branch for a repository (repeat for multiple; "
                         "owner/name= clears that repo)")
+    p.add_argument("--runtime", action="append", metavar="OWNER/NAME=RUNTIME",
+                   help="set the default runtime for a repository (repeat; owner/name= clears)")
+    p.add_argument("--component", action="append", metavar="OWNER/NAME:COMP=PATH[@RUNTIME]",
+                   help="define a repository component (repeat; owner/name:comp= removes)")
     notify = steps.add_parser("notifications", help="Slack, Discord and a test message"
                               ).add_subparsers(dest="channel_kind", metavar="CHANNEL", required=True)
     for channel, target, target_help in (

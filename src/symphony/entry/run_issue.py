@@ -18,7 +18,7 @@ import uuid
 from .. import ghapp, kube, orchestrator, state
 from .. import runner as runner_mod
 from ..admin_commands import AdminStore
-from ..config import Config, ConfigHolder, base_branches_env
+from ..config import Config, ConfigHolder, base_branches_env, resolve_workspace
 from ..edge import (
     SESSION_MOUNT,
     TrackerNotConfigured,
@@ -165,6 +165,7 @@ def main() -> str:
     def ensure_sandbox(issue: Issue, bound: Config) -> PodSandbox:
         nonlocal installation
         repos = runner_mod.target_repos(issue)
+        runtime, component, component_path = resolve_workspace(bound, issue)
         installation = installation_credential(issue, bound, os.environ, now_ms)
         if installation is None:
             log.warning("github_app_not_configured", issue_id=issue_id)
@@ -192,8 +193,12 @@ def main() -> str:
             log.warning("workspace_pod_dead_recreating", pod=name)
             kube.delete_pod(core, ns, name, wait=True)
             pod = None
+        if pod is not None and kube.workspace_needs_recreate(pod, bound, runtime):
+            log.info('workspace_runtime_mismatch_recreating', pod=name, runtime=runtime)
+            kube.delete_pod(core, ns, name, wait=True)
+            pod = None
         if pod is None:
-            created = kube.create_workspace(core, ns, bound, name)
+            created = kube.create_workspace(core, ns, bound, name, runtime=runtime)
         else:
             kube.wait_workspace_ready(core, ns, name)
         # The clone hook needs these BEFORE it runs, which is why they belong to the
@@ -207,6 +212,8 @@ def main() -> str:
                 "SYMPHONY_TARGET_REPO": repos[0] if repos else "",
                 "SYMPHONY_TARGET_REPOS": " ".join(repos),
                 **({"SYMPHONY_BASE_BRANCHES": bb_env} if bb_env else {}),
+                **({"SYMPHONY_COMPONENT": component} if component else {}),
+                **({"SYMPHONY_COMPONENT_PATH": component_path} if component_path else {}),
             },
         )
         if (

@@ -106,6 +106,13 @@ class Config:
     # When set, the merger, assistant and reflector treat this branch as the repository's
     # main branch instead of the auto-detected `origin/HEAD`.
     base_branches: dict = field(default_factory=dict)
+    # Per-repository runtime override: `owner/repo` (lowercased) → runtime name.
+    # When set, the workspace pod uses this runtime instead of the global agent_runtime.
+    repo_runtimes: dict = field(default_factory=dict)
+    # Monorepo component definitions: `owner/repo` → {component_name → {path, runtime}}.
+    # Each component names a sub-tree (path) and optionally a runtime; the component:
+    # label on a ticket selects it, and resolve_workspace merges the precedence chain.
+    components: dict = field(default_factory=dict)
     # The workspace pod runs a container daemon only if allowed to: dockerd needs a
     # privileged container (the K8s counterpart of Modal's experimental vm_runtime).
     # Off by default — turning it on is an isolation trade-off the operator must own.
@@ -186,6 +193,10 @@ class Config:
         """The configured base branch for `repo`, or None (auto-detect)."""
         return self.base_branches.get(repo.lower()) or None
 
+    def repo_runtime(self, repo: str) -> str | None:
+        """The configured runtime for `repo`, or None (use agent_runtime)."""
+        return self.repo_runtimes.get(repo.lower()) or None
+
 
 
 def base_branches_env(cfg: Config, repos: tuple[str, ...] | list[str]) -> str:
@@ -198,6 +209,53 @@ def base_branches_env(cfg: Config, repos: tuple[str, ...] | list[str]) -> str:
         if branch:
             pairs.append(f"{repo.lower()}={branch}")
     return " ".join(pairs)
+
+
+_COMPONENT_NAME = re.compile(r'[a-z0-9][a-z0-9-]*\Z')
+_COMPONENT_PATH = re.compile(r'[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*\Z')
+
+
+def known_runtimes(cfg: Config) -> frozenset[str]:
+    """All runtime names the config recognises: built-in defaults + operator overrides."""
+    from .kube import DEFAULT_AGENT_IMAGES
+    return frozenset(DEFAULT_AGENT_IMAGES) | frozenset(cfg.agent_images)
+
+
+def resolve_workspace(cfg: Config, issue) -> tuple[str, str | None, str | None]:
+    """Resolve (runtime, component_name, component_path) for an issue.
+
+    Precedence: runtime: label > component.runtime > repo_runtimes[primary] > agent_runtime.
+    agent_image (single image) still wins at IMAGE selection time (kube.agent_image_for).
+    """
+    primary = issue.target_repo
+    # Extract runtime: and component: labels
+    runtime_labels = [lbl for lbl in issue.labels if lbl.lower().startswith('runtime:')]
+    component_labels = [lbl for lbl in issue.labels if lbl.lower().startswith('component:')]
+
+    component_name: str | None = None
+    component_path: str | None = None
+    component_runtime: str | None = None
+
+    if component_labels:
+        cname = component_labels[0][len('component:'):].strip().lower()
+        repo_components = cfg.components.get(primary.lower(), {}) if primary else {}
+        comp = repo_components.get(cname)
+        if comp:
+            component_name = cname
+            component_path = comp.get('path')
+            component_runtime = comp.get('runtime') or None
+
+    # Precedence for runtime
+    if runtime_labels:
+        runtime = runtime_labels[0][len('runtime:'):].strip().lower()
+    elif component_runtime:
+        runtime = component_runtime
+    elif primary and cfg.repo_runtimes.get(primary.lower()):
+        runtime = cfg.repo_runtimes[primary.lower()]
+    else:
+        runtime = cfg.agent_runtime
+
+    return runtime, component_name, component_path
 
 TRACKER_KINDS = ("linear", "github", "memory")
 
@@ -642,6 +700,32 @@ def parse_workflow(text: str, env: Mapping[str, str] | None = None) -> Config:
         isinstance(k, str) and isinstance(v, str) for k, v in raw_branches.items()
     ):
         raise ConfigError("kubernetes.base_branches must map repositories to branch names")
+    raw_repo_runtimes = k8s_blk.get('repo_runtimes') or {}
+    if not isinstance(raw_repo_runtimes, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in raw_repo_runtimes.items()
+    ):
+        raise ConfigError('kubernetes.repo_runtimes must map repositories to runtime names')
+    raw_components = k8s_blk.get('components') or {}
+    if not isinstance(raw_components, dict):
+        raise ConfigError('kubernetes.components must map repositories to component definitions')
+    for repo, repo_comps in raw_components.items():
+        if not isinstance(repo, str) or not _REPO.fullmatch(repo):
+            raise ConfigError(f'kubernetes.components: {repo!r} is not a valid owner/name')
+        if not isinstance(repo_comps, dict) or len(repo_comps) > 64:
+            raise ConfigError(f'kubernetes.components.{repo}: must be a bounded mapping of components')
+        for cname, cdef in repo_comps.items():
+            if not isinstance(cname, str) or not _COMPONENT_NAME.fullmatch(cname):
+                raise ConfigError(f'kubernetes.components.{repo}.{cname}: component name must match [a-z0-9][a-z0-9-]*')
+            if not isinstance(cdef, dict):
+                raise ConfigError(f'kubernetes.components.{repo}.{cname}: must be a mapping')
+            cpath = cdef.get('path')
+            if not isinstance(cpath, str) or not cpath or '..' in cpath or cpath.startswith('/'):
+                raise ConfigError(f'kubernetes.components.{repo}.{cname}.path: must be a relative path without ..')
+            if not _COMPONENT_PATH.fullmatch(cpath):
+                raise ConfigError(f'kubernetes.components.{repo}.{cname}.path: invalid path')
+            cruntime = cdef.get('runtime')
+            if cruntime is not None and not isinstance(cruntime, str):
+                raise ConfigError(f'kubernetes.components.{repo}.{cname}.runtime: must be a string')
     if not isinstance(tracker.get("provider", {}) or {}, dict):
         raise ConfigError("tracker.provider must be a mapping")
     if tracker["kind"] == "github":
@@ -749,6 +833,14 @@ def parse_workflow(text: str, env: Mapping[str, str] | None = None) -> Config:
         agent_image=_typed(k8s_blk, "agent_image", str, None),
         agent_images=dict(k8s_blk.get("agent_images") or {}),
         base_branches={k.lower(): v for k, v in raw_branches.items()},
+        repo_runtimes={k.lower(): v for k, v in raw_repo_runtimes.items()},
+        components={
+            repo.lower(): {
+                cname: {k2: v2 for k2, v2 in cdef.items() if k2 in ('path', 'runtime')}
+                for cname, cdef in repo_comps.items()
+            }
+            for repo, repo_comps in raw_components.items()
+        },
         privileged_agents=_typed(k8s_blk, "privileged_agents", bool, defaults.privileged_agents),
         runtime_class=_typed(k8s_blk, "runtime_class", str, None),
         storage_class=_typed(k8s_blk, "storage_class", str, None),
@@ -837,6 +929,21 @@ def parse_workflow(text: str, env: Mapping[str, str] | None = None) -> Config:
         if not parsed.scheme or not parsed.hostname:
             raise ConfigError("telemetry.endpoint must be an absolute URL")
 
+
+    valid_runtimes = known_runtimes(cfg)
+    for repo, rt in cfg.repo_runtimes.items():
+        if rt not in valid_runtimes:
+            raise ConfigError(
+                f'kubernetes.repo_runtimes: runtime {rt!r} for {repo} is not a known runtime '
+                f'({", ".join(sorted(valid_runtimes))})'
+            )
+    for repo, repo_comps in cfg.components.items():
+        for cname, cdef in repo_comps.items():
+            crt = cdef.get('runtime')
+            if crt and crt not in valid_runtimes:
+                raise ConfigError(
+                    f'kubernetes.components.{repo}.{cname}.runtime: {crt!r} is not a known runtime'
+                )
     validate_template(cfg.prompt_body)
     return cfg
 
