@@ -68,8 +68,16 @@ def _names(client, namespace: str) -> list[str]:
     return sorted(keys)
 
 
+def _value(client, key: str):
+    """DUMP, except a set compares by its members: Redis 7.0 (ubuntu-24.04's package) keeps
+    small string sets in a hash table, whose DUMP order can differ after a restore."""
+    if client.type(key) in (b"set", "set"):
+        return sorted(client.smembers(key))
+    return client.dump(key)
+
+
 def snapshot(client, namespace: str = NS) -> dict:
-    return {key: (client.dump(key), client.pttl(key)) for key in _names(client, namespace)}
+    return {key: (_value(client, key), client.pttl(key)) for key in _names(client, namespace)}
 
 
 def flush(client, namespace: str = NS) -> None:
