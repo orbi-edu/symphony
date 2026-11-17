@@ -26,7 +26,7 @@ REGISTRY="${REGISTRY:-}"
 PREFIX="${REGISTRY:+$REGISTRY/}"
 TAG="${TAG:-latest}"
 VERSION="${VERSION:-}"
-RUNTIMES="${RUNTIMES:-node dotnet9 dotnet10}"
+RUNTIMES="${RUNTIMES:-node dotnet9 dotnet10 polyglot}"
 IMAGES="${IMAGES:-orchestrator agent}"
 PLATFORM="${PLATFORM:-}"
 WITH_DOCKER="${WITH_DOCKER:-1}"
@@ -68,7 +68,8 @@ base_for() {
     node) echo "debian:bookworm-slim" ;;
     dotnet9) echo "mcr.microsoft.com/dotnet/sdk:9.0" ;;
     dotnet10) echo "mcr.microsoft.com/dotnet/sdk:10.0" ;;
-    *) echo "unknown runtime: $1 (want node | dotnet9 | dotnet10)" >&2; return 1 ;;
+    polyglot) echo "mcr.microsoft.com/dotnet/sdk:10.0" ;;
+    *) echo "unknown runtime: $1 (want node | dotnet9 | dotnet10 | polyglot)" >&2; return 1 ;;
   esac
 }
 
@@ -104,10 +105,13 @@ for family in $IMAGES; do
         base=$(base_for "$runtime")
         refs="${PREFIX}symphony-agent:${runtime}"
         [ -n "$VERSION" ] && refs="$refs ${PREFIX}symphony-agent:${runtime}-${VERSION}"
+        python_flag=0
+        [ "$runtime" = "polyglot" ] && python_flag=1
         build docker/agent.Dockerfile symphony-agent "$refs" \
           --build-arg "BASE_IMAGE=$base" \
           --build-arg "OMP_VERSION=$OMP_VERSION" \
-          --build-arg "WITH_DOCKER=$WITH_DOCKER"
+          --build-arg "WITH_DOCKER=$WITH_DOCKER" \
+          --build-arg "WITH_PYTHON=$python_flag"
       done
       ;;
     *)

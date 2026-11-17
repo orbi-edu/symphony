@@ -7,6 +7,8 @@
 #   node:     debian:bookworm-slim               -> symphony-agent:node
 #   dotnet9:  mcr.microsoft.com/dotnet/sdk:9.0   -> symphony-agent:dotnet9
 #   dotnet10: mcr.microsoft.com/dotnet/sdk:10.0  -> symphony-agent:dotnet10
+#   polyglot: mcr.microsoft.com/dotnet/sdk:10.0  -> symphony-agent:polyglot
+#             (+ Python 3 with pip and venv for mixed .NET/Node/Python repos)
 #
 # WITH_DOCKER=1 (default) installs the Docker engine for repositories whose tests need
 # containers. It only starts when the pod runs privileged (kubernetes.privileged_agents)
@@ -17,6 +19,7 @@ FROM ${BASE_IMAGE}
 # Pin = src/symphony/edge.py OMP_VERSION (scripts/build_images.sh passes it).
 ARG OMP_VERSION=18.20.2
 ARG WITH_DOCKER=1
+ARG WITH_PYTHON=0
 
 ENV DEBIAN_FRONTEND=noninteractive \
     DOTNET_CLI_TELEMETRY_OPTOUT=1 \
@@ -32,6 +35,13 @@ RUN apt-get update && \
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
     apt-get install -y --no-install-recommends nodejs && \
     rm -rf /var/lib/apt/lists/*
+
+# Python for polyglot repositories (mixed .NET/Node/Python).
+RUN if [ "${WITH_PYTHON}" = "1" ]; then \
+      apt-get update && \
+      apt-get install -y --no-install-recommends python3 python3-pip python3-venv && \
+      rm -rf /var/lib/apt/lists/*; \
+    fi
 
 COPY docker/install-omp.sh /usr/local/lib/symphony/install-omp.sh
 RUN /usr/local/lib/symphony/install-omp.sh "${OMP_VERSION}"

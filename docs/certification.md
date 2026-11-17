@@ -27,7 +27,7 @@ The rollouts took 15 s. The attempt took 155 s.
 | Ticket `Done` → terminal cleanup | Pod and PVC deleted | 18 s |
 | Nightly sweep | `kubectl create job sweep-e2e --from=cronjob/symphony-nightly-sweep`, `succeeded: 1` | 3.1 s |
 
-Runtime images: `IMAGES=agent RUNTIMES="dotnet9 dotnet10" scripts/build_images.sh` finished
+Runtime images: `IMAGES=agent RUNTIMES="dotnet9 dotnet10 polyglot" scripts/build_images.sh` finished
 in 139 s. `symphony-agent:dotnet9` has omp 18.20.2, .NET 9.0.321, node 22 and git.
 `symphony-agent:dotnet10` has omp 18.20.2, .NET 10.0.404, node 22 and git. The certification
 uses the `node` image.
@@ -35,7 +35,7 @@ uses the `node` image.
 ### Re-run after W9–W11
 
 Run of 2026-11-16, same machine, after the W9–W11 features. All images were built first with
-`TAG=e2e scripts/build_images.sh` (orchestrator, `node`, `dotnet9`, `dotnet10`) in 194 s.
+`TAG=e2e scripts/build_images.sh` (orchestrator, `node`, `dotnet9`, `dotnet10`, `polyglot`) in 194 s.
 `E2E_TEARDOWN=1 scripts/e2e_kind.sh` stopped with exit code 0 in 211 s. The cluster took 45 s.
 The images took 31 s to build and load (cache). The rollouts took 16 s. The attempt took 113 s.
 No regression.
