@@ -31,6 +31,17 @@ jobs:
         run: uv run ruff check .
       - name: bash -n on the scripts
         run: git ls-files -z '*.sh' | xargs -0 -n 1 bash -n
+      # The Tern plugin tests skip here (no `tern` binary), so a syntax error in the plugin
+      # would otherwise reach main unnoticed. luau-compile parses every file.
+      - name: luau-compile on the Tern plugin
+        env:
+          LUAU_VERSION: "0.747"
+          LUAU_SHA256: 6a740240248e872815865a2cb03b0c327f24939478f1d0081a0540cdfd77fdaa
+        run: |
+          curl -fsSLo /tmp/luau.zip "https://github.com/luau-lang/luau/releases/download/${LUAU_VERSION}/luau-ubuntu.zip"
+          echo "${LUAU_SHA256}  /tmp/luau.zip" | sha256sum -c -
+          unzip -q -o /tmp/luau.zip luau-compile -d /tmp/luau
+          git ls-files -z 'tern-plugin/*.luau' | xargs -0 /tmp/luau/luau-compile --null
       - name: kustomize render
         run: |
           kubectl kustomize deploy/ > /dev/null
