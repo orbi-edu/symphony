@@ -632,7 +632,20 @@ def cmd_setup_github_app(args) -> int:
 
 
 def cmd_setup_repositories(args) -> int:
-    doc = setup.put_repositories(_api(), None if args.clear_default_repo else args.default_repo)
+    branches = args.branch or []
+    base_branches: dict[str, str | None] | None = None
+    if branches:
+        base_branches = {}
+        for pair in branches:
+            if "=" not in pair:
+                raise SystemExit(f"error: --branch expects OWNER/NAME=BRANCH, got {pair!r}")
+            repo, _, branch = pair.partition("=")
+            base_branches[repo.lower()] = branch or None
+    # When only --branch is given, don't require --default-repo / --clear-default-repo.
+    if not args.clear_default_repo and args.default_repo is None and not branches:
+        raise SystemExit("error: one of --default-repo, --clear-default-repo, or --branch is required")
+    default_repo = None if args.clear_default_repo else args.default_repo
+    doc = setup.put_repositories(_api(), default_repo, base_branches=base_branches)
     _emit(args, doc, lambda: setup.repositories_text(doc, _style()))
     return 0
 
@@ -1070,10 +1083,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--installation-id", required=True)
     p.add_argument("--private-key-file", metavar="PATH")
     p = add("repositories", cmd_setup_repositories, "set or clear the default repository", steps)
-    group = p.add_mutually_exclusive_group(required=True)
+    group = p.add_mutually_exclusive_group()
     group.add_argument("--default-repo", metavar="OWNER/NAME")
     group.add_argument("--clear-default-repo", action="store_true",
                        help="no default: each ticket names its repository with a `repo:` label")
+    p.add_argument("--branch", action="append", metavar="OWNER/NAME=BRANCH",
+                   help="set the base branch for a repository (repeat for multiple; "
+                        "owner/name= clears that repo)")
     notify = steps.add_parser("notifications", help="Slack, Discord and a test message"
                               ).add_subparsers(dest="channel_kind", metavar="CHANNEL", required=True)
     for channel, target, target_help in (

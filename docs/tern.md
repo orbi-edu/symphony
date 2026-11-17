@@ -282,7 +282,8 @@ What the chat assistant is and what it remembers ([assistant.md](assistant.md#so
 
 ## Repositories, Infrastructure, Telemetry, Learnings and Audit
 
-Read-only views for every role: the repositories Symphony dispatches to, the services and cluster
+Read-only views for every role: the repositories Symphony dispatches to (with their configured
+base branch, or "default" for auto-detected), the services and cluster
 resources, usage by model, by month and by session, the learnings from reflection, and the audit
 log (`m` loads more). When a source is stale or unavailable, the view says which one. An empty list
 caused by missing data never shows as "none".

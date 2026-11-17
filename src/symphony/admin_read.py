@@ -688,6 +688,12 @@ class AdminProjection:
         default = _repo(values.get("kubernetes.default_repo"))
         if default:
             routes[default].add("default")
+        # base_branches: repo → branch override from WORKFLOW.
+        raw_bb = values.get("kubernetes.base_branches") or "{}"
+        try:
+            bb = json.loads(raw_bb) if isinstance(raw_bb, str) else (raw_bb or {})
+        except (ValueError, TypeError):
+            bb = {}
         repositories = []
         for repo in sorted(routes):
             observed = grouped[repo]
@@ -697,11 +703,9 @@ class AdminProjection:
                 {
                     "name": repo,
                     "runtime": runtime,
-                    # How Symphony knows this repo: `issue` (a tracked issue routes to it),
-                    # `retrospective` (a retained retrospective), `default` (the workflow's
-                    # default_repo). `issues` counts tracked runs only.
                     "routes": sorted(routes[repo]),
                     "issues": len(observed) if state_available else None,
+                    "base_branch": bb.get(repo),
                 }
             )
         return repositories

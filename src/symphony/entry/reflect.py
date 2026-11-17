@@ -155,6 +155,7 @@ def main() -> str:
             os.environ, now_ms, target_repos=(target_repo,) if target_repo else ()
         ).token(),
         repo=target_repo,
+        base_branch=cfg.base_branch(target_repo) if target_repo else None,
     )
     fetch_workpad = getattr(tracker, "fetch_issue_workpad", None)
     outcome = reflector_mod.run_retrospective(

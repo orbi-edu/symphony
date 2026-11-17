@@ -381,7 +381,7 @@ view use these routes. [install.md](install.md#4-run-the-first-run-setup) explai
 | `GET /v1/setup` | viewer | — | `{complete, mode, steps: [{id, title, status, required, detail, error}]}` |
 | `PUT /v1/setup/tracker` | admin | `{kind: "linear", api_key, team_key \| project_slug}` or `{kind: "github", owner, project_number, status_field?}` | `{kind, states, warnings, restarted}` |
 | `PUT /v1/setup/github-app` | admin | `{app_id, installation_id, private_key}` | `{repositories, missing_permissions, restarted}` |
-| `PUT /v1/setup/repositories` | admin | `{default_repo: "owner/name" \| null}` | `{default_repo, mergers, without_merger}` |
+| `PUT /v1/setup/repositories` | admin | `{default_repo: "owner/name" \| null, base_branches?: {"owner/name": "branch" \| null}}` | `{default_repo, base_branches, mergers, without_merger, restarted}` |
 | `PUT /v1/setup/notifications` | admin | `{slack?, discord?}` | `{slack: {configured, last_test}, discord: {configured, last_test}, restarted}` |
 | `POST /v1/setup/notifications/test` | admin | — | `{results: {slack?: {ok, error}, discord?: {ok, error}}}` |
 | `PUT /v1/setup/assistant` | admin | `{slack?: {app_token?, channels}, discord?: {channels}, repositories?: ["owner/name"] \| null}` | `{slack: {connected, channels} \| null, discord: {connected, channels, intent} \| null, repositories, restarted}` |
@@ -397,7 +397,7 @@ of a vendor check for 30 seconds (`CACHE_S`). Every setup write drops that cache
 |---|---|---|---|
 | `tracker` | yes | `{kind, team_key, project_slug, owner, project_number, status_field, credential, states}` | the tracker codes below, `workflow_unavailable` |
 | `github_app` | yes | `{configured, repositories, missing_permissions}` | `github_permissions_missing`, the App codes below |
-| `repositories` | yes | `{default_repo, repositories, mergers, without_merger}` | `merger_missing` (Kubernetes only: a repository has no live merger) |
+| `repositories` | yes | `{default_repo, base_branches, repositories, mergers, without_merger}` | `merger_missing` (Kubernetes only: a repository has no live merger), `branch_not_found` |
 | `models` | yes | `{roles: [{role, provider, model, credential: "stored" \| "host" \| null}]}` | `model_credential_missing` |
 | `notifications` | no | `{slack: {configured, last_test}, discord: {configured, last_test}}` | `notification_failed` |
 | `assistant` | no | `{enabled, running, heartbeat_at, threads, repositories, slack: {configured, connected, channels}, discord: {configured, connected, channels, intent}}` | `slack_app_token_missing`, `slack_app_token_rejected`, `slack_bot_token_rejected`, `discord_bot_token_rejected`, `message_content_intent_missing` (`skipped` while `assistant.enabled` is not true) |
@@ -440,6 +440,8 @@ after the API itself has restarted. In local mode `restarted` is `[]`.
 | 422 | `invalid_github_app`, `invalid_private_key`, `github_app_unauthorized`, `github_installation_not_found`, `github_app_rejected` | The App credential does not mint a token |
 | 422 | `github_project_not_found`, `github_status_field_missing` | The board or its status field is not there |
 | 422 | `repo_not_installed` | The App is not installed on the default repository |
+| 422 | `branch_not_found` | A `base_branches` branch does not exist on the repository |
+| 422 | `branch_not_verified` | GitHub returned a non-2xx, non-404 status verifying a branch. When no GitHub App is configured, branch verification is skipped |
 | 422 | `notification_unverified` | The test message failed. Nothing was stored |
 | 422 | `invalid_secret` | An empty or too long value |
 | 422 | `slack_app_token_missing`, `slack_app_token_rejected` | No Slack app-level token, or Slack refused it (Socket Mode off, or no `connections:write`) |

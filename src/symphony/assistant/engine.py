@@ -113,7 +113,7 @@ def instructions(role: str, *, transport: str, is_dm: bool, repos: list[str],
         "You can read files; you cannot run commands or change files.",
     ]
     if repos:
-        lines.append("The repositories are checked out read-only at origin/main in your working "
+        lines.append("The repositories are checked out read-only at their base branch in your working "
                      "directory: " + ", ".join(f"./{r}" for r in repos) + ".")
         lines.append("Cite code as owner/repo:path:line (for example acme/app:src/main.py:12).")
     if soul is not None and soul.instructions():

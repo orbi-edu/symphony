@@ -371,3 +371,47 @@ def test_seed_tickets_are_refused_on_a_real_tracker():
             "---\ntracker:\n  kind: linear\n  provider: {project_slug: p}\n"
             "  issues: [{id: i1, identifier: A-1, title: t}]\n---\nx"
         )
+
+
+# -- base_branches ---------------------------------------------------------------
+
+
+def test_base_branches_parsed_and_lowercased():
+    cfg = parse_workflow(
+        "---\ntracker: {kind: memory}\nkubernetes:\n  base_branches:\n"
+        "    Acme/App: develop\n---\nx"
+    )
+    assert cfg.base_branches == {"acme/app": "develop"}
+    assert cfg.base_branch("Acme/App") == "develop"
+    assert cfg.base_branch("acme/app") == "develop"
+    assert cfg.base_branch("other/repo") is None
+
+
+def test_base_branches_defaults_empty():
+    cfg = parse_workflow(MINIMAL)
+    assert cfg.base_branches == {}
+    assert cfg.base_branch("any/repo") is None
+
+
+def test_base_branches_rejects_non_dict():
+    with pytest.raises(ConfigError, match="base_branches"):
+        parse_workflow(
+            "---\ntracker: {kind: memory}\nkubernetes:\n  base_branches: [main]\n---\nx"
+        )
+
+
+def test_base_branches_env_builds_pairs_for_overrides_only():
+    from symphony.config import base_branches_env
+
+    cfg = parse_workflow(
+        "---\ntracker: {kind: memory}\nkubernetes:\n  base_branches:\n"
+        "    acme/app: develop\n    acme/lib: release\n---\nx"
+    )
+    # Only repos with overrides appear.
+    assert base_branches_env(cfg, ("acme/app", "acme/other")) == "acme/app=develop"
+    # Both repos have overrides.
+    assert base_branches_env(cfg, ("acme/app", "acme/lib")) == "acme/app=develop acme/lib=release"
+    # No repo has an override.
+    assert base_branches_env(cfg, ("acme/other",)) == ""
+    # Empty repos list.
+    assert base_branches_env(cfg, ()) == ""

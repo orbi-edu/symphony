@@ -43,6 +43,8 @@ _REFERENCE = re.compile(r"\$[A-Za-z_][A-Za-z0-9_]*\Z")
 _DNS_NAME = re.compile(r"[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?\Z")
 _LABEL = re.compile(r"[a-z0-9](?:[-a-z0-9]*[a-z0-9])?\Z")
 _IMAGE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/:@+-]*\Z")
+_REPO = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
+_BRANCH_BAD = re.compile(r"(?:\.\.|[~^:?*\[\\])")
 _QUANTITY = re.compile(
     r"(?:[1-9]\d*(?:\.\d+)?|0\.\d*[1-9]\d*)(?:[EPTGMK]i|[EPTGMk]|m|[eE][+-]?\d+)?\Z"
 )
@@ -114,6 +116,7 @@ _FIELDS = {
     "kubernetes.namespace": _Field("namespace", optional=True),
     "kubernetes.agent_runtime": _Field("agent_runtime"),
     "kubernetes.agent_images": _Field("agent_images", "json"),
+    "kubernetes.base_branches": _Field("base_branches", "json"),
     "kubernetes.agent_image": _Field("agent_image", optional=True),
     "kubernetes.sandbox.cpu": _Field("sandbox.cpu", "number", 0.001),
     "kubernetes.sandbox.memory_mib": _Field("sandbox.memory_mib", "integer"),
@@ -289,6 +292,24 @@ def _check_value(key: str, value: Any, namespace: str, *, submitted: bool) -> An
                 elif not isinstance(item, str) or not _IMAGE.fullmatch(item) or "://" in item:
                     raise _invalid(key, "Use image references without URLs or credentials.")
             return value
+        if key == "kubernetes.base_branches":
+            if not isinstance(value, Mapping) or len(value) > _MAX_ITEMS:
+                raise _invalid(key, "Use a bounded JSON object.")
+            for repo, branch in value.items():
+                if not isinstance(repo, str) or not _REPO.fullmatch(repo):
+                    raise _invalid(key, "Keys must be owner/name repositories.")
+                if (
+                    not isinstance(branch, str)
+                    or not branch
+                    or len(branch) > 255
+                    or " " in branch
+                    or branch.startswith("-")
+                    or branch.endswith("/")
+                    or branch.endswith(".lock")
+                    or _BRANCH_BAD.search(branch)
+                ):
+                    raise _invalid(key, "Values must be valid git branch names.")
+            return {k.lower(): v for k, v in value.items()}
         if key == "notify.users":
             # service (`slack`, `discord`) -> GitHub login -> that service's user id.
             if not isinstance(value, Mapping) or not set(value) <= {"slack", "discord"}:

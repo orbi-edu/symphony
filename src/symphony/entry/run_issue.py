@@ -18,7 +18,7 @@ import uuid
 from .. import ghapp, kube, orchestrator, state
 from .. import runner as runner_mod
 from ..admin_commands import AdminStore
-from ..config import Config, ConfigHolder
+from ..config import Config, ConfigHolder, base_branches_env
 from ..edge import (
     SESSION_MOUNT,
     TrackerNotConfigured,
@@ -198,6 +198,7 @@ def main() -> str:
             kube.wait_workspace_ready(core, ns, name)
         # The clone hook needs these BEFORE it runs, which is why they belong to the
         # sandbox wrapper rather than to the engine launch.
+        bb_env = base_branches_env(bound, repos)
         wrapped = PodSandbox(
             core,
             ns,
@@ -205,6 +206,7 @@ def main() -> str:
             env={
                 "SYMPHONY_TARGET_REPO": repos[0] if repos else "",
                 "SYMPHONY_TARGET_REPOS": " ".join(repos),
+                **({"SYMPHONY_BASE_BRANCHES": bb_env} if bb_env else {}),
             },
         )
         if (

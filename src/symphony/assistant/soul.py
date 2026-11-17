@@ -1,7 +1,7 @@
 """The assistant's soul: a persona and team rules kept in Git, read at each new session.
 
 `assistant.soul: {repo, path}` names the file (default `.symphony/assistant.md` in the first
-`assistant.repositories` entry, else `default_repo`). It is read from `origin/main` of the
+`assistant.repositories` entry, else `default_repo`). It is read from the base branch of the
 assistant's read-only mirror, at most `MAX_BYTES`. Optional front matter sets `name`,
 `language` (the default reply language) and `tone`. The body is appended to the role
 instructions; it never replaces the safety rules. The active version is the file's blob sha. A

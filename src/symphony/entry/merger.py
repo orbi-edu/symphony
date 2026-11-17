@@ -106,7 +106,7 @@ def build(client, ns: str, cfg, env=os.environ, pulse: Pulse | None = None, *,
         except ConfigError as exc:  # the merger still merges; tickets just don't move
             log.warning("merger_tracker_unavailable", error=str(exc))
     pulse = pulse or Pulse()
-    git = Mirror(workdir, f"{github_server_url()}/{repo}.git", token=token)
+    git = Mirror(workdir, f"{github_server_url()}/{repo}.git", main=cfg.base_branch(repo), token=token)
     git.ensure()
     git.fetch()
     return Merger(

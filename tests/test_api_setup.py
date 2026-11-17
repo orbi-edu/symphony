@@ -500,3 +500,73 @@ def test_assistant_is_verified_then_published_and_restarted(setup):
     assert "Message Content Intent" in refused.json()["error"]["message"]
     assert_nothing_leaked(env, slack_mock.DEFAULT_APP_TOKEN, slack_mock.DEFAULT_TOKEN,
                           discord_mock.DEFAULT_TOKEN)
+
+
+def test_base_branches_are_validated_published_and_restarted(setup):
+    """PUT /v1/setup/repositories with base_branches validates each branch against the
+    GitHub App, publishes the WORKFLOW, restarts the Deployments, and returns the map.
+    A nonexistent branch gives 422 branch_not_found. A null value clears the entry.
+    An unchanged map does not restart. A branch with a slash is URL-encoded."""
+    from scripts.mocks.github import gitrepo
+
+    env = setup
+    install(env)
+    env.client.put("/v1/setup/github-app", headers=env.admin, json=app_body(env))
+    env.restart()
+
+    # Create a branch with a slash in the mock repo.
+    repo_obj = env.vendors.github_server.mock.find_repo("acme", "app")
+    repo_path = env.vendors.github_server.mock.path(repo_obj)
+    main_sha = gitrepo.branch_sha(repo_path, "main")
+    gitrepo.update_ref(repo_path, "refs/heads/release/1.0", main_sha)
+
+    # Set a base branch with a slash (URL-encoded path).
+    env.apps.patched.clear()
+    ok = env.client.put("/v1/setup/repositories", headers=env.admin, json={
+        "default_repo": "Acme/App", "base_branches": {"acme/app": "release/1.0"}
+    })
+    assert ok.status_code == 200
+    body = ok.json()
+    assert body["default_repo"] == "acme/app"
+    assert body["base_branches"] == {"acme/app": "release/1.0"}
+    # Deployments were restarted (github-app group → daemon, merger, assistant, api).
+    assert len(env.apps.patched) > 0
+
+    # The step detail includes base_branches.
+    step = steps(env)["repositories"]
+    assert step["detail"]["base_branches"] == {"acme/app": "release/1.0"}
+
+    # Unchanged map → NO restart.
+    env.apps.patched.clear()
+    same = env.client.put("/v1/setup/repositories", headers=env.admin, json={
+        "base_branches": {"acme/app": "release/1.0"}
+    })
+    assert same.status_code == 200
+    assert same.json()["restarted"] == []
+    assert env.apps.patched == []
+
+    # A nonexistent branch is refused.
+    bad = env.client.put("/v1/setup/repositories", headers=env.admin, json={
+        "base_branches": {"acme/app": "nonexistent-branch"}
+    })
+    assert bad.status_code == 422
+    assert bad.json()["error"]["code"] == "branch_not_found"
+
+    # Clearing: null value removes the entry.
+    env.apps.patched.clear()
+    cleared = env.client.put("/v1/setup/repositories", headers=env.admin, json={
+        "base_branches": {"acme/app": None}
+    })
+    assert cleared.status_code == 200
+    assert cleared.json()["base_branches"] == {}
+    assert len(env.apps.patched) > 0  # changed from non-empty to empty → restart
+
+    # Without base_branches field, the existing map is returned unchanged.
+    env.client.put("/v1/setup/repositories", headers=env.admin, json={
+        "base_branches": {"acme/app": "main"}
+    })
+    no_field = env.client.put("/v1/setup/repositories", headers=env.admin, json={
+        "default_repo": "acme/app"
+    })
+    assert no_field.status_code == 200
+    assert no_field.json()["base_branches"] == {"acme/app": "main"}

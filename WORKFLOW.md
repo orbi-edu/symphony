@@ -32,6 +32,9 @@ workspace:
 hooks:
   after_create: |
     set -eu
+    # Look up the base branch override for a repository (from SYMPHONY_BASE_BRANCHES).
+    # Always exits 0: under `set -e`, `b=$(base_of …)` must not abort a repo without one.
+    base_of() { for p in ${SYMPHONY_BASE_BRANCHES:-}; do [ "${p%%=*}" = "$1" ] && { echo "${p#*=}"; return 0; }; done; return 0; }
     # ${SYMPHONY_TARGET_REPOS} lists the ticket's `repo:owner/name` labels, primary first
     # (${SYMPHONY_TARGET_REPO} is the primary alone), so ONE policy serves every
     # repository — adding one needs no redeploy.
@@ -40,7 +43,9 @@ hooks:
     # A shallow clone fetches ONLY the default branch, so an in-flight branch from a
     # previous attempt would be invisible — which is how one issue ends up with two pull
     # requests. Fetch the other heads so continuing existing work is possible at all.
-    git clone --depth 50 "${GITHUB_SERVER_URL:-https://github.com}/${primary}.git" /workspace
+    b=$(base_of "$primary")
+    git clone --depth 50 ${b:+--branch "$b"} "${GITHUB_SERVER_URL:-https://github.com}/${primary}.git" /workspace
+    if [ -n "$b" ]; then git -C /workspace remote set-head origin "$b"; fi
     git -C /workspace fetch --depth 50 origin '+refs/heads/*:refs/remotes/origin/*'
     # The other repositories live under repos/<name>, invisible to the primary's git so
     # they can never be committed into it.
@@ -48,7 +53,9 @@ hooks:
     for repo in $repos; do
       [ "$repo" = "$primary" ] && continue
       dest="/workspace/repos/${repo#*/}"
-      git clone --depth 50 "${GITHUB_SERVER_URL:-https://github.com}/${repo}.git" "$dest"
+      b=$(base_of "$repo")
+      git clone --depth 50 ${b:+--branch "$b"} "${GITHUB_SERVER_URL:-https://github.com}/${repo}.git" "$dest"
+      if [ -n "$b" ]; then git -C "$dest" remote set-head origin "$b"; fi
       git -C "$dest" fetch --depth 50 origin '+refs/heads/*:refs/remotes/origin/*'
     done
   before_run: |
@@ -263,7 +270,9 @@ no pull request and push no branch.
   one — with the `symphony` and `repo:` labels when an agent should pick them up.
 - Then move the ticket to **Done**.
 {% else %}Deliver the change the ticket asks for as a **ready** (not draft) pull request, then move
-the ticket to **In Review**. From there symphony-merger reviews it, sends it back to you in
+the ticket to **In Review**. Open each pull request against its repository's base branch:
+`git symbolic-ref --short refs/remotes/origin/HEAD` without the `origin/` prefix
+(`gh pr create --base <it>`). From there symphony-merger reviews it, sends it back to you in
 Rework if something blocks, and merges it. You never merge, approve, or move the ticket to
 Merging or Done yourself.
 

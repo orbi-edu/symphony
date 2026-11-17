@@ -18,15 +18,21 @@ workspace:
 hooks:
   after_create: |
     set -eu
+    # Always exits 0: under `set -e`, `b=$(base_of …)` must not abort a repo without one.
+    base_of() { for p in ${SYMPHONY_BASE_BRANCHES:-}; do [ "${p%%=*}" = "$1" ] && { echo "${p#*=}"; return 0; }; done; return 0; }
     server="${GITHUB_SERVER_URL:-https://github.com}"
     repos="${SYMPHONY_TARGET_REPOS:-$SYMPHONY_TARGET_REPO}"
     primary="${repos%% *}"
-    git clone --depth 50 "${server}/${primary}.git" /workspace
+    b=$(base_of "$primary")
+    git clone --depth 50 ${b:+--branch "$b"} "${server}/${primary}.git" /workspace
+    if [ -n "$b" ]; then git -C /workspace remote set-head origin "$b"; fi
     git -C /workspace fetch --depth 50 origin '+refs/heads/*:refs/remotes/origin/*'
     echo "/repos/" >> /workspace/.git/info/exclude
     for repo in $repos; do
       [ "$repo" = "$primary" ] && continue
-      git clone --depth 50 "${server}/${repo}.git" "/workspace/repos/${repo#*/}"
+      b=$(base_of "$repo")
+      git clone --depth 50 ${b:+--branch "$b"} "${server}/${repo}.git" "/workspace/repos/${repo#*/}"
+      if [ -n "$b" ]; then git -C "/workspace/repos/${repo#*/}" remote set-head origin "$b"; fi
     done
     cd /workspace && npm ci
   before_run: |

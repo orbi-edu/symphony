@@ -874,10 +874,10 @@ uv run python -m symphony.entry.admin_token create --name <name> --role admin
 ### Change `WORKFLOW.md` for local mode
 
 - Set `engine.command` to the absolute path of the pinned `omp`, with no spaces. The `omp` on `PATH` can be another version.
-- Hooks run in the workspace directory (also `$SYMPHONY_WORKSPACE`). Use relative paths instead of `/workspace`, for example `git clone "${GITHUB_SERVER_URL:-https://github.com}/${SYMPHONY_TARGET_REPO}.git" .`.
+- Hooks run in the workspace directory (also `$SYMPHONY_WORKSPACE`). Use relative paths instead of `/workspace`, for example `git clone "${GITHUB_SERVER_URL:-https://github.com}/${SYMPHONY_TARGET_REPO}.git" .`. When base branch overrides are set (`kubernetes.base_branches`), the `SYMPHONY_BASE_BRANCHES` environment variable carries them as space-separated `owner/name=branch` pairs; the default `after_create` hook in the shipped WORKFLOW.md contains a `base_of` helper that looks up each repo. An existing deployment whose WORKFLOW was seeded earlier must copy the new hook lines from the shipped WORKFLOW.md — the published document is not rewritten automatically.
 - With the GitHub App variables set, each attempt gets an installation token for the ticket's repositories only (read-only for an investigation). The token is in a file with mode `0600` under `<root>/credentials/<workspace>/`, and Symphony deletes it when the attempt ends. A git credential helper reads it. The git of the hooks and of the agent gets this helper through `GIT_CONFIG_*` variables, which first clear the host's own helpers (for example `osxkeychain`). Without the App, the agent uses the host user's git credentials (an SSH key or `gh auth`).
 - The model credentials come from the host environment and `secrets.env`.
-- Symphony ignores the `kubernetes:` block, except `kubernetes.default_repo` and `kubernetes.learning`.
+- Symphony ignores the `kubernetes:` block, except `kubernetes.default_repo`, `kubernetes.base_branches` and `kubernetes.learning`.
 - The reflector does not run.
 - A workspace stays on disk until its ticket is terminal. There is no idle reaper.
 

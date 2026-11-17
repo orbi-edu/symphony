@@ -193,7 +193,7 @@ def build(cfg_holder: ConfigHolder, client, namespace: str, env: Mapping[str, st
     mcp = McpLaunch(client, namespace, McpRepository(core, namespace, env.get("SYMPHONY_MCP_FILE")),
                     gateway_url(policy()))
     repos = ReadOnlyRepos(workdir, mirrored, server_url=github_server_url(), token_for=token_for,
-                          logger=log)
+                          base_branch_for=lambda repo: policy().base_branch(repo), logger=log)
     runner = AssistRunner(
         SessionStore(client, namespace),
         session_root=os.path.join(workdir, "sessions"),
@@ -227,7 +227,8 @@ def build(cfg_holder: ConfigHolder, client, namespace: str, env: Mapping[str, st
             return InstallationCredential.from_env(env, now_ms, target_repos=(repo,),
                                                    permissions=FACT_PERMISSIONS).token()
 
-        prs = FactPRs(write_token, api_url=github_api_url())
+        prs = FactPRs(write_token, api_url=github_api_url(),
+                       base_branch_for=lambda repo: policy().base_branch(repo))
         facts = FactConfirmer(
             ProposalStore(client, namespace, kind="fact"),
             opener=prs.open,

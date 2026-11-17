@@ -445,10 +445,11 @@ def nightly_sweep(kv: state.KV, tracker: TrackerAdapter, cfg: Config, now_ms: in
 class HttpxGitHub:  # pragma: no cover — thin network edge (validated in the smoke test)
     """Minimal GitHubLike over the REST API (reads + opening the learnings PR)."""
 
-    def __init__(self, token: str, repo: str) -> None:
+    def __init__(self, token: str, repo: str, *, base_branch: str | None = None) -> None:
         import httpx
 
         self.repo = repo
+        self._base_branch = base_branch
         self._client = httpx.Client(
             base_url=github_api_url(),
             headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
@@ -528,7 +529,7 @@ class HttpxGitHub:  # pragma: no cover — thin network edge (validated in the s
 
     def open_pr(self, branch: str, title: str, body: str, files: dict[str, str], labels: list[str]) -> str:
         # creates blobs/tree/commit/branch via the contents API (small files, v1)
-        base = self._client.get(f"/repos/{self.repo}").json().get("default_branch", "main")
+        base = self._base_branch or self._client.get(f"/repos/{self.repo}").json().get("default_branch", "main")
         ref = self._client.get(f"/repos/{self.repo}/git/ref/heads/{base}").json()
         sha = ref.get("object", {}).get("sha")
         self._client.post(f"/repos/{self.repo}/git/refs", json={"ref": f"refs/heads/{branch}", "sha": sha})

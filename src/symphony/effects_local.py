@@ -50,7 +50,7 @@ from typing import Any
 
 from . import codehost, ghapp, state
 from . import runner as runner_mod
-from .config import Config
+from .config import Config, base_branches_env
 from .edge import log, now_ms
 from .entry.run_issue import engine_env, engine_launch, installation_credential
 from .kube import runner_job_name
@@ -364,6 +364,7 @@ class LocalEffects:
         path = self.workspace_dir(issue.identifier)
         # Before any hook: `after_create` clones with it.
         git_env = self._install_credential(record, issue, bound)
+        bb_env = base_branches_env(bound, repos)
         sandbox = HostSandbox(
             str(path),
             record.sandbox_name,
@@ -371,6 +372,7 @@ class LocalEffects:
                 "SYMPHONY_TARGET_REPO": repos[0] if repos else "",
                 "SYMPHONY_TARGET_REPOS": " ".join(repos),
                 "SYMPHONY_WORKSPACE": str(path),
+                **({"SYMPHONY_BASE_BRANCHES": bb_env} if bb_env else {}),
                 **git_env,
             },
             self._base_env(tracker),

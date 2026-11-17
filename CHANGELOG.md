@@ -13,6 +13,11 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   against `pyproject.toml`.
 - `polyglot` agent runtime: a workspace image with .NET 10, Node 22 and Python 3 for
   repositories that mix .NET, Node and Python.
+- Per-repository base branch override (`kubernetes.base_branches`): when set, the merger,
+  assistant, reflector and workspace treat the configured branch as the repository's main
+  branch instead of the auto-detected remote default. Configurable from Setup › Repositories
+  (Tern and CLI `--branch`), verified against the GitHub App, and exposed as
+  `SYMPHONY_BASE_BRANCHES` to workspace hooks.
 
 ### Fixed
 
