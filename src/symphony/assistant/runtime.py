@@ -10,7 +10,7 @@ until the engine ends the session (30 min idle).
   token). No user-level or project-level omp config applies.
 - **Tools:** `read,grep,glob,web_search`, the host tools of the role, and the role's MCP
   tools. No `bash`, `edit` or `write`.
-- **Working dir:** a worktree of each `assistant.repositories` repository at `origin/main`
+- **Working dir:** a worktree of each `assistant.repositories` repository at its default branch
   (`<root>/work/<owner>/<name>`), fetched at most every 5 minutes from a mirror with a
   read-only GitHub App token.
 - **Environment:** the pod's, without the chat, tracker and GitHub App credentials.
@@ -73,7 +73,7 @@ def default_repositories(client, namespace: str, cfg) -> list[str]:
 
 
 class ReadOnlyRepos:
-    """`<root>/work/<owner>/<name>`: one worktree per repository at `origin/main`.
+    """`<root>/work/<owner>/<name>`: one worktree per repository at its default branch.
 
     Mirrors live in `<root>/mirrors/<owner>/<name>`. A refresh happens at most every
     `refresh_s`: it fetches and checks the new commit out in place. A repository that fails
@@ -110,7 +110,7 @@ class ReadOnlyRepos:
 
     def blob(self, repo: str, path: str, limit: int) -> tuple[str, bytes] | None:
         """(blob sha, at most `limit` bytes) of `path` at the commit of the last refresh of
-        `origin/main`, or None when the repository or the file is not there."""
+        the default branch, or None when the repository or the file is not there."""
         repo = repo.lower()
         with self._lock:
             mirror, commit = self._mirrors.get(repo), self._shas.get(repo)

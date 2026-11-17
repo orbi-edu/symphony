@@ -12,6 +12,12 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Manual image publishing through the `images` workflow, with an explicit version checked
   against `pyproject.toml`.
 
+### Fixed
+
+- The assistant and the merger follow the repository's default branch (`origin/HEAD`)
+  instead of assuming `main`. A repository whose default is `trunk` failed every assistant
+  sync, and its pull requests were never eligible for the merger.
+
 ## [0.1.0] - 2026-11-16
 
 The first public release. [docs/features.md](docs/features.md) lists each feature and the test

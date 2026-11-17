@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 from tests.test_merger_support import (
+    ENV,
     NS,
     FakeGitHub,
     FakeTracker,
@@ -235,6 +236,35 @@ def test_the_precheck_finds_generic_rule_breaks(tmp_path):
     assert "b.md" not in text.split("doc links", 1)[1].replace("missing.md", "")
     assert res.body and "empty" in res.body[0]
     assert "TODO" in res.leads[0]
+
+
+def test_the_mirror_follows_a_default_branch_that_is_not_main(tmp_path):
+    import subprocess
+
+    from symphony.merger.git import Mirror
+
+    def sh(*args, cwd):
+        return subprocess.run(list(args), cwd=cwd, env=ENV, capture_output=True, text=True,
+                              check=True).stdout.strip()
+
+    remote, dev = str(tmp_path / "remote.git"), str(tmp_path / "dev")
+    sh("git", "init", "-q", "--bare", "-b", "trunk", remote, cwd=str(tmp_path))
+    sh("git", "clone", "-q", remote, dev, cwd=str(tmp_path))
+    sh("git", "checkout", "-q", "-B", "trunk", cwd=dev)
+    sh("git", "commit", "-q", "--allow-empty", "-m", "init", cwd=dev)
+    sh("git", "push", "-q", "origin", "trunk", cwd=dev)
+    tip = sh("git", "rev-parse", "HEAD", cwd=dev)
+
+    git = Mirror(str(tmp_path / "m"), remote)
+    git.ensure()
+    git.fetch()
+    assert (git.main, git.origin_main, git.main_sha()) == ("trunk", "origin/trunk", tip)
+
+    # A mirror cloned before origin/HEAD was read (or one that lost it) asks the remote.
+    git.run("symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
+    again = Mirror(str(tmp_path / "m"), remote)
+    assert again.main == "trunk"
+    assert Mirror(str(tmp_path / "m"), remote, main="release").main == "release"
 
 
 # -- the agent runtime ----------------------------------------------------------------------------

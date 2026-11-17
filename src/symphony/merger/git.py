@@ -31,16 +31,30 @@ class Mirror:
         root: str,
         remote_url: str,
         *,
-        main: str = "main",
+        main: str | None = None,
         token: Callable[[], str] | None = None,
     ) -> None:
         self.root = root
         self.path = os.path.join(root, "mirror")
         self.wt_root = os.path.join(root, "wt")
         self.remote_url = remote_url
-        self.main = main
+        self._main = main
         self._token = token
         self._fetch_lock = threading.Lock()
+
+    @property
+    def main(self) -> str:
+        """The branch work merges into: `main=` when given, else the remote's default branch
+        (`origin/HEAD`, which the clone records), so a repository whose default is `trunk` works.
+        Read once per process: a default branch renamed on GitHub needs a restart."""
+        if self._main is None:
+            ref = self.run("symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD",
+                           check=False).stdout.strip()
+            if not ref:  # a mirror cloned by an older version, or origin/HEAD deleted
+                self.run("remote", "set-head", "origin", "--auto")
+                ref = self.out("symbolic-ref", "--short", "refs/remotes/origin/HEAD")
+            self._main = ref.removeprefix("origin/")
+        return self._main
 
     # -- running git ------------------------------------------------------------
     def _env(self, extra: dict | None = None) -> dict:

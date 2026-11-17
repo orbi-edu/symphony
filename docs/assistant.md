@@ -46,7 +46,7 @@ On Slack a thread is a message thread. On Discord a thread is a reply chain or a
 
 | It can | How |
 |---|---|
-| Read code | Read-only worktrees of `assistant.repositories` at `origin/main`, fetched at most every 5 minutes with a read-only GitHub App token |
+| Read code | Read-only worktrees of `assistant.repositories` at their default branch (`origin/HEAD`, for example `main` or `trunk`), fetched at most every 5 minutes with a read-only GitHub App token |
 | Search the code | `read`, `grep` and `glob` |
 | Search the web | omp's `web_search`, with its default keyless chain |
 | See Symphony's state | `symphony_status`: tickets, sessions, the merger queue and recent failures |
@@ -134,7 +134,7 @@ The soul is a Markdown file in Git that gives the assistant a persona and the te
 | `assistant.soul.repo` | the first `assistant.repositories` entry, else `kubernetes.default_repo` | The repository that holds the file (`owner/name`) |
 | `assistant.soul.path` | `.symphony/assistant.md` | The file's path in that repository |
 
-- The assistant reads the file from `origin/main` of its read-only mirror, at the start of each new session. It reads at most 8 KiB; the rest is cut.
+- The assistant reads the file from the default branch of its read-only mirror, at the start of each new session. It reads at most 8 KiB; the rest is cut.
 - Optional front matter sets `name`, `language` (the default reply language) and `tone`.
 - The body is the personality and the team rules. It comes after the built-in instructions. It never replaces the safety rules: the assistant still only reads, never shows a credential, and needs a click for every change.
 - The active version is the file's blob sha. The heartbeat carries `soul: {repo, path, sha}`, and Tern shows it in **Admin › Assistant**.
