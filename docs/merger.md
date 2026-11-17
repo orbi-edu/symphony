@@ -83,7 +83,7 @@ The `pick` function selects the next pull request.
 A pull request is eligible when all of these are true:
 
 - It is open and not a draft.
-- Its base is `main`.
+- Its base is the repository's default branch (`origin/HEAD`). This document calls it `main`; a repository whose default is `trunk` works the same.
 - Its head has a check run.
 - The merger did not review this head before, and did not park it.
 - It is not in the train.
