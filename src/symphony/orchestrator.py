@@ -12,7 +12,8 @@ from collections.abc import Callable, Iterable
 from typing import Protocol
 
 from . import prwatch, state, telemetry
-from .config import Config
+from .config import Config, known_runtimes, resolve_workspace
+from .repos import validate_runtime_component
 from .trackers.base import Issue, TrackerAdapter, TrackerUnavailable
 
 ORPHAN_CLAIM_TICKS = 2
@@ -452,9 +453,22 @@ def tick(
         if not state.acquire_dispatch_token(kv, issue.id, seq, owner, now_ms):
             fx.emit("dispatch_token_lost", issue_id=issue.id, attempt=1)
             continue
+        # Validate runtime/component labels before dispatch.
+        rc_reason = validate_runtime_component(
+            issue.labels, issue.target_repo, cfg.components, known_runtimes(cfg)
+        )
+        if rc_reason:
+            entry.update(
+                status="blocked", undispatchable_reason=rc_reason, updated_at=now_ms,
+            )
+            kv.put(state.issue_key(issue.id), entry)
+            fx.emit("issue_not_routable", issue_id=issue.id, reason=rc_reason)
+            continue
+        runtime, component, component_path = resolve_workspace(cfg, issue)
         entry.update(title=issue.title, target_repo=issue.target_repo,
                      target_repos=list(issue.target_repos),
-                     runtime=cfg.agent_runtime, model=cfg.engine_model,
+                     runtime=runtime, component=component, component_path=component_path,
+                     model=cfg.engine_model,
                      tracker_state=issue.state, tracker_state_type=issue.state_type)
         kv.put(state.issue_key(issue.id), entry)
         if not admission_open():

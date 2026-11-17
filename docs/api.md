@@ -156,7 +156,7 @@ means "unknown", not "none".
 
 | Projection | Fields |
 |---|---|
-| `repos` | `items: [{name, runtime, routes, issues}]`, `limits: {runs, resources, truncated}` |
+| `repos` | `items: [{name, runtime, components, routes, issues}]`, `limits: {runs, resources, truncated}` |
 | `infra` | `paused`, `heartbeatAt`, `services: [{name, role, status, detail}]`, `resources: [{name, kind, status, component, detail, activePods, createdAt}]` |
 | `telemetry` | `totals: {input, output, cacheRead, cacheWrite, total, costEstimate}`, `models: [{model, requests, input, output}]`, `monthly: [{month, dispatched, rework, prsOpened, prsMerged, learningPrs}]`, `sessions: [{sid, identifier, kind, state, model, turn, tokens, updatedAt}]` |
 | `learning` | `items: [{id, identifier, repo, status, provenance, outcome, prUrl, updatedAt}]` |
@@ -381,7 +381,7 @@ view use these routes. [install.md](install.md#4-run-the-first-run-setup) explai
 | `GET /v1/setup` | viewer | — | `{complete, mode, steps: [{id, title, status, required, detail, error}]}` |
 | `PUT /v1/setup/tracker` | admin | `{kind: "linear", api_key, team_key \| project_slug}` or `{kind: "github", owner, project_number, status_field?}` | `{kind, states, warnings, restarted}` |
 | `PUT /v1/setup/github-app` | admin | `{app_id, installation_id, private_key}` | `{repositories, missing_permissions, restarted}` |
-| `PUT /v1/setup/repositories` | admin | `{default_repo?: "owner/name" \| null, base_branches?: {"owner/name": "branch" \| null}}` (at least one; a field left out stays as published) | `{default_repo, base_branches, mergers, without_merger, restarted}` |
+| `PUT /v1/setup/repositories` | admin | `{default_repo?: "owner/name" \| null, base_branches?: {"owner/name": "branch" \| null}, runtimes?: {"owner/name": "runtime" \| null}, components?: {"owner/name": {"name": {"path": "string", "runtime"?: "string"} \| null} \| null}}` (at least one; a field left out stays as published) | `{default_repo, base_branches, repo_runtimes, components, mergers, without_merger, restarted}` |
 | `PUT /v1/setup/notifications` | admin | `{slack?, discord?}` | `{slack: {configured, last_test}, discord: {configured, last_test}, restarted}` |
 | `POST /v1/setup/notifications/test` | admin | — | `{results: {slack?: {ok, error}, discord?: {ok, error}}}` |
 | `PUT /v1/setup/assistant` | admin | `{slack?: {app_token?, channels}, discord?: {channels}, repositories?: ["owner/name"] \| null}` | `{slack: {connected, channels} \| null, discord: {connected, channels, intent} \| null, repositories, restarted}` |
@@ -397,7 +397,7 @@ of a vendor check for 30 seconds (`CACHE_S`). Every setup write drops that cache
 |---|---|---|---|
 | `tracker` | yes | `{kind, team_key, project_slug, owner, project_number, status_field, credential, states}` | the tracker codes below, `workflow_unavailable` |
 | `github_app` | yes | `{configured, repositories, missing_permissions}` | `github_permissions_missing`, the App codes below |
-| `repositories` | yes | `{default_repo, base_branches, repositories, mergers, without_merger}` | `merger_missing` (Kubernetes only: a repository has no live merger), `branch_not_found` |
+| `repositories` | yes | `{default_repo, base_branches, repo_runtimes, components, repositories, mergers, without_merger}` | `merger_missing` (Kubernetes only: a repository has no live merger), `branch_not_found` |
 | `models` | yes | `{roles: [{role, provider, model, credential: "stored" \| "host" \| null}]}` | `model_credential_missing` |
 | `notifications` | no | `{slack: {configured, last_test}, discord: {configured, last_test}}` | `notification_failed` |
 | `assistant` | no | `{enabled, running, heartbeat_at, threads, repositories, slack: {configured, connected, channels}, discord: {configured, connected, channels, intent}}` | `slack_app_token_missing`, `slack_app_token_rejected`, `slack_bot_token_rejected`, `discord_bot_token_rejected`, `message_content_intent_missing` (`skipped` while `assistant.enabled` is not true) |

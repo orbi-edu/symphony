@@ -18,6 +18,12 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   branch instead of the auto-detected remote default. Configurable from Setup › Repositories
   (Tern and CLI `--branch`), verified against the GitHub App, and exposed as
   `SYMPHONY_BASE_BRANCHES` to workspace hooks.
+- Monorepo components and per-repository runtimes (`kubernetes.repo_runtimes`,
+  `kubernetes.components`). A ticket with `component:api` dispatches into a workspace
+  with the component's runtime, scoped to its path. Labels `runtime:<name>` and
+  `component:<name>` on tickets. Runtime precedence: label > component > repo_runtimes >
+  agent_runtime. Planner creates per-component sub-issues with `blocks` ordering.
+  Setup API, CLI (`--runtime`, `--component`), and Tern updated.
 
 ### Fixed
 

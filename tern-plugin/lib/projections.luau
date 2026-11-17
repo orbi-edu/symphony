@@ -142,12 +142,20 @@ function P.repos(state: any): Node
 		for _, rt in (type(r.routes) == "table" and r.routes) or {} do
 			table.insert(routes, ROUTE[tostring(rt)] or tostring(rt))
 		end
+		local comp_parts = {}
+		if type(r.components) == "table" then
+			for cname, _ in r.components do
+				table.insert(comp_parts, tostring(cname))
+			end
+			table.sort(comp_parts)
+		end
 		table.insert(rows, {
 			id = tostring(r.name),
 			cells = {
 				name = { ui.span(tostring(r.name), "strong mono") },
 				base = { ui.span(tostring(r.base_branch or "default"), if r.base_branch then "mono" else "muted") },
 				runtime = { ui.span(tostring(r.runtime or "—"), "muted") },
+				components = { ui.span(if #comp_parts > 0 then table.concat(comp_parts, ", ") else "—", if #comp_parts > 0 then "mono" else "muted") },
 				route = { ui.span(if #routes > 0 then table.concat(routes, " · ") else "—", "muted") },
 				issues = { ui.span(if r.issues == nil then "?" else tostring(r.issues), "mono") },
 			},
@@ -161,6 +169,7 @@ function P.repos(state: any): Node
 				{ id = "name", head = "Repository", grow = 1, mono = true, priority = 9 },
 				{ id = "base", head = "Base branch", mono = true, priority = 6 },
 				{ id = "runtime", head = "Runtime", mono = true, priority = 5 },
+				{ id = "components", head = "Components", mono = true, priority = 4 },
 				{ id = "route", head = "Arrives by", priority = 5 },
 				{ id = "issues", head = "Tickets", align = "end", mono = true, priority = 7 },
 			},

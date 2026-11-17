@@ -63,6 +63,8 @@ local F = {
 	private_key = { id = "private_key", label = "Private key", help = "Paste the whole .pem file, including the BEGIN and END lines.", placeholder = "-----BEGIN RSA PRIVATE KEY-----   paste with ⌘V", secret = true, multiline = true },
 	default_repo = { id = "default_repo", label = "Default repository", help = "owner/name. Tickets without a repo: label go here.", placeholder = "acme/web" },
 	base_branches = { id = "base_branches", label = "Base branches", help = "owner/name=branch, separated by spaces. Each overrides the branch Symphony treats as main. Empty: auto-detect from the remote.", placeholder = "acme/app=develop", optional = true },
+	runtimes = { id = "runtimes", label = "Repository runtimes", help = "owner/name=runtime, separated by spaces. Sets the default runtime for each repository.", placeholder = "acme/app=dotnet10", optional = true },
+	components = { id = "components", label = "Components", help = "owner/name:component=path@runtime, separated by spaces. Defines repository components for monorepo dispatch.", placeholder = "acme/app:api=api@dotnet10", optional = true },
 	slack_channel = { id = "channel", label = "Slack channel", help = "The channel ID or name the bot posts to. Invite the bot to it first.", placeholder = "#eng-symphony" },
 	slack_token = { id = "token", label = "Bot token", help = "The Slack app's bot token (xoxb-…).", placeholder = "xoxb-…", secret = true },
 	discord_channel = { id = "channel", label = "Discord channel ID", help = "Right-click the channel › Copy Channel ID (developer mode on).", placeholder = "1234567890123456789" },
@@ -85,7 +87,7 @@ local function fields(state: any, step: string?): { Field }
 	elseif step == "github_app" then
 		return { F.app_id, F.installation_id, F.private_key }
 	elseif step == "repositories" then
-		return { F.default_repo, F.base_branches }
+		return { F.default_repo, F.base_branches, F.runtimes, F.components }
 	elseif step == "notifications" then
 		local provider = m.notify
 		if m[provider] == "webhook" then
@@ -192,6 +194,28 @@ local function first_field(state: any, cx: any)
 			end
 			table.sort(parts)
 			b.base_branches = table.concat(parts, " ")
+		end
+		if b.runtimes == nil and type(d.repo_runtimes) == "table" then
+			local parts = {}
+			for repo, runtime in d.repo_runtimes do
+				table.insert(parts, tostring(repo) .. "=" .. tostring(runtime))
+			end
+			table.sort(parts)
+			b.runtimes = table.concat(parts, " ")
+		end
+		if b.components == nil and type(d.components) == "table" then
+			local parts = {}
+			for repo, repo_comps in d.components do
+				if type(repo_comps) == "table" then
+					for cname, cdef in repo_comps do
+						local path = if type(cdef) == "table" then tostring(cdef.path or "") else ""
+						local crt = if type(cdef) == "table" and cdef.runtime then "@" .. tostring(cdef.runtime) else ""
+						table.insert(parts, tostring(repo) .. ":" .. tostring(cname) .. "=" .. path .. crt)
+					end
+				end
+			end
+			table.sort(parts)
+			b.components = table.concat(parts, " ")
 		end
 	elseif state.sel == "assistant" then
 		-- The channels already set start in the fields, so a change starts from them.
@@ -317,11 +341,15 @@ local function command(state: any): ({ string }?, string?, string?)
 	elseif step == "repositories" then
 		local repo = v("default_repo")
 		local bb = v("base_branches")
-		-- At least default_repo or base_branches must be given.
+		local rt = v("runtimes")
+		local comp = v("components")
+		-- At least default_repo, base_branches, runtimes, or components must be given.
 		local has_repo = string.match(repo, "^[%w%.%-_]+/[%w%.%-_]+$")
 		local has_bb = bb ~= ""
-		if not has_repo and not has_bb then
-			return nil, nil, "Enter the repository as owner/name, or set a base branch."
+		local has_rt = rt ~= ""
+		local has_comp = comp ~= ""
+		if not has_repo and not has_bb and not has_rt and not has_comp then
+			return nil, nil, "Enter the repository as owner/name, or set a base branch, runtime, or component."
 		end
 		local args = { "setup", "repositories" }
 		if has_repo then
@@ -348,6 +376,35 @@ local function command(state: any): ({ string }?, string?, string?)
 					table.insert(args, tostring(name) .. "=")
 				end
 			end
+		end
+		-- Runtimes: same merge-then-clear pattern.
+		local rt_kept = {}
+		for _, pair in words(rt) do
+			if not string.find(pair, "=", 1, true) then
+				return nil, nil, "Enter each runtime as owner/name=runtime."
+			end
+			local name = string.match(pair, "^(.-)=")
+			if name then rt_kept[string.lower(name)] = true end
+			table.insert(args, "--runtime")
+			table.insert(args, pair)
+		end
+		local saved_rt = s and type(s.detail) == "table" and s.detail.repo_runtimes
+		if type(saved_rt) == "table" then
+			for name in saved_rt do
+				if not rt_kept[string.lower(tostring(name))] then
+					table.insert(args, "--runtime")
+					table.insert(args, tostring(name) .. "=")
+				end
+			end
+		end
+		-- Components: same merge-then-clear pattern.
+		for _, pair in words(comp) do
+			if not string.find(pair, "=", 1, true) then
+				return nil, nil, "Enter each component as owner/name:comp=path@runtime."
+			end
+			table.insert(args, "--component")
+			table.insert(args, pair)
+		end
 		end
 		table.insert(args, "--json")
 		return args, nil, nil

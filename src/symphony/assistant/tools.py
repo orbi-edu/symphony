@@ -172,8 +172,10 @@ def validate_proposal(args: dict, repositories: Iterable[str] = ()) -> str | Non
         for label in labels:
             if not label.strip() or len(label) > MAX_LABEL:
                 return f"{where}.labels must be 1-{MAX_LABEL} characters each"
-            if label.lower().startswith("repo:"):
+            lower = label.lower()
+            if lower.startswith("repo:"):
                 return f"{where}.labels: use `repo` instead of a repo: label"
+            # component: and runtime: labels are valid for monorepo dispatch.
         by_key[t["key"]] = t
     for i, t in enumerate(tickets):
         where = f"tickets[{i}]"

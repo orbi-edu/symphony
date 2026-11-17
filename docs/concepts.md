@@ -12,6 +12,7 @@ This document explains how Symphony works on a ticket. It defines the lifecycle,
 - [Investigations](#investigations)
 - [Multi-repository tickets](#multi-repository-tickets)
 - [Planning tickets and sub-issues](#planning-tickets-and-sub-issues)
+- [Monorepos and components](#monorepos-and-components)
 - [Review watch](#review-watch)
 - [Learnings](#learnings)
 
@@ -69,6 +70,8 @@ stateDiagram-v2
 | `symphony` (each entry of `tracker.required_labels`) | ticket | The ticket is a candidate for dispatch only when it has all the required labels. The comparison ignores case. If a person removes a required label during an attempt, the daemon stops the attempt and keeps the workspace. |
 | `repo:owner/name` | ticket | The repository of the work. Several labels make a multi-repository ticket. With GitHub, the label is optional: the default is the issue's own repository. See [Multi-repository tickets](#multi-repository-tickets). |
 | `investigation` (`tracker.investigation_label`) | ticket | The ticket is an investigation. See [Investigations](#investigations). |
+| `component:<name>` | ticket | At most one. Scopes the agent to a component of the primary repository. The name must match a component in `kubernetes.components`. See [Monorepos and components](#monorepos-and-components). |
+| `runtime:<name>` | ticket | At most one. Overrides the workspace runtime from every other source. |
 | `symphony-learnings` (`kubernetes.learning.learnings_label`) | pull request | The reflector puts it on each learnings pull request. |
 | `reviewed`, `wait-ci`, `train-ci`, `review-requested`, `in-audit`, `review-bypass`, `needs-maintainer` | pull request | The merger uses these labels. See [merger.md](merger.md). |
 
@@ -290,6 +293,61 @@ A large ticket can become a tree of sub-issues. The agent makes them with the `s
 The tool is idempotent for each key: a second call with the same key does not make a second issue. The daemon dispatches a sub-issue only when all its blockers are terminal.
 
 The agent attaches evidence with the `symphony_attach_evidence` host tool. Linear takes any file of at most 25 MB. GitHub has no public API to upload a file to an issue, so it takes only text evidence, as a collapsible comment of at most 65,536 characters.
+
+## Monorepos and components
+
+A monorepo — one repository with several independently buildable services — poses two challenges for Symphony: the right SDK must be in the workspace, and only the relevant service's build and tests should run.
+
+### Configuration
+
+```yaml
+kubernetes:
+  # Every ticket targeting acme/app gets a dotnet10 workspace by default:
+  repo_runtimes:
+    acme/app: dotnet10
+
+  # Components: independently deployable parts of a repository.
+  components:
+    acme/app:
+      api: { path: api, runtime: dotnet10 }
+      web: { path: web, runtime: node }
+      shared: { path: lib/shared }           # inherits repo_runtimes, then agent_runtime
+```
+
+### Labels
+
+A ticket that targets a specific component carries:
+
+- `component:<name>` — at most one; must name a component defined for the ticket's primary repository.
+- `runtime:<name>` — at most one; overrides the runtime from every other source.
+
+Both are optional. A ticket with no component label works in the whole repository as before.
+
+### Runtime precedence
+
+| Priority | Source | Example |
+|---|---|---|
+| 1 | `runtime:` label on the ticket | `runtime:polyglot` |
+| 2 | The component's `runtime` | `components.acme/app.api.runtime` |
+| 3 | `repo_runtimes[primary]` | `repo_runtimes.acme/app` |
+| 4 | `kubernetes.agent_runtime` | the global default |
+
+`kubernetes.agent_image` (a single image override) still wins over everything when selecting the container image.
+
+### Planner split
+
+When the prompt asks the agent to split a large ticket and the repository defines components, the agent creates one sub-issue per component with the label `component:<name>`, ordered with `blocks` relations so producers land before consumers (for example, the API before the app that calls it). Each sub-issue runs in its own workspace pod with `kubernetes.sandbox` sizing and opens its own pull request against the base branch.
+
+### Workspace environment
+
+When a component applies:
+
+| Variable | Value |
+|---|---|
+| `SYMPHONY_COMPONENT` | The component name, e.g. `api` |
+| `SYMPHONY_COMPONENT_PATH` | The component path, e.g. `api` |
+
+These are absent when no component label is set.
 
 ## Review watch
 

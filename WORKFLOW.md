@@ -147,6 +147,19 @@ kubernetes:
   # long-lived secret is in the pod. This port DECLARES the list but does not enforce it
   # (plain NetworkPolicy filters by IP, not domain).
   egress_allowlist: []
+  # Per-repository runtime override: owner/name → runtime. Tickets targeting this
+  # repository get a workspace with this runtime instead of agent_runtime, unless
+  # a runtime: label or a component overrides it further.
+  # repo_runtimes:
+  #   acme/api: dotnet10
+  #   acme/web: node
+  # Repository components for monorepo dispatch. Each component names a path and
+  # optionally a runtime. A ticket with `component:api` dispatches into a dotnet10
+  # workspace and sees SYMPHONY_COMPONENT=api, SYMPHONY_COMPONENT_PATH=api.
+  # components:
+  #   acme/app:
+  #     api: { path: api, runtime: dotnet10 }
+  #     web: { path: web, runtime: node }
   # Anti-runaway: how long an issue that exited cleanly with NO ticket change waits
   # before being picked up again.
   redispatch_cooldown_s: 180
@@ -256,6 +269,12 @@ Your tools beyond the workspace:
   `TOKEN=$(printf 'url=%s\n\n' "${GITHUB_SERVER_URL:-https://github.com}" | git credential fill | sed -n 's/^password=//p')`.
   The token renews during the run, so get it again for each call batch; never print it.
 
+{% if issue.component %}## Component
+
+This ticket targets the **{{ issue.component }}** component at `{{ issue.component_path }}`.
+Work in `{{ issue.component_path }}` and run that component's build and test commands.
+Touch other paths only when the ticket requires it and say so in the pull request.
+{% endif %}
 ## Objective
 
 {% if issue.investigation %}This is an **investigation**: the deliverable is a written answer, not a change. Open
@@ -293,6 +312,11 @@ for a plan, split it: create sub-issues with `symphony_create_issues` (parent = 
 each with acceptance criteria and the `symphony` and `repo:` labels, and express their order
 with `blocks` relations — Symphony dispatches an issue only once its blockers are done. When the
 plan itself is the deliverable, record it in the Workpad and move this ticket to **Done**.
+When the repository defines components (`kubernetes.components`) and the work spans several,
+create one sub-issue per component with the label `component:<name>` (plus the inherited
+`symphony` and `repo:` labels), ordered with `blocks` so producers land before consumers
+(for example, the API before the app that calls it). Each sub-issue opens its own pull
+request against the base branch and runs in its own workspace with the component's runtime.
 
 **Out of scope.** Something worth doing that this ticket did not ask for becomes a follow-up
 issue linked to this one, not part of this change.

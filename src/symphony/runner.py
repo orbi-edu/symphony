@@ -23,7 +23,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
 from . import endpoints, metrics, prwatch, state
-from .config import Config, bind_role_model
+from .config import Config, bind_role_model, resolve_workspace
 from .hosttools import HostToolBroker, tool_definitions
 from .omp_rpc import CommandFailed, OmpClient, OmpError, ReadTimeout, RunWatcher, SilenceTimeout
 from .orchestrator import PARKED, mark_clean_continuation, mark_retry_after_failure
@@ -487,11 +487,14 @@ def _run_owned_attempt(env, issue_id, attempt, seq, bridge_token):
     # changed. A designation edited mid-attempt takes effect on the next dispatch —
     # switching now would orphan a clone, a branch and possibly a pull request.
     entry = kv.get(state.issue_key(issue_id)) or entry
+    runtime, component, component_path = resolve_workspace(cfg, issue)
     entry.update(
         target_repo=issue.target_repo,
         target_repos=list(repos),
         title=issue.title,
-        runtime=cfg.agent_runtime,
+        runtime=runtime,
+        component=component,
+        component_path=component_path,
         provider=cfg.engine_provider,
         model=cfg.engine_model,
         thinking=cfg.engine_thinking,
@@ -668,6 +671,9 @@ def _turn_loop(
     kv, cfg = env.kv, env.cfg
     entry = kv.get(state.issue_key(issue_id))
     answering = entry.get("mode") == prwatch.ANSWER_MODE
+    resolved_runtime = entry.get('runtime')
+    resolved_component = entry.get('component')
+    resolved_component_path = entry.get('component_path')
     ledger = UsageLedger()
     last_flush = env.now_ms()
     read_timeout_s = cfg.read_timeout_ms / 1000
@@ -711,6 +717,9 @@ def _turn_loop(
                 entry.get("runs", attempt),
                 "",
                 investigation_label=cfg.investigation_label,
+                runtime=resolved_runtime,
+                component=resolved_component,
+                component_path=resolved_component_path,
             )
         elif turn == 1:
             guidance = []
@@ -729,6 +738,9 @@ def _turn_loop(
                 entry.get("runs", attempt),
                 "\n\n".join(guidance),
                 investigation_label=cfg.investigation_label,
+                runtime=resolved_runtime,
+                component=resolved_component,
+                component_path=resolved_component_path,
             )
         else:
             prompt_text = CONTINUATION_GUIDANCE

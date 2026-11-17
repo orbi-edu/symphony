@@ -298,7 +298,20 @@ class SetupService:
             bb = json.loads(raw_bb) if isinstance(raw_bb, str) else raw_bb
         else:
             bb = self._current_base_branches()
-        detail = {"default_repo": default, "base_branches": bb, "repositories": repositories,
+        # repo_runtimes: from the values dict (just published) or from the current WORKFLOW.
+        raw_rt = values.get("kubernetes.repo_runtimes")
+        if raw_rt is not None:
+            rt = json.loads(raw_rt) if isinstance(raw_rt, str) else raw_rt
+        else:
+            rt = self._current_repo_runtimes()
+        # components: from the values dict (just published) or from the current WORKFLOW.
+        raw_comps = values.get("kubernetes.components")
+        if raw_comps is not None:
+            comps = json.loads(raw_comps) if isinstance(raw_comps, str) else raw_comps
+        else:
+            comps = self._current_components()
+        detail = {"default_repo": default, "base_branches": bb, "repo_runtimes": rt,
+                  "components": comps, "repositories": repositories,
                   "mergers": mergers, "without_merger": without}
         if not repositories:
             return self._step("todo", detail)
@@ -589,8 +602,8 @@ class SetupService:
 
     def put_repositories(self, caller: Caller, body: RepositoriesBody) -> dict:
         sent = body.model_fields_set
-        if not sent & {"default_repo", "base_branches"}:
-            raise ApiError(422, "invalid_request", "send default_repo and/or base_branches")
+        if not sent & {"default_repo", "base_branches", "runtimes", "components"}:
+            raise ApiError(422, "invalid_request", "send default_repo, base_branches, runtimes, and/or components")
         patch: dict = {}
         if "default_repo" in sent:
             default = body.default_repo.lower() if body.default_repo else None
@@ -604,7 +617,7 @@ class SetupService:
                         422, "repo_not_installed", f"the GitHub App is not installed on {default}"
                     )
             patch["kubernetes.default_repo"] = default or ""
-        else:  # only base_branches: the default repository stays as published
+        else:  # default_repo not sent: the default repository stays as published
             default = (self._values().get("kubernetes.default_repo") or "").lower() or None
 
         old = self._current_base_branches()
@@ -616,6 +629,29 @@ class SetupService:
                     self._verify_branch(repo.lower(), branch)
                     branches[repo.lower()] = branch
             patch["kubernetes.base_branches"] = json.dumps(branches, sort_keys=True)
+
+        # Resolve runtimes (None means "don't touch").
+        old_rt = self._current_repo_runtimes()
+        runtimes_map = old_rt
+        if body.runtimes is not None:
+            runtimes_map = {}
+            for repo, runtime in body.runtimes.items():
+                repo = repo.lower()
+                if runtime:
+                    runtimes_map[repo] = runtime
+            patch["kubernetes.repo_runtimes"] = json.dumps(runtimes_map, sort_keys=True)
+
+        # Resolve components (None means "don't touch").
+        old_comps = self._current_components()
+        components_map = old_comps
+        if body.components is not None:
+            components_map = {}
+            for repo, comps in body.components.items():
+                repo = repo.lower()
+                if comps:
+                    components_map[repo] = comps
+            patch["kubernetes.components"] = json.dumps(components_map, sort_keys=True)
+
         self._publish(caller, patch)
         # The merger and the assistant read the base branch once per process, so restart
         # them, but only on a real change: Tern sends the prefilled map on every save.
@@ -625,10 +661,18 @@ class SetupService:
         if branches != old:
             target += "; base_branches: " + (
                 ", ".join(f"{r}={b}" for r, b in sorted(branches.items())) or "none")
+        if runtimes_map != old_rt:
+            target += "; runtimes: " + (
+                ", ".join(f"{r}={rt}" for r, rt in sorted(runtimes_map.items())) or "none")
+        if components_map != old_comps:
+            target += "; components: " + (", ".join(sorted(components_map)) or "none")
         self._audit(caller, "repositories", target)
         step = self._repositories_step({"kubernetes.default_repo": default or "",
-                                        "kubernetes.base_branches": branches})
+                                        "kubernetes.base_branches": branches,
+                                        "kubernetes.repo_runtimes": runtimes_map,
+                                        "kubernetes.components": components_map})
         return {"default_repo": default, "base_branches": branches,
+                "repo_runtimes": runtimes_map, "components": components_map,
                 "mergers": step["detail"]["mergers"],
                 "without_merger": step["detail"]["without_merger"], "restarted": restarted}
 
@@ -668,6 +712,24 @@ class SetupService:
         """The current base_branches from WORKFLOW."""
         try:
             raw = self._values().get("kubernetes.base_branches") or "{}"
+            parsed = json.loads(raw) if isinstance(raw, str) else (raw or {})
+            return parsed if isinstance(parsed, dict) else {}
+        except (ApiError, WorkflowError, ValueError):
+            return {}
+
+    def _current_repo_runtimes(self) -> dict[str, str]:
+        """The current repo_runtimes from WORKFLOW."""
+        try:
+            raw = self._values().get("kubernetes.repo_runtimes") or "{}"
+            parsed = json.loads(raw) if isinstance(raw, str) else (raw or {})
+            return parsed if isinstance(parsed, dict) else {}
+        except (ApiError, WorkflowError, ValueError):
+            return {}
+
+    def _current_components(self) -> dict:
+        """The current components from WORKFLOW."""
+        try:
+            raw = self._values().get("kubernetes.components") or "{}"
             parsed = json.loads(raw) if isinstance(raw, str) else (raw or {})
             return parsed if isinstance(parsed, dict) else {}
         except (ApiError, WorkflowError, ValueError):
@@ -859,7 +921,8 @@ class RepositoriesBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     default_repo: Annotated[str, Field(pattern=r"^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$")] | None = None
     base_branches: dict[str, str | None] | None = None
-
+    runtimes: dict[str, str | None] | None = None
+    components: dict[str, dict[str, dict] | None] | None = None
 
 class SlackBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
