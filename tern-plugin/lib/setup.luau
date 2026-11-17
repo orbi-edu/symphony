@@ -328,12 +328,26 @@ local function command(state: any): ({ string }?, string?, string?)
 			table.insert(args, "--default-repo")
 			table.insert(args, repo)
 		end
+		local kept = {}
 		for _, pair in words(bb) do
-			if not string.find(pair, "=", 1, true) then
+			local name = string.match(pair, "^([%w%.%-_]+/[%w%.%-_]+)=.+$")
+			if not name then
 				return nil, nil, "Enter each base branch as owner/name=branch."
 			end
+			kept[string.lower(name)] = true
 			table.insert(args, "--branch")
 			table.insert(args, pair)
+		end
+		-- A repository removed from the field loses its override (`owner/name=` clears it).
+		local s = find(state, "repositories")
+		local saved = s and type(s.detail) == "table" and s.detail.base_branches
+		if type(saved) == "table" then
+			for name in saved do
+				if not kept[string.lower(tostring(name))] then
+					table.insert(args, "--branch")
+					table.insert(args, tostring(name) .. "=")
+				end
+			end
 		end
 		table.insert(args, "--json")
 		return args, nil, nil

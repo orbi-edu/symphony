@@ -381,7 +381,7 @@ view use these routes. [install.md](install.md#4-run-the-first-run-setup) explai
 | `GET /v1/setup` | viewer | — | `{complete, mode, steps: [{id, title, status, required, detail, error}]}` |
 | `PUT /v1/setup/tracker` | admin | `{kind: "linear", api_key, team_key \| project_slug}` or `{kind: "github", owner, project_number, status_field?}` | `{kind, states, warnings, restarted}` |
 | `PUT /v1/setup/github-app` | admin | `{app_id, installation_id, private_key}` | `{repositories, missing_permissions, restarted}` |
-| `PUT /v1/setup/repositories` | admin | `{default_repo: "owner/name" \| null, base_branches?: {"owner/name": "branch" \| null}}` | `{default_repo, base_branches, mergers, without_merger, restarted}` |
+| `PUT /v1/setup/repositories` | admin | `{default_repo?: "owner/name" \| null, base_branches?: {"owner/name": "branch" \| null}}` (at least one; a field left out stays as published) | `{default_repo, base_branches, mergers, without_merger, restarted}` |
 | `PUT /v1/setup/notifications` | admin | `{slack?, discord?}` | `{slack: {configured, last_test}, discord: {configured, last_test}, restarted}` |
 | `POST /v1/setup/notifications/test` | admin | — | `{results: {slack?: {ok, error}, discord?: {ok, error}}}` |
 | `PUT /v1/setup/assistant` | admin | `{slack?: {app_token?, channels}, discord?: {channels}, repositories?: ["owner/name"] \| null}` | `{slack: {connected, channels} \| null, discord: {connected, channels, intent} \| null, repositories, restarted}` |

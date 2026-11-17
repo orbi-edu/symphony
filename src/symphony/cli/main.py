@@ -632,20 +632,24 @@ def cmd_setup_github_app(args) -> int:
 
 
 def cmd_setup_repositories(args) -> int:
-    branches = args.branch or []
-    base_branches: dict[str, str | None] | None = None
-    if branches:
-        base_branches = {}
-        for pair in branches:
-            if "=" not in pair:
-                raise SystemExit(f"error: --branch expects OWNER/NAME=BRANCH, got {pair!r}")
-            repo, _, branch = pair.partition("=")
-            base_branches[repo.lower()] = branch or None
-    # When only --branch is given, don't require --default-repo / --clear-default-repo.
-    if not args.clear_default_repo and args.default_repo is None and not branches:
-        raise SystemExit("error: one of --default-repo, --clear-default-repo, or --branch is required")
-    default_repo = None if args.clear_default_repo else args.default_repo
-    doc = setup.put_repositories(_api(), default_repo, base_branches=base_branches)
+    """`--branch` edits one repository's entry; the others stay (the API replaces the map)."""
+    set_default = bool(args.clear_default_repo or args.default_repo is not None)
+    if not set_default and not args.branch:
+        raise CliError("missing_option",
+                       "Give --default-repo, --clear-default-repo or --branch OWNER/NAME=BRANCH.")
+    api = _api()
+    base_branches = None
+    if args.branch:
+        step = next((s for s in setup.get_status(api).get("steps") or []
+                     if s.get("id") == "repositories"), {})
+        base_branches = dict((step.get("detail") or {}).get("base_branches") or {})
+        for pair in args.branch:
+            repo, sep, branch = pair.partition("=")
+            if not sep or repo.count("/") != 1:
+                raise CliError("invalid_branch", f"Use --branch owner/name=branch, not {pair!r}.")
+            base_branches[repo.strip().lower()] = branch.strip() or None
+    doc = setup.put_repositories(api, None if args.clear_default_repo else args.default_repo,
+                                 set_default=set_default, base_branches=base_branches)
     _emit(args, doc, lambda: setup.repositories_text(doc, _style()))
     return 0
 

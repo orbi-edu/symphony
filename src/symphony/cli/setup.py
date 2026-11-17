@@ -288,14 +288,17 @@ def github_app_text(doc: dict, style: Style) -> str:
     return "\n".join(lines + _restarted(doc))
 
 
-def put_repositories(api: Api, default_repo: str | None,
+def put_repositories(api: Api, default_repo: str | None, *, set_default: bool = True,
                      base_branches: dict[str, str | None] | None = None) -> dict:
+    """`default_repo` None clears it; `set_default=False` leaves it as published."""
     body: dict = {}
-    if default_repo is not None:
-        repo = default_repo.strip().lower()
-        if repo.count("/") != 1 or repo.startswith("/") or repo.endswith("/"):
-            raise SetupError("invalid_repo", f"Use owner/name, not {default_repo!r}.")
-        body["default_repo"] = repo
+    if set_default:
+        if default_repo is not None:
+            repo = default_repo.strip().lower()
+            if repo.count("/") != 1 or repo.startswith("/") or repo.endswith("/"):
+                raise SetupError("invalid_repo", f"Use owner/name, not {default_repo!r}.")
+            default_repo = repo
+        body["default_repo"] = default_repo
     if base_branches is not None:
         body["base_branches"] = base_branches
     return api.raw("PUT", "/v1/setup/repositories", json_body=body).body
@@ -656,23 +659,8 @@ class Wizard:
             repo = self.text("  Default repository owner/name (none: each ticket names its "
                              "repository with a `repo:` label)", default or "none")
             repo = "" if repo.lower() == "none" else repo
-            existing_bb = detail.get("base_branches") or {}
-            bb_default = " ".join(f"{r}={b}" for r, b in sorted(existing_bb.items())) if existing_bb else ""
-            bb_raw = self.text("  Base branches (owner/name=branch, space-separated; empty: auto)",
-                               bb_default)
-            base_branches: dict[str, str | None] | None = None
-            if bb_raw.strip():
-                base_branches = {}
-                for pair in bb_raw.strip().split():
-                    if "=" not in pair:
-                        self.say(self.style(f"  ✗ Expected owner/name=branch, got {pair!r}.", "red"))
-                        return False
-                    r, _, b = pair.partition("=")
-                    base_branches[r.lower()] = b or None
-            elif existing_bb:
-                base_branches = {}
             doc = self.attempt("Saving the repository", lambda: put_repositories(
-                self.api, repo or None, base_branches=base_branches))
+                self.api, repo or None))
             if doc is None:
                 return False
             self.say(repositories_text(doc, self.style))
