@@ -1113,14 +1113,6 @@ def _protection(req: Req, rule: dict) -> dict:
     return out
 
 
-@route("GET", "/repos/{owner}/{repo}/branches/{branch}", CONTENTS_R)
-def get_branch(req: Req):
-    branch = req.params["branch"]
-    sha = gitrepo.branch_sha(req.m.path(req.repo), branch)
-    if sha is None:
-        raise req.fail(404, "Branch not found")
-    return {"name": branch, "commit": {"sha": sha}, "protected": branch in req.repo.get("protection", {})}
-
 @route("GET", "/repos/{owner}/{repo}/branches/{branch}/protection", ADMIN_R)
 def get_protection(req: Req):
     rule = req.repo["protection"].get(req.params["branch"])
