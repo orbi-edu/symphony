@@ -7,6 +7,13 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Optional mirror in the `images` workflow: the version tags are copied to AWS ECR through
+  OIDC when the repository secrets `MIRROR_REGISTRY`, `MIRROR_AWS_ROLE_ARN` and
+  `MIRROR_AWS_REGION` are set, with the same digests. For clusters that cannot pull from
+  a private GHCR.
+
 ## [0.2.0] - 2026-11-17
 
 ### Added
