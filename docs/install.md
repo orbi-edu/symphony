@@ -170,7 +170,17 @@ kubernetes:
     polyglot: ghcr.io/<owner>/symphony-agent:polyglot-<version>
 ```
 
-The packages are private on the first push. Make them public in the package settings on GitHub, or give the cluster an image pull Secret.
+The packages are private on the first push. Make them public in the package settings on GitHub, give the cluster an image pull Secret, or mirror the images to a registry the cluster already reads.
+
+#### Mirror to AWS ECR (optional)
+
+When the packages must stay private (an organization can disable public packages) and the cluster runs on AWS, the `images` workflow can copy each release to ECR, where the nodes pull with their own role:
+
+1. Make the ECR repositories `symphony-orchestrator` and `symphony-agent` in the cluster's account and region.
+2. Make an IAM role that GitHub OIDC can assume only for this repository's release tags (subject `repo:<owner>/<repo>:ref:refs/tags/v*`), allowed to push to those two repositories (`ecr:GetAuthorizationToken`, the layer and `PutImage` actions, `ecr:DescribeImages`, `ecr:BatchGetImage`).
+3. Set the repository secrets `MIRROR_REGISTRY` (`<account>.dkr.ecr.<region>.amazonaws.com`), `MIRROR_AWS_ROLE_ARN` and `MIRROR_AWS_REGION`. Secrets, not variables: the values stay masked in the workflow logs, which are public in a public repository.
+
+Each run then copies the version tags (`<version>`, `<runtime>-<version>`), not the rolling ones, with `docker buildx imagetools create`. The digests are the same as on GHCR. A tag that already exists in ECR is skipped, so immutable ECR tags work. Without the secrets the step is skipped.
 
 To publish manually without creating a release tag, open **Actions › images › Run workflow**.
 Choose the branch or tag to build and enter its `pyproject.toml` version without the `v` prefix.
