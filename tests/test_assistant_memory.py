@@ -63,11 +63,13 @@ def final(out, thread):
 
 def test_the_store_keeps_at_most_50_items_of_500_characters_with_a_renewable_ttl(redis_client):
     store = MemoryStore(redis_client, "t")
-    first = store.remember("Alice", "deploys on Fridays", "explicit", "t1", 30)
+    first, refreshed_first = store.remember("Alice", "deploys on Fridays", "explicit", "t1", 30)
     assert first["kind"] == "explicit" and first["thread"] == "t1" and len(first["id"]) == 8
     assert 29 * 86400 < redis_client.ttl(key_of("t", "alice")) <= 30 * 86400
-    again = store.remember("alice", "Deploys  on  Fridays", "explicit", "t2", 30)
+    assert not refreshed_first
+    again, refreshed_again = store.remember("alice", "Deploys  on  Fridays", "explicit", "t2", 30)
     assert again["id"] == first["id"] and len(store.items("alice")) == 1  # the same text again
+    assert refreshed_again
     with pytest.raises(ValueError):
         store.remember("alice", "x" * 501, "explicit", "t1", 30)
     with pytest.raises(ValueError):
