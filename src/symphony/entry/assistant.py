@@ -238,8 +238,55 @@ def build(cfg_holder: ConfigHolder, client, namespace: str, env: Mapping[str, st
             logger=log,
         )
     souls = SoulReader(policy, lambda repo, path: repos.blob(repo, path, MAX_BYTES + 1), logger=log)
+
+    # -- sandbox: one workspace pod per chat thread (assistant/sandbox.py) ---------------------
+    sandbox_tool_fn = None
+    on_session_end_fn = None
+    if core is not None and all(env.get(name) for name in GITHUB_APP_ENV):
+        from ..assistant.sandbox import AssistantSandbox, sandbox_run_tool, sweep_orphans
+        from ..ghapp import InstallationCredential
+
+        sandboxes: dict[str, AssistantSandbox] = {}
+        sandboxes_lock = threading.Lock()
+
+        def sandbox_token(repo: str) -> str:
+            # One repository, read-only contents: the clone is all the sandbox may do.
+            return InstallationCredential.from_env(
+                env, now_ms, target_repos=(repo,),
+                permissions={"contents": "read", "metadata": "read"}).token()
+
+        def sandbox_for(thread_key: str) -> AssistantSandbox:
+            with sandboxes_lock:
+                sb = sandboxes.get(thread_key)
+                if sb is None:
+                    sb = sandboxes[thread_key] = AssistantSandbox(
+                        core, namespace, policy, thread_key=thread_key,
+                        token_for=sandbox_token,
+                        base_branch_for=lambda r: policy().base_branch(r))
+                return sb
+
+        def sandbox_tool_fn(thread_key: str, notes):
+            if not policy().assistant_sandbox_enabled:
+                return None
+            return sandbox_run_tool(lambda: sandbox_for(thread_key), repositories,
+                                    lambda: notes.login)
+
+        def on_session_end_fn(thread_key: str) -> None:
+            with sandboxes_lock:
+                sb = sandboxes.pop(thread_key, None)
+            if sb is not None:
+                sb.close()
+
+        try:
+            swept = sweep_orphans(core, namespace, policy().app_name)
+            if swept:
+                log.info("assistant_sandbox_orphans_deleted", pods=swept)
+        except Exception as exc:  # noqa: BLE001 — a missing permission must not stop the bot
+            log.warning("assistant_sandbox_sweep_failed", error=type(exc).__name__)
+
     engine = Engine(outbounds=transports, agents=runner, policy=policy, confirmer=confirmer,
                     memory=MemoryStore(client, namespace), souls=souls, facts=facts,
+                    sandbox_tool=sandbox_tool_fn, on_session_end=on_session_end_fn,
                     server_url=github_server_url(), logger=log)
     return engine, transports
 

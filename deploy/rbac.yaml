@@ -19,6 +19,7 @@
 #                       git + GitHub App for the rest
 #   symphony-assistant  read the provider keys (symphony-providers)     assistant
 #                       and MCP servers (symphony-mcp) per session;
+#                       create/attach assistant-sandbox pods + exec;
 #                       chat tokens + GitHub App for the rest
 #   symphony-backup     nothing (no token mounted; it reads Redis, the   backup CronJob
 #                       mounted workflow and the symphony-backup Secret
@@ -93,7 +94,7 @@ metadata:
   name: symphony-assistant
 ---
 # The assistant's agents (assistant, researcher, planner) run on their role's provider and
-# MCP servers, read per session like the merger's.
+# MCP servers, read per session like the merger's. The sandbox needs pod create/exec.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -103,6 +104,12 @@ rules:
     resources: ["secrets"]
     resourceNames: ["symphony-providers", "symphony-mcp"]
     verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "delete", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["get", "create"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

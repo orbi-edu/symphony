@@ -155,6 +155,7 @@ _FIELDS = {
     "assistant.slack.channels": _Field("assistant_slack_channels", "json"),
     "assistant.discord.channels": _Field("assistant_discord_channels", "json"),
     "assistant.repositories": _Field("assistant_repositories", "json"),
+    "assistant.sandbox.enabled": _Field("assistant_sandbox_enabled", "boolean"),
     "kubernetes.learning.enabled": _Field("learning_enabled", "boolean"),
     "kubernetes.learning.reflect_on": _Field("reflect_on", "json"),
     "kubernetes.learning.agents_md_budget_lines": _Field("agents_md_budget_lines", "integer"),

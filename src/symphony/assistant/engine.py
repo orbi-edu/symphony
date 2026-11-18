@@ -28,6 +28,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from ..merger.agents import HostTool
 from . import Action, HistoryMessage, Inbound, Outbound, Ref, split_text
 from . import facts as team_facts
 from . import memory as mem
@@ -120,9 +121,43 @@ INSTRUCTIONS = {
     ),
 }
 
+# Stable section names that tests assert on.
+SPEC_SECTION_PROBLEM = "Problem"
+SPEC_SECTION_CURRENT_BEHAVIOUR = "Current behaviour"
+SPEC_SECTION_PROPOSED_DESIGN = "Proposed design"
+SPEC_SECTION_ALTERNATIVES_REJECTED = "Alternatives rejected"
+SPEC_SECTION_ACCEPTANCE_CRITERIA = "Acceptance criteria"
+SPEC_SECTION_VERIFICATION_PLAN = "Verification plan"
+SPEC_SECTION_RISKS = "Risks"
+
+PLANNER_SPEC_INSTRUCTIONS = (
+    "Before proposing tickets, investigate: read the relevant code (and, when you have the "
+    "sandbox, run the build or tests that matter). Then write a short spec in the thread with these "
+    "sections: "
+    f"**{SPEC_SECTION_PROBLEM}** — what is wrong or missing; "
+    f"**{SPEC_SECTION_CURRENT_BEHAVIOUR}** — with evidence (file:line, command output); "
+    f"**{SPEC_SECTION_PROPOSED_DESIGN}** — what to change and why; "
+    f"**{SPEC_SECTION_ALTERNATIVES_REJECTED}** — other approaches and why they lose; "
+    f"**{SPEC_SECTION_ACCEPTANCE_CRITERIA}** — how to know the work is done; "
+    f"**{SPEC_SECTION_VERIFICATION_PLAN}** — commands or checks to run; "
+    f"**{SPEC_SECTION_RISKS}** — what could go wrong. "
+    "Each proposed ticket body carries its slice of the spec: at minimum its acceptance "
+    "criteria and how to verify."
+)
+
+# Appended for all roles only when sandbox_run is offered.
+SANDBOX_INSTRUCTIONS = (
+    "You have a sandbox: use sandbox_run to build the project, run tests, search code with "
+    "rg, or run analysis scripts. The sandbox has the repository cloned read-only at its "
+    "base branch — it cannot push or open pull requests. Diagnose before suggesting fixes. "
+    "Report what you actually ran and its result; mark anything you inferred without running "
+    "a command. Keep commands short and scoped. Prefer read and grep for simple file lookups; "
+    "use the sandbox for builds, tests, and multi-step analysis."
+)
+
 
 def instructions(role: str, *, transport: str, is_dm: bool, repos: list[str],
-                 soul: Soul | None = None) -> str:
+                 soul: Soul | None = None, has_sandbox: bool = False) -> str:
     """The session's instructions: the built-in role and safety rules, then the soul."""
     where = f"a {transport.capitalize()} {'direct message' if is_dm else 'thread'}"
     lines = [
@@ -131,6 +166,10 @@ def instructions(role: str, *, transport: str, is_dm: bool, repos: list[str],
         "You can read files; you cannot run commands or change files.",
         UNTRUSTED_CONTENT,
     ]
+    if has_sandbox:
+        lines.append(SANDBOX_INSTRUCTIONS)
+    if role == "planner":
+        lines.append(PLANNER_SPEC_INSTRUCTIONS)
     if repos:
         lines.append("The repositories are checked out read-only at their base branch in your working "
                      "directory: " + ", ".join(f"./{r}" for r in repos) + ".")
@@ -202,6 +241,11 @@ class _Thread:
     injected: set = field(default_factory=set)
 
 
+def _thread_key(th: _Thread) -> str:
+    """One key per chat thread across transports and channels (thread ids repeat across them)."""
+    return f"{th.transport}:{th.channel}:{th.thread}"
+
+
 class _Stream:
     """Edits the placeholder with the partial answer, at most every `interval` seconds."""
 
@@ -239,6 +283,8 @@ class Engine:
         memory: mem.MemoryStore | None = None,
         souls=None,  # soul.SoulReader
         facts: team_facts.FactConfirmer | None = None,
+        sandbox_tool: Callable[[str, object], HostTool | None] | None = None,
+        on_session_end: Callable[[str], None] | None = None,
         server_url: str = "https://github.com",
         clock: Callable[[], float] = time.monotonic,
         idle_s: float = IDLE_S,
@@ -254,6 +300,10 @@ class Engine:
         self.memory = memory
         self.souls = souls
         self.facts = facts
+        # (thread key, the thread's TurnNotes) -> the sandbox tool, or None when it is off;
+        # the tool reads the current turn's asker from the notes at call time.
+        self.sandbox_tool = sandbox_tool
+        self.on_session_end = on_session_end  # (thread key) -> called when a session ends
         self.server_url = server_url
         self.clock = clock
         self.idle_s = idle_s
@@ -398,15 +448,17 @@ class Engine:
                 "identifier": f"{th.transport} {'DM' if th.is_dm else th.channel}",
                 "title": turn.text.strip().split("\n", 1)[0][:120],
             }
+            session_tools = self._tools(th, cfg)
+            has_sandbox = any(t.name == "sandbox_run" for t in session_tools)
             th.agent = self.agents.open(th.sid, turn.role, meta,
                                         lambda actor, text: self._from_tern(th, actor, text),
-                                        tools=self._tools(th, cfg))
+                                        tools=session_tools)
             th.agent_role = turn.role
             th.injected = set()
             repos = sorted(self.agents.commits())  # after open: it refreshes the checkouts
             soul = self.souls.read() if self.souls is not None else None
             parts += [instructions(turn.role, transport=th.transport, is_dm=th.is_dm, repos=repos,
-                                   soul=soul), context]
+                                   soul=soul, has_sandbox=has_sandbox), context]
         parts.append(self._memory(th, cfg, turn))
         prompt = "\n\n".join(p for p in (*parts, prompt) if p)
         fmt = self._formatter(th.transport)
@@ -447,6 +499,10 @@ class Engine:
                 ttl_days=lambda: self.policy().assistant_memory_ttl_days)
         if self.facts is not None:
             tools.append(team_facts.fact_tool(th.notes, lambda: soul_source(self.policy())))
+        if self.sandbox_tool is not None:
+            sb_tool = self.sandbox_tool(_thread_key(th), th.notes)
+            if sb_tool is not None:
+                tools.append(sb_tool)
         return tools
 
     def _memory(self, th: _Thread, cfg, turn: _Turn) -> str:
@@ -540,6 +596,11 @@ class Engine:
             try:
                 agent.close(outcome)
             except Exception:  # noqa: BLE001 — the session is gone either way
+                pass
+        if self.on_session_end is not None:
+            try:
+                self.on_session_end(_thread_key(th))
+            except Exception:  # noqa: BLE001 — sandbox cleanup is best-effort
                 pass
 
     # -- upkeep -------------------------------------------------------------------------

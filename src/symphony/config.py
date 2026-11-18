@@ -173,6 +173,13 @@ class Config:
     # `assistant.memory`: per-person memory for people mapped in `notify.users`.
     assistant_memory_enabled: bool = True
     assistant_memory_ttl_days: int = 90
+    # `assistant.sandbox`: an isolated workspace pod per chat thread for running commands.
+    assistant_sandbox_enabled: bool = False
+    assistant_sandbox_cpu: int = 2
+    assistant_sandbox_memory_mib: int = 4096
+    assistant_sandbox_command_timeout_s: int = 300
+    assistant_sandbox_max_lifetime_s: int = 14_400
+    assistant_sandbox_max_output_chars: int = 20_000
     # `retention:` how long ended sessions and audit entries stay in Redis (`retention.py`).
     retention_sessions_days: int = retention.SESSIONS_DAYS
     retention_audit_days: int = retention.AUDIT_DAYS
@@ -454,7 +461,7 @@ def _check_github_provider(provider: dict) -> None:
 
 _ASSISTANT_KEYS = frozenset({
     "enabled", "slack", "discord", "repositories", "max_concurrent", "turn_timeout_s",
-    "ticket_state", "ticket_labels", "soul", "memory",
+    "ticket_state", "ticket_labels", "soul", "memory", "sandbox",
 })
 _REPO = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
 _SOUL_PATH = re.compile(r"[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*\Z")
@@ -482,11 +489,35 @@ def _soul_and_memory(section: dict, defaults: Config) -> dict:
     ttl = _typed(memory, "ttl_days", int, defaults.assistant_memory_ttl_days)
     if ttl <= 0:
         raise ConfigError("assistant.memory.ttl_days must be positive")
+    sandbox = _sub(section, "sandbox", {
+        "enabled", "cpu", "memory_mib", "command_timeout_s", "max_lifetime_s", "max_output_chars",
+    })
+    sb_cpu = _typed(sandbox, "cpu", int, defaults.assistant_sandbox_cpu)
+    sb_mem = _typed(sandbox, "memory_mib", int, defaults.assistant_sandbox_memory_mib)
+    sb_cmd_timeout = _typed(sandbox, "command_timeout_s", int, defaults.assistant_sandbox_command_timeout_s)
+    sb_idle = _typed(sandbox, "max_lifetime_s", int, defaults.assistant_sandbox_max_lifetime_s)
+    sb_max_output = _typed(sandbox, "max_output_chars", int, defaults.assistant_sandbox_max_output_chars)
+    if sb_cpu <= 0:
+        raise ConfigError("assistant.sandbox.cpu must be positive")
+    if sb_mem <= 0:
+        raise ConfigError("assistant.sandbox.memory_mib must be positive")
+    if sb_cmd_timeout <= 0:
+        raise ConfigError("assistant.sandbox.command_timeout_s must be positive")
+    if sb_idle <= 0:
+        raise ConfigError("assistant.sandbox.max_lifetime_s must be positive")
+    if sb_max_output <= 0:
+        raise ConfigError("assistant.sandbox.max_output_chars must be positive")
     return {
         "assistant_soul_repo": repo.strip() if repo else None,
         "assistant_soul_path": path,
         "assistant_memory_enabled": _typed(memory, "enabled", bool, True),
         "assistant_memory_ttl_days": ttl,
+        "assistant_sandbox_enabled": _typed(sandbox, "enabled", bool, False),
+        "assistant_sandbox_cpu": sb_cpu,
+        "assistant_sandbox_memory_mib": sb_mem,
+        "assistant_sandbox_command_timeout_s": sb_cmd_timeout,
+        "assistant_sandbox_max_lifetime_s": sb_idle,
+        "assistant_sandbox_max_output_chars": sb_max_output,
     }
 
 

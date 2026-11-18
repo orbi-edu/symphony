@@ -296,8 +296,14 @@ The chat assistant on Slack and Discord ([assistant.md](assistant.md)). It is of
 | `assistant.soul.path` | relative path | `".symphony/assistant.md"` | The soul file. It is read from `origin/main` at each new session, at most 8 KiB. Missing: the built-in text. |
 | `assistant.memory.enabled` | bool | `true` | Per-person memory for people mapped in `notify.users` ([assistant.md](assistant.md#memory)). |
 | `assistant.memory.ttl_days` | int, above 0 | `90` | Days a person's memory lives. Each write and each session that reads it renews it. |
+| `assistant.sandbox.enabled` | bool | `false` | Turns the sandbox on. When on, mapped users get a `sandbox_run` tool that runs commands in an isolated pod ([assistant.md](assistant.md#sandbox)). |
+| `assistant.sandbox.cpu` | int, above 0 | `2` | CPU request and limit for the sandbox pod. |
+| `assistant.sandbox.memory_mib` | int, above 0 | `4096` | Memory request and limit for the sandbox pod (MiB). |
+| `assistant.sandbox.command_timeout_s` | int, above 0 | `300` | Timeout per command, and the cap for a `timeout_s` the agent asks for. |
+| `assistant.sandbox.max_lifetime_s` | int, above 0 | `14400` | Hard ceiling on a sandbox pod's life (`activeDeadlineSeconds`). The pod is normally deleted when the thread's session ends. |
+| `assistant.sandbox.max_output_chars` | int, above 0 | `20000` | Maximum characters of combined output returned to the agent. Longer output is truncated (head + tail). |
 
-Unknown keys, also inside `slack`, `discord`, `soul` and `memory`, are an error.
+Unknown keys, also inside `slack`, `discord`, `soul`, `memory` and `sandbox`, are an error.
 
 ```yaml
 assistant:
@@ -311,6 +317,7 @@ assistant:
   ticket_labels: []
   soul: {repo: "acme/app", path: ".symphony/assistant.md"}
   memory: {enabled: true, ttl_days: 90}
+  sandbox: {enabled: true}
 ```
 
 Only a person mapped in [`notify.users`](#notify) can create tickets from a proposal.
