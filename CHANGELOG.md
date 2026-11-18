@@ -7,6 +7,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-18
+
 ### Added
 
 - Assistant sandbox (`assistant.sandbox`, off by default): `sandbox_run(repo, command)`
@@ -26,6 +28,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Slack answers over 4,000 characters failed with `chat.update: msg_too_long` after the
   first part was shown: the transport assumed `chat.postMessage`'s 40,000 for the in-place
   edit too. Answers now split at 4,000 characters per message.
+- A failed release of a held MCP lease is now logged with its cause
+  (`mcp_cleanup_release_failed` with the exception type, `mcp_cleanup_release_refused` with
+  the step and HTTP status) instead of only counting `failed=1`.
 
 ## [0.2.1] - 2026-11-18
 
