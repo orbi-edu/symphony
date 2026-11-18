@@ -80,7 +80,10 @@ class _Recent:
 
 class SlackSocketTransport:
     name = "slack"
-    message_limit = 40_000
+    # The engine edits the first part of an answer in place (`chat.update`), whose `text`
+    # cannot exceed 4,000 characters (`msg_too_long`); `chat.postMessage` allows 40,000.
+    # One limit serves both calls, so it is the smaller one.
+    message_limit = 4_000
 
     def __init__(self, app_token: str, bot_token: str, *, api_url: str | None = None,
                  backoff_base: float = 1.0, backoff_cap: float = 60.0):

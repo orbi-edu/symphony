@@ -326,7 +326,7 @@ class SlackMock:
         blocks = self._blocks(args.get("blocks"))
         if not text and not blocks and not args.get("attachments"):
             raise _Reject("no_text")
-        if text and len(text) > 40_000:
+        if text and len(text) > 4_000:  # slack-chat.update.md: `text` cannot exceed 4,000
             raise _Reject("msg_too_long")
         record["text"] = text or ""
         # slack-chat.update.md: with `text` and no `blocks`, the blocks are removed; an empty
