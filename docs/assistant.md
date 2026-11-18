@@ -191,7 +191,7 @@ A team fact is a lasting fact about how the team works. The agent proposes it wi
 | Turns at the same time | `assistant.max_concurrent` (default 3). Over the cap it answers "I am busy with other questions. I will answer when one ends." and the turn waits. |
 | Time per turn | `assistant.turn_timeout_s` (default 600). Then it stops and says "I stopped: this took too long." |
 | Streaming | It posts "Working on it…" at once, and edits that message at most every 1.5 seconds. |
-| Message size | Slack: 3,000 characters per block, 40,000 per message. Discord: 2,000 per message. A longer answer continues in more messages. |
+| Message size | Slack: 3,000 characters per block, 4,000 per message (the limit of `chat.update`, which edits the first part in place). Discord: 2,000 per message. A longer answer continues in more messages. |
 | Idle session | After 30 minutes without a turn, the session ends. The next message starts a new session with the last 30 thread messages as context. |
 | Replicas | One. Each transport allows one bot connection. |
 

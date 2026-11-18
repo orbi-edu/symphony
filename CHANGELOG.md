@@ -7,6 +7,12 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Slack answers over 4,000 characters failed with `chat.update: msg_too_long` after the
+  first part was shown: the transport assumed `chat.postMessage`'s 40,000 for the in-place
+  edit too. Answers now split at 4,000 characters per message.
+
 ## [0.2.1] - 2026-11-18
 
 ### Added

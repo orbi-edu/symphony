@@ -11,7 +11,7 @@ import pytest
 from scripts.mocks.slack import server as slack
 
 from symphony.assistant import Action, Button, Inbound
-from symphony.assistant.slack_socket import SlackSocketTransport
+from symphony.assistant.slack_socket import SlackError, SlackSocketTransport
 
 CHANNEL = slack.DEFAULT_CHANNEL["id"]
 DM = "D0MOCKDM01"
@@ -236,4 +236,13 @@ def test_from_env_needs_both_tokens():
     transport = SlackSocketTransport.from_env({"SLACK_BOT_TOKEN": "xoxb-1",
                                                "SLACK_APP_TOKEN": "xapp-1"})
     assert transport is not None and transport.name == "slack"
-    assert transport.message_limit == 40_000
+    assert transport.message_limit == 4_000
+
+
+def test_an_answer_at_the_message_limit_can_be_edited_in_place(bot):
+    """The engine edits the first part of every answer with chat.update, which rejects a
+    `text` over 4,000 characters; a part of `message_limit` characters must still pass."""
+    ref = bot.transport.post(CHANNEL, "", "thinking…")
+    bot.transport.update(ref, "x" * bot.transport.message_limit)
+    with pytest.raises(SlackError, match="msg_too_long"):
+        bot.transport.update(ref, "x" * (bot.transport.message_limit + 1))

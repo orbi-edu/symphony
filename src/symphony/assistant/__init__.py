@@ -88,7 +88,7 @@ class HistoryMessage:
 
 @runtime_checkable
 class Outbound(Protocol):
-    """Replies. `message_limit` is the longest text one `post`/`update` accepts (Slack 40,000,
+    """Replies. `message_limit` is the longest text one `post`/`update` accepts (Slack 4,000,
     Discord 2,000). Slack splits a text into section blocks of at most 3,000 characters with
     `split_text(text, 3000)`; the engine splits longer answers into several messages."""
 
