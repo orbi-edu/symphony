@@ -13,10 +13,11 @@ It runs as the Deployment `symphony-assistant`. It dials out to Slack (Socket Mo
 - [Soul](#soul)
 - [Memory](#memory)
 - [Team facts](#team-facts)
+- [Sandbox](#sandbox)
+- [Plan mode](#plan-mode)
 - [Limits](#limits)
 - [Setup](#setup)
 - [Follow and steer it in Tern](#follow-and-steer-it-in-tern)
-
 ## What it does
 
 | Mode | Start the message with | Role | Use it to |
@@ -183,6 +184,43 @@ A team fact is a lasting fact about how the team works. The agent proposes it wi
 - The App needs `contents: write` and `pull_requests: write` on the soul repository. Without them the message says: "The GitHub App cannot open this PR: it needs contents: write and pull requests: write on owner/name." The buttons stay, so a person can retry after fixing the App.
 - The fact reaches the assistant after the PR is merged, at its next new session.
 - The agent gets `propose_team_fact` only when the assistant has the GitHub App credentials (`GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_INSTALLATION_ID`). A text that looks like a credential is refused.
+
+## Sandbox
+
+When `assistant.sandbox.enabled` is true and the GitHub App is configured, the assistant gets a `sandbox_run(repo, command, timeout_s?)` tool that runs shell commands in an isolated pod, one per chat thread.
+
+### What it is for
+
+Building the project, running tests, searching with `rg`, running analysis scripts. Each repository the thread uses is cloned once, at its base branch. The sandbox cannot push, open pull requests or reach the cluster's services; command output is untrusted content for the assistant. A command runs in the repository root with `bash`, for at most `assistant.sandbox.command_timeout_s` (exit code 124 when it times out), and its output is cut to `assistant.sandbox.max_output_chars` (head and tail).
+
+### Isolation
+
+- **Network policy.** The sandbox pod carries `component: workspace`, so the existing workspace `NetworkPolicy` applies: it can reach the gateway and the public internet, but not Redis, the API server, other pods, or the cloud metadata endpoint.
+- **No ServiceAccount token.** `automountServiceAccountToken: false` — the pod cannot reach the Kubernetes API.
+- **Scoped read-only token.** The clone uses a GitHub App installation token scoped to the one repository with `contents: read` and `metadata: read`. It reaches the pod on standard input and lives only in the environment of that `git clone`, through a credential helper: it is not in any command line, the clone's config or the pod spec. No chat, tracker, model or MCP credentials enter the pod.
+- **Resources.** CPU and memory from `assistant.sandbox.cpu` and `assistant.sandbox.memory_mib` (defaults: the global `kubernetes.sandbox` values).
+
+### Cleanup
+
+The pod is deleted when the assistant session of the thread ends (30 minutes without a turn). Sessions live in the assistant process, so at start the assistant deletes every sandbox pod it finds (`role: assistant-sandbox`). `assistant.sandbox.max_lifetime_s` (default 4 hours) is a hard ceiling on a pod's life; a later command in the same thread starts a new pod.
+
+### Who can use it
+
+Only people mapped in `notify.users`. The tool checks the asker of the current turn at each call, so in a thread that a mapped person started, a message from an unmapped person still cannot run commands. The Role `symphony-assistant` gets `pods` and `pods/exec` in its namespace for this.
+
+## Plan mode
+
+The planner investigates before it proposes tickets: it reads the code and, with the sandbox, runs the build or the tests that matter. It writes a short spec in the thread with these sections:
+
+1. **Problem** — what is wrong or missing.
+2. **Current behaviour** — with evidence (file:line, command output).
+3. **Proposed design** — what to change and why.
+4. **Alternatives rejected** — other approaches and why they lose.
+5. **Acceptance criteria** — how to know the work is done.
+6. **Verification plan** — commands or checks to run.
+7. **Risks** — what could go wrong.
+
+Each proposed ticket body carries its slice of the spec: at minimum its acceptance criteria and how to verify.
 
 ## Limits
 

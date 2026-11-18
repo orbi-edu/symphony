@@ -7,6 +7,20 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Assistant sandbox (`assistant.sandbox`, off by default): `sandbox_run(repo, command)`
+  runs commands in a workspace pod per chat thread, created on the first call. Same
+  manifest and NetworkPolicy as issue workspaces, no ServiceAccount token; each repository
+  is cloned with a GitHub App token scoped to it (`contents: read`) that reaches the pod on
+  stdin only. Only people mapped in `notify.users` can run commands, checked at each call.
+  The pod is deleted when the session ends and at assistant start; `max_lifetime_s` caps it.
+  The `symphony-assistant` Role gets `pods` and `pods/exec`.
+- Spec-driven planner: before proposing tickets the planner investigates (reads code and,
+  with the sandbox, runs the build or tests) and writes a spec in the thread (Problem,
+  Current behaviour, Proposed design, Alternatives rejected, Acceptance criteria,
+  Verification plan, Risks); each ticket carries its acceptance criteria and checks.
+
 ### Fixed
 
 - Slack answers over 4,000 characters failed with `chat.update: msg_too_long` after the
