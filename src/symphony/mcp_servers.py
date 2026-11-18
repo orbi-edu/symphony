@@ -990,7 +990,10 @@ def release_held(client, namespace: str, repository: McpRepository, digest: str,
                                       cleanup, entry["id"])
             except httpx.HTTPError:
                 answered = False
-            except Exception:  # noqa: BLE001 — best effort: the server's reaper is the backstop
+            except Exception as exc:  # noqa: BLE001 — best effort: the server's reaper is the backstop
+                # The type only, never the message: it may echo a stored header or lease id.
+                _log.warning("mcp_cleanup_release_failed", server=entry.get("server"),
+                             error=type(exc).__name__)
                 ok = False
             counts["released" if ok else "failed"] += 1
             fresh = time.time() - entry.get("at", 0) < CLEANUP_GIVE_UP_S
@@ -1020,6 +1023,7 @@ def _release_one(http: httpx.Client, definition: Mapping[str, Any], stored: Mapp
 
     first = post(_initialize(1), {})
     if first.status_code >= 300:
+        _log.warning("mcp_cleanup_release_refused", step="initialize", status=first.status_code)
         return False
     initialized = _sync_result(first, 1) or {}
     extra = {"mcp-protocol-version": str(initialized.get("protocolVersion") or PROTOCOL_VERSION)}
@@ -1033,7 +1037,11 @@ def _release_one(http: httpx.Client, definition: Mapping[str, Any], stored: Mapp
     if "mcp-session-id" in extra:
         with contextlib.suppress(httpx.HTTPError):
             http.delete(definition["url"], headers=upstream_headers(extra, stored))
-    return isinstance(result, dict) and result.get("isError") is False
+    ok = isinstance(result, dict) and result.get("isError") is False
+    if not ok:
+        _log.warning("mcp_cleanup_release_refused", step="tools/call", status=answer.status_code,
+                     result=None if result is None else ("error" if result.get("isError") else "unknown"))
+    return ok
 
 
 def _sync_result(response: httpx.Response, rpc_id: int) -> dict | None:
