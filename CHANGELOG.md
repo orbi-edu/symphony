@@ -7,14 +7,13 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-<<<<<<< HEAD
 ### Added
 
 - Optional mirror in the `images` workflow: the version tags are copied to AWS ECR through
   OIDC when the repository secrets `MIRROR_REGISTRY`, `MIRROR_AWS_ROLE_ARN` and
   `MIRROR_AWS_REGION` are set, with the same digests. For clusters that cannot pull from
   a private GHCR.
-=======
+
 ### Changed
 
 - Assistant built-in instructions now include an untrusted-content guardrail: text from
@@ -27,7 +26,6 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `MemoryStore.remember` performs deterministic dedupe: text that matches an existing item
   after normalization (casefold, collapse whitespace, strip trailing punctuation) refreshes
   that item instead of appending, and upgrades `inferred` → `explicit` without downgrading.
->>>>>>> 3b88e95 (feat(assistant): treat external content as untrusted; dedupe memory items)
 
 ## [0.2.0] - 2026-11-17
 
