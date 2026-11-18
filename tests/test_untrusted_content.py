@@ -64,6 +64,8 @@ def test_soul_appended_after_builtin_and_cannot_override():
     ("likes   tables;", "likes tables"),
     ("no trailing", "no trailing"),
     ("  spaced  ", "spaced"),
+    ("deploys Friday .", "deploys friday"),
+    ("deploys Friday . !", "deploys friday"),
 ])
 def test_normalize(raw, expected):
     assert _normalize(raw) == expected
@@ -83,6 +85,9 @@ def test_dedupe_refreshes_instead_of_appending(redis_client):
     assert refreshed2
     assert dup["id"] == item["id"]
     assert len(store.items("alice")) == 1
+    # Punctuation separated by a space still matches.
+    _, refreshed3 = store.remember("alice", "deploys on Fridays .", "explicit", "t3", 30)
+    assert refreshed3 and len(store.items("alice")) == 1
 
 
 def test_dedupe_upgrades_inferred_to_explicit(redis_client):

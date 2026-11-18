@@ -43,8 +43,8 @@ _ASSIGNED = re.compile(r"([A-Za-z0-9_.-]+)\s*[:=]\s*(\S{4,})")
 
 
 def _normalize(text: str) -> str:
-    """Casefold, collapse whitespace, strip trailing punctuation — for dedupe comparison."""
-    return re.sub(r"[.!?,;:]+$", "", " ".join(text.casefold().split()))
+    """Casefold, collapse whitespace, strip trailing punctuation and spaces — for dedupe."""
+    return re.sub(r"[\s.!?,;:]+$", "", " ".join(text.casefold().split()))
 
 def looks_like_credential(text: str) -> bool:
     """True when `text` holds something that looks like a secret value."""
@@ -100,26 +100,25 @@ class MemoryStore:
         if looks_like_credential(text):
             raise ValueError("credential")
         norm = _normalize(text)
-        refreshed = False
 
-        def change(items: list[dict]) -> dict:
-            nonlocal refreshed
+        # Returns (item, refreshed) from the attempt that commits: a WatchError retry runs it
+        # again on fresh items, so the flag never leaks from an attempt that was discarded.
+        def change(items: list[dict]) -> tuple[dict, bool]:
             for item in items:
                 if _normalize(item.get("text", "")) == norm:
                     item["at"] = self.now_ms()
                     # Upgrade inferred → explicit, never downgrade.
                     if kind == "explicit" and item.get("kind") != "explicit":
                         item["kind"] = "explicit"
-                    refreshed = True
-                    return item
+                    return item, True
             if len(items) >= MAX_ITEMS:
                 raise MemoryFull(f"memory is full ({MAX_ITEMS} items): forget something first")
             item = {"id": secrets.token_hex(4), "text": text, "kind": kind, "at": self.now_ms(),
                     "thread": thread}
             items.append(item)
-            return item
+            return item, False
 
-        return self._update(login, change, ttl_days), refreshed
+        return self._update(login, change, ttl_days)
 
     def forget(self, login: str, *, item_id: str | None = None, query: str | None = None) -> list[dict]:
         """Removes the item with this id, or every item whose text holds `query` (any case).
@@ -193,8 +192,9 @@ def instructions(login: str | None, items: list[dict]) -> str:
         "Call remember(text, kind) when they ask you to remember something (kind explicit), or "
         "when you learn a lasting fact about how they work (kind inferred). Write the text in "
         "the third person, short. Never remember a credential, token, password or secret.",
-        "Before remembering, check the items below. If something similar is already remembered, "
-        "forget the old item and remember the updated version instead of adding a near-duplicate. "
+        "Before remembering, check the items below. To update something already remembered, "
+        "remember the new version first and forget the old item only after the new one was "
+        "stored; if remember is refused or fails, keep the old item. Do not add near-duplicates. "
         "Prefer kind explicit. Store only what helps future answers.",
         "Never store sensitive personal data (health, religion, political opinion, sex life, "
         "ethnicity, biometrics, or union membership) or information about third parties beyond "
