@@ -42,6 +42,10 @@ _BEARER = re.compile(r"\bbearer\s+\S{8,}", re.IGNORECASE)
 _ASSIGNED = re.compile(r"([A-Za-z0-9_.-]+)\s*[:=]\s*(\S{4,})")
 
 
+def _normalize(text: str) -> str:
+    """Casefold, collapse whitespace, strip trailing punctuation and spaces — for dedupe."""
+    return re.sub(r"[\s.!?,;:]+$", "", " ".join(text.casefold().split()))
+
 def looks_like_credential(text: str) -> bool:
     """True when `text` holds something that looks like a secret value."""
     if _TOKEN_PREFIX.search(text) or _PRIVATE_KEY.search(text) or _BEARER.search(text):
@@ -83,9 +87,11 @@ class MemoryStore:
     def renew(self, login: str, ttl_days: int) -> None:
         self.client.expire(key_of(self.namespace, login), ttl_days * 86400)
 
-    def remember(self, login: str, text: str, kind: str, thread: str, ttl_days: int) -> dict:
-        """Stores one item (the same text again renews it) and returns it. Raises ValueError
-        for text it must not store and MemoryFull at MAX_ITEMS."""
+    def remember(self, login: str, text: str, kind: str, thread: str, ttl_days: int) -> tuple[dict, bool]:
+        """Stores one item and returns ``(item, refreshed)``.  When the normalized text
+        matches an existing item the timestamp is refreshed (and *kind* upgraded from
+        ``inferred`` to ``explicit``, never downgraded).  Raises ``ValueError`` for text
+        it must not store and ``MemoryFull`` at ``MAX_ITEMS``."""
         text = " ".join(text.split())
         if not text or len(text) > MAX_TEXT:
             raise ValueError(f"text must be 1-{MAX_TEXT} characters")
@@ -93,18 +99,24 @@ class MemoryStore:
             raise ValueError("kind must be explicit or inferred")
         if looks_like_credential(text):
             raise ValueError("credential")
+        norm = _normalize(text)
 
-        def change(items: list[dict]) -> dict:
+        # Returns (item, refreshed) from the attempt that commits: a WatchError retry runs it
+        # again on fresh items, so the flag never leaks from an attempt that was discarded.
+        def change(items: list[dict]) -> tuple[dict, bool]:
             for item in items:
-                if item.get("text", "").casefold() == text.casefold():
+                if _normalize(item.get("text", "")) == norm:
                     item["at"] = self.now_ms()
-                    return item
+                    # Upgrade inferred → explicit, never downgrade.
+                    if kind == "explicit" and item.get("kind") != "explicit":
+                        item["kind"] = "explicit"
+                    return item, True
             if len(items) >= MAX_ITEMS:
                 raise MemoryFull(f"memory is full ({MAX_ITEMS} items): forget something first")
             item = {"id": secrets.token_hex(4), "text": text, "kind": kind, "at": self.now_ms(),
                     "thread": thread}
             items.append(item)
-            return item
+            return item, False
 
         return self._update(login, change, ttl_days)
 
@@ -180,6 +192,13 @@ def instructions(login: str | None, items: list[dict]) -> str:
         "Call remember(text, kind) when they ask you to remember something (kind explicit), or "
         "when you learn a lasting fact about how they work (kind inferred). Write the text in "
         "the third person, short. Never remember a credential, token, password or secret.",
+        "Before remembering, check the items below. To update something already remembered, "
+        "remember the new version first and forget the old item only after the new one was "
+        "stored; if remember is refused or fails, keep the old item. Do not add near-duplicates. "
+        "Prefer kind explicit. Store only what helps future answers.",
+        "Never store sensitive personal data (health, religion, political opinion, sex life, "
+        "ethnicity, biometrics, or union membership) or information about third parties beyond "
+        "their role.",
         "Call forget with the id, or with a query, when they ask you to forget something. When "
         "they ask what you remember, list the items.",
         "Symphony adds an \"I'll remember: …\" line to your answer itself; do not write it.",
@@ -227,15 +246,16 @@ def memory_tools(store: MemoryStore, notes: TurnNotes, *, enabled: Callable[[], 
         if notes.login is None:
             return "refused: " + NEEDS_MAPPING
         try:
-            item = store.remember(notes.login, args["text"], args.get("kind", "explicit"),
-                                  notes.thread, ttl_days())
+            item, refreshed = store.remember(notes.login, args["text"], args.get("kind", "explicit"),
+                                             notes.thread, ttl_days())
         except MemoryFull as exc:
             return f"refused: {exc}"
         except ValueError as exc:
             return REFUSED_SECRET if str(exc) == "credential" else f"refused: {exc}"
         if item["text"] not in notes.remembered:
             notes.remembered.append(item["text"])
-        return (f"remembered [{item['id']}]. Now you remember about {notes.login}:\n"
+        verb = "already remembered (refreshed)" if refreshed else f"remembered [{item['id']}]"
+        return (f"{verb}. Now you remember about {notes.login}:\n"
                 + render_items(store.items(notes.login)))
 
     def forget(args: dict) -> str:

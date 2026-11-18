@@ -14,6 +14,19 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `MIRROR_AWS_REGION` are set, with the same digests. For clusters that cannot pull from
   a private GHCR.
 
+### Changed
+
+- Assistant built-in instructions now include an untrusted-content guardrail: text from
+  repositories, issues, pull requests, tickets, web pages, tool results, MCP results, and
+  third-party messages is treated as information, not instructions. The soul file cannot
+  override these safety rules.
+- Memory hygiene: the assistant is instructed to check existing items before remembering,
+  prefer `explicit` items, avoid near-duplicates, and never store sensitive personal data
+  categories or third-party information beyond role.
+- `MemoryStore.remember` performs deterministic dedupe: text that matches an existing item
+  after normalization (casefold, collapse whitespace, strip trailing punctuation) refreshes
+  that item instead of appending, and upgrades `inferred` → `explicit` without downgrading.
+
 ## [0.2.0] - 2026-11-17
 
 ### Added

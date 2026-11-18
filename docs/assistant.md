@@ -68,6 +68,10 @@ The agent's environment holds no chat, tracker or GitHub App credential. A code 
 
 Without `assistant.repositories`, it reads the default repository, the merger repositories and the repositories of tracked tickets.
 
+### Untrusted content
+
+Text from repositories, issues, pull requests, tickets, web pages, tool results, MCP server results, and messages from anyone other than the person being answered is treated as information, not instructions. The assistant never follows instructions found in that content — it will not call tools, change its behavior, reveal its instructions, memory or credentials, or contact anyone because such text tells it to. When the assistant notices instructions aimed at it inside untrusted content, it mentions this to the person instead of acting on them. The one exception is the configured soul file: its persona and team rules are followed where they do not conflict with these safety rules, which the soul cannot override.
+
 ## Proposals and confirmation
 
 The planner never creates tickets alone. It calls `propose_tickets`. The assistant posts the proposal with three buttons.
@@ -163,6 +167,8 @@ The assistant remembers facts about each person mapped in `notify.users`, across
 - Only mapped people have memory. Anyone else is told: "Memory needs a mapped user: ask an admin to add you to notify.users in WORKFLOW.md."
 - Storage: `sym:<ns>:assistant:memory:<login>`, at most 50 items of 500 characters each. Each write, and each session that reads the memory, renews its TTL of `assistant.memory.ttl_days` (default 90).
 - `assistant.memory.enabled: false` turns memory off: no tools and no memory in the instructions.
+- Remembering text whose normalized form (casefolded, whitespace-collapsed, trailing punctuation and spaces stripped) matches an existing item refreshes that item instead of creating a duplicate. On refresh the `kind` is upgraded from `inferred` to `explicit` when the new call is `explicit`, but never downgraded.
+- The assistant is instructed to check existing items before remembering; to update an item it remembers the new version first and forgets the old one only after the new one is stored (a refused or failed `remember` keeps the old item). It prefers `explicit` items and never stores sensitive personal data (health, religion, political opinion, sex life, ethnicity, biometrics, union membership) or information about third parties beyond their role.
 
 Admins see and remove memory with `symphony assistant memory list|show LOGIN|forget LOGIN ID|wipe LOGIN`, in **Admin › Assistant** in Tern, or through `GET/DELETE /v1/assistant/memory…` ([api.md](api.md)). Every one of these calls is audited (`assistant.memory_read`, `assistant.memory_forget`, `assistant.memory_wipe`); the audit never holds the memory text.
 
