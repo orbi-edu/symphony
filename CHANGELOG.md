@@ -7,6 +7,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-18
+
 ### Added
 
 - Optional mirror in the `images` workflow: the version tags are copied to AWS ECR through
