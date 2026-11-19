@@ -456,10 +456,10 @@ class PreviewManager:
                     self._starting.add(key)
                     claimed = True
             if busy:
-                out.ack_action(action, f"A simulator for #{pr} is starting. Click again in a minute.")
+                out.ack_action(action, f"A simulator for #{pr} is starting. Click again in two minutes.")
                 return "starting"
 
-            out.ack_action(action, f"Starting a simulator for #{pr}\u2026 (about a minute)")
+            out.ack_action(action, f"Starting a simulator for #{pr}\u2026 (about two minutes)")
 
             # -- validate head SHA ----------
             current_head = _pr_head_sha(http, token, repo, pr)
