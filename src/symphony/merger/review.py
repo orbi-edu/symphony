@@ -482,6 +482,10 @@ def settle_parked(m: Merger, policy: Policy, owner: str) -> None:
                         cm.ci_line(ci["state"], rec["head_sha"], ci["failed"]), rec["body"], rec["drafted"]))
                 m.store.unpark(n)
             elif ci["state"] == "passed":
+                from .approval import check_approval
+
+                if not check_approval(m, policy, rec):
+                    continue  # still parked, waiting for approval
                 report = cm.compose(cm.REVIEWED_TITLE, rec["head_sha"], hand_off_text(rec["head_sha"]),
                                     cm.ci_line("passed", rec["head_sha"]), rec["body"], False)
                 hand_off(m, policy, rec, report, rec.get("comment") or None)
@@ -689,6 +693,20 @@ def _outcome(m: Merger, policy: Policy, team: dict, run: Run, result: dict, delt
                       "body": cm.scrubbed_body(m, run, result), "drafted": False, "comment": comment})
         return "waiting", run.head_sha, run.ready_at, ""
 
+    # Approval gate: the review passed and CI is green, but the policy requires a human
+    # approval on GitHub.  Park the PR until it is approved.
+    from .approval import check_approval
+
+    if not check_approval(m, policy, {"pr": n, "head_sha": run.head_sha, "author": run.author,
+                                      "title": run.title, "branch": run.branch}):
+        outcome = (f"reviewed, nothing blocking: waiting for a human approval on `{run.head_sha[:9]}`. "
+                   "Once approved, the merge train takes it.")
+        _finish(m, n)
+        comment = cm.post_waiting(m, run, result, outcome)
+        m.store.park({**parked_of(m, run), "kind": "clean", "title": cm.WAITING_TITLE, "outcome": outcome,
+                      "body": cm.scrubbed_body(m, run, result), "drafted": False, "comment": comment})
+        return "waiting", run.head_sha, run.ready_at, ""
+
     report = cm.scrub(cm.compose(cm.REVIEWED_TITLE, run.head_sha, hand_off_text(run.head_sha), "",
                                  cm.report_body(run, result), False), run.wt, m.git.path)
     hand_off(m, policy, run, report)
@@ -808,6 +826,10 @@ class ReviewWorker:
         apply_actions(m, self.owner)
         reconcile(m, self.owner)
         settle_parked(m, policy, self.owner)
+        # Preview announcements: scan during the normal review pass.
+        from .approval import check_previews_for_open_prs
+
+        check_previews_for_open_prs(m, policy)
         team = m.config("review")
         resolved = resolve_next(m, policy, team, self.owner)
         if resolved:

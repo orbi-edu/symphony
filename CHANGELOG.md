@@ -7,6 +7,21 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Merger human approval gate (`require_approval: true` in `.symphony/merger.md`):
+  a reviewed pull request waits for at least one GitHub `APPROVED` review with no
+  `CHANGES_REQUESTED` before the merge train takes it.  While waiting, it carries the
+  label `wait-approval` and reviewers get one `needs_approval` notification per head.
+  The train re-checks before merging; a dismissed approval sends the PR back.
+- Merger preview announcement (`preview:` in `.symphony/merger.md`): when a workflow
+  artifact named `preview.artifact` exists for a PR's current head, the merger posts one
+  Slack message per (repository, PR, head sha) with a button (`preview:<owner>/<name>:<pr>:<sha12>`).
+  Discord gets a plain-text fallback with no button.  Deduplication is in Redis.
+- New notification events: `needs_approval` and `preview_ready`.
+- `notify.post_with_button`: sends a Slack Block Kit message with one button and a
+  plain-text Discord fallback.
+
 ## [0.2.2] - 2026-11-18
 
 ### Added

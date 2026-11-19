@@ -58,6 +58,8 @@ EVENTS: dict[str, tuple[str, str]] = {
     "input_requested": (":raising_hand:", "Agent is waiting for an answer"),
     "back_to_author": (":leftwards_arrow_with_hook:", "PR returned to its author"),
     "needs_maintainer": (":rotating_light:", "A maintainer is needed"),
+    "needs_approval": (":eyes:", "Waiting for human approval"),
+    "preview_ready": (":iphone:", "Simulator preview ready"),
     "batch_split": (":scissors:", "Merge train batch was split"),
     "main_red": (":red_circle:", "main is broken"),
     "main_green": (":large_green_circle:", "main is green again"),
@@ -69,6 +71,8 @@ DISCORD_EMOJI: dict[str, str] = {
     "input_requested": "\N{HAPPY PERSON RAISING ONE HAND}",
     "back_to_author": "\N{LEFTWARDS ARROW WITH HOOK}\N{VARIATION SELECTOR-16}",
     "needs_maintainer": "\N{POLICE CARS REVOLVING LIGHT}",
+    "needs_approval": "\N{EYES}",
+    "preview_ready": "\N{MOBILE PHONE}",
     "batch_split": "\N{BLACK SCISSORS}\N{VARIATION SELECTOR-16}",
     "main_red": "\N{LARGE RED CIRCLE}",
     "main_green": "\N{LARGE GREEN CIRCLE}",
@@ -347,3 +351,113 @@ def _front_matter(text: str) -> dict:
         return {}
     loaded = yaml.safe_load(text[3:end])
     return loaded if isinstance(loaded, dict) else {}
+
+
+# Block Kit messages with a button (Slack only; Discord gets plain text) ----------
+
+
+def post_with_button(
+    event: str,
+    text: str,
+    *,
+    button_label: str,
+    button_action_id: str,
+    link: str | None = None,
+    github_logins: list[str] | None = None,
+) -> bool:
+    """Post a Slack Block Kit message with one button.  Discord gets a plain-text
+    fallback with no button.  Returns True when at least one channel accepted the
+    message.
+
+    ``github_logins`` is the list of reviewers to mention.
+    """
+    if event not in EVENTS:
+        log.warning("notify_unknown_event", notify_event=event)
+    delivered = False
+    # Slack — Block Kit with button.
+    try:
+        if _post_slack_blocks(event, text, button_label=button_label,
+                              button_action_id=button_action_id, link=link,
+                              github_logins=github_logins or []):
+            delivered = True
+    except Exception as exc:  # noqa: BLE001
+        log.warning("notify_failed", notify_channel="slack", notify_event=event,
+                    error=type(exc).__name__)
+    # Discord — plain text, no button.
+    try:
+        login = (github_logins or [None])[0]
+        if _post("discord", event, text, link=link, github_login=login):
+            delivered = True
+    except Exception as exc:  # noqa: BLE001
+        log.warning("notify_failed", notify_channel="discord", notify_event=event,
+                    error=type(exc).__name__)
+    return delivered
+
+
+def _post_slack_blocks(
+    event: str,
+    text: str,
+    *,
+    button_label: str,
+    button_action_id: str,
+    link: str | None = None,
+    github_logins: list[str],
+) -> bool:
+    """Send a Slack Block Kit message with a button.  Uses ``chat.postMessage`` with
+    the bot token only (a webhook cannot send blocks with interactive elements)."""
+    token = os.environ.get("SLACK_BOT_TOKEN", "").strip()
+    channel = os.environ.get("SLACK_CHANNEL", "").strip()
+    if not token or not channel:
+        return False
+    users = _configured_users if _configured_users is not None else _users_from_workflow()
+    slack_map = users.get("slack", {})
+    mention_parts = []
+    for login in github_logins:
+        uid = slack_map.get(login.casefold())
+        if uid:
+            mention_parts.append(f"<@{uid}>")
+    emoji, title = EVENTS.get(event, _UNKNOWN_EVENT)
+    header = f"{emoji} *{title}*"
+    if mention_parts:
+        header += " " + " ".join(mention_parts)
+    blocks = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": header + "\n" + _escape(text)}},
+        {"type": "actions", "elements": [
+            {"type": "button", "text": {"type": "plain_text", "text": button_label},
+             "action_id": button_action_id},
+        ]},
+    ]
+    if link:
+        blocks[0]["text"]["text"] += f"\n<{_escape(link)}|Open>"
+    fallback = format_message(event, text, link=link,
+                              mention=" ".join(mention_parts) if mention_parts else "")
+    # Dedup using the same mechanism.
+    digest = hashlib.sha256(f"slack\0{event}\0{button_action_id}".encode()).hexdigest()
+    now = time.monotonic()
+    with _lock:
+        for key in [k for k, at in _sent.items() if now - at >= DEDUP_WINDOW_S]:
+            del _sent[key]
+        if digest in _sent:
+            return False
+        _sent[digest] = now
+    ok = False
+    try:
+        response = httpx.post(
+            f"{slack_api_url()}/chat.postMessage",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"channel": channel, "text": fallback, "blocks": blocks,
+                  "unfurl_links": False},
+            timeout=TIMEOUT_S,
+        )
+        body = _json(response)
+        if response.status_code == 200 and body.get("ok"):
+            ok = True
+        else:
+            log.warning("notify_rejected", notify_channel="slack", status=response.status_code,
+                        slack_error=body.get("error", ""))
+    finally:
+        if not ok:
+            with _lock:
+                if _sent.get(digest) == now:
+                    del _sent[digest]
+    return ok

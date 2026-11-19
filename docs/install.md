@@ -296,7 +296,7 @@ With the GitHub tracker, the check needs one of the two Projects permissions. It
 
 **Webhook events:** `pull_request`, `pull_request_review`, `pull_request_review_comment`, `issue_comment`, `check_suite`, `check_run`, `workflow_run` and `push`. With `tracker.kind: github`, also `issues`, `sub_issues`, `issue_dependencies` and `projects_v2_item`. GitHub sends `projects_v2_item` only for projects that an organization owns. Draft items and pull requests on the board do not wake the daemon.
 
-**Labels.** Make these labels once in each repository: `reviewed`, `wait-ci`, `train-ci`, `review-requested`, `in-audit`, `review-bypass`, `needs-maintainer`, and `symphony-learnings` (or your `kubernetes.learning.learnings_label`).
+**Labels.** Make these labels once in each repository: `reviewed`, `wait-ci`, `train-ci`, `review-requested`, `in-audit`, `review-bypass`, `needs-maintainer`, `wait-approval`, and `symphony-learnings` (or your `kubernetes.learning.learnings_label`).
 
 ### Branch protection of `main`
 
