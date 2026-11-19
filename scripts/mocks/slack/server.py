@@ -116,6 +116,8 @@ def _seed() -> dict:
         "updates": [],
         "counter": 0,
         "ratelimit": {"enabled": False, "retry_after": 30},
+        "files": {},  # file_id -> bytes content (base64-encoded in JSON)
+        "files_scope_blocked": False,  # simulate missing files:read scope
     }
 
 
@@ -656,10 +658,29 @@ class SlackMock:
                 st["app_tokens"].append(body["token"])
             elif name == "webhooks":
                 st["webhooks"][body["path"]] = body["channel"]
+            elif name == "files":
+                st["files"][body["id"]] = body["content"]
+            elif name == "files_scope_blocked":
+                st["files_scope_blocked"] = bool(body.get("blocked", True))
             else:
                 return 404, {"error": "unknown control route"}
             self._save()
             return 200, {"ok": True}
+
+    def file_download(self, file_id: str, token: str | None) -> tuple[int, bytes]:
+        """Serve a ``/files/<id>`` download, checking the bot token and scope."""
+        import base64 as _b64
+        with self.lock:
+            if not token or token not in self.state["tokens"]:
+                return 401, b"not_authed"
+            if self.state["files_scope_blocked"]:
+                return 403, b"missing_scope"
+            data = self.state["files"].get(file_id)
+            if data is None:
+                return 404, b"file_not_found"
+            if isinstance(data, str):
+                data = _b64.b64decode(data)
+            return 200, data if isinstance(data, bytes) else bytes(data)
 
 
 def make_handler(mock: SlackMock) -> type[BaseHTTPRequestHandler]:
@@ -706,6 +727,12 @@ def make_handler(mock: SlackMock) -> type[BaseHTTPRequestHandler]:
                 name = url.path[len("/_control/socket"):].strip("/")
                 status, out = mock.socket_control(verb, name, data)
                 return self._json(status, out)
+            if verb == "GET" and url.path.startswith("/files/"):
+                file_id = url.path[len("/files/"):].strip("/")
+                auth = self.headers.get("Authorization", "")
+                token = auth[len("Bearer "):].strip() if auth.startswith("Bearer ") else None
+                status, data = mock.file_download(file_id, token)
+                return self._send(status, data, "application/octet-stream")
             if url.path.startswith("/services/"):
                 retry = mock.rate_limited()
                 if retry is not None:

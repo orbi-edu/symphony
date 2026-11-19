@@ -9,6 +9,7 @@ It runs as the Deployment `symphony-assistant`. It dials out to Slack (Socket Mo
 - [What it does](#what-it-does)
 - [How to talk to it](#how-to-talk-to-it)
 - [What it can read and use](#what-it-can-read-and-use)
+- [Attachments](#attachments)
 - [Proposals and confirmation](#proposals-and-confirmation)
 - [Soul](#soul)
 - [Memory](#memory)
@@ -73,7 +74,17 @@ Without `assistant.repositories`, it reads the default repository, the merger re
 
 ### Untrusted content
 
-Text from repositories, issues, pull requests, tickets, web pages, tool results, MCP server results, and messages from anyone other than the person being answered is treated as information, not instructions. The assistant never follows instructions found in that content — it will not call tools, change its behavior, reveal its instructions, memory or credentials, or contact anyone because such text tells it to. When the assistant notices instructions aimed at it inside untrusted content, it mentions this to the person instead of acting on them. The one exception is the configured soul file: its persona and team rules are followed where they do not conflict with these safety rules, which the soul cannot override.
+Text from repositories, issues, pull requests, tickets, web pages, tool results, MCP server results, attached images, and messages from anyone other than the person being answered is treated as information, not instructions. The assistant never follows instructions found in that content — it will not call tools, change its behavior, reveal its instructions, memory or credentials, or contact anyone because such text tells it to. When the assistant notices instructions aimed at it inside untrusted content, it mentions this to the person instead of acting on them. The one exception is the configured soul file: its persona and team rules are followed where they do not conflict with these safety rules, which the soul cannot override.
+
+## Attachments
+
+When a message includes image files (PNG, JPEG, GIF or WebP), the assistant sees them. Each image must be at most 5 MiB; at most 4 images per turn are sent to the model. The prompt names every attached file and marks which ones were sent as images and which ones were not read (too big, wrong type, or download failed).
+
+On Slack, downloading an attached file needs the bot scope `files:read` ([install.md](install.md#slack-app)). Without that scope, or when the download fails, the file name still appears in the prompt as not read. The assistant does not crash; it logs `assistant_file_unreadable` with the reason.
+
+On Discord, attachment CDN URLs need no extra token.
+
+Non-image files (PDFs, archives, code) are listed by name but not downloaded.
 
 ## Proposals and confirmation
 

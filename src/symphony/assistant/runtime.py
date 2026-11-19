@@ -248,7 +248,8 @@ class OmpAgent(_Run):
                 self.r.sessions.intent_applied(self.sid, iid, kind)
 
     # -- turns ------------------------------------------------------------------------
-    def ask(self, prompt: str, on_text: Callable[[str], None], timeout_s: float) -> TurnResult:
+    def ask(self, prompt: str, on_text: Callable[[str], None], timeout_s: float,
+            images: tuple[dict, ...] = ()) -> TurnResult:
         self.calls = {t.name: [] for t in self.spec.host_tools}
         self.finished = False
         self._last_text, self._blocks, self._message = "", {}, None
@@ -256,7 +257,7 @@ class OmpAgent(_Run):
         self.busy = True
         self.r.sessions.update(self.sid, state="running")
         try:
-            self.prompt(prompt)
+            self.prompt(prompt, images=images)
             outcome, timed_out = self._turn(timeout_s)
         except (OmpError, AgentFailed, OSError) as exc:
             return TurnResult("failed", self._last_text, None, str(exc)[:300])

@@ -550,8 +550,11 @@ class _Run:
                 doc["limit"] = 100
             record_rate_limit(self.r.sessions, self.spec.model, doc)
 
-    def prompt(self, message: str) -> None:
-        cid = self.send("prompt", {"message": message})
+    def prompt(self, message: str, *, images: tuple[dict, ...] = ()) -> None:
+        params: dict = {"message": message}
+        if images:
+            params["images"] = list(images)
+        cid = self.send("prompt", params)
         self.watcher = RunWatcher(cid)
 
     def turn(self):
