@@ -26,7 +26,7 @@ from collections.abc import Callable, Mapping
 
 import redis
 
-from .. import metrics
+from .. import mcp_servers, metrics
 from ..config import ConfigError, ConfigHolder
 from ..edge import gateway_url, load_config, log, make_tracker, now_ms, pod_namespace
 from ..endpoints import github_server_url
@@ -284,11 +284,49 @@ def build(cfg_holder: ConfigHolder, client, namespace: str, env: Mapping[str, st
         except Exception as exc:  # noqa: BLE001 — a missing permission must not stop the bot
             log.warning("assistant_sandbox_sweep_failed", error=type(exc).__name__)
 
+    # -- MCP guidance and share_device for the chat assistant ---------------------------
+    # Both read the MCP definitions at each session, so a device lab added later works
+    # without a restart: a role gets share_device when its servers bring chat guidance.
+    def _viewer_for_click(server: str, lease_id: str, sid: str) -> dict | None:
+        """A device: click: a control viewer while the sharing session holds the lease."""
+        if not sid or not mcp_servers.held_by_session(client, namespace, sid, server, lease_id):
+            return None
+        import asyncio
+
+        definition = mcp.repository.get(server)
+        if definition is None:
+            return None
+        return asyncio.run(mcp_servers.request_viewer(
+            definition, mcp.repository.headers(server), lease_id, True))
+
+    # -- PR previews (previews.py): each click reads the MCP definition it needs ---------
+    preview_mgr = None
+    if all(env.get(name) for name in GITHUB_APP_ENV):
+        from ..previews import PreviewManager
+
+        def preview_token(repo: str) -> Callable[[], str]:
+            return InstallationCredential.from_env(
+                env, now_ms, target_repos=(repo,),
+                permissions={"actions": "read", "pull_requests": "read", "metadata": "read"},
+            ).token
+
+        preview_mgr = PreviewManager(
+            client=client,
+            namespace=namespace,
+            repository=mcp.repository,
+            github_token=preview_token,
+            notify_users=lambda: policy().notify_users,
+        )
+
     engine = Engine(outbounds=transports, agents=runner, policy=policy, confirmer=confirmer,
                     memory=MemoryStore(client, namespace), souls=souls, facts=facts,
                     sandbox_tool=sandbox_tool_fn, on_session_end=on_session_end_fn,
-                    server_url=github_server_url(), logger=log)
-    return engine, transports
+                    server_url=github_server_url(),
+                    mcp_guidance_fn=mcp.chat_prompt_guidance,
+                    share_device_tool_fn=_viewer_for_click,
+                    preview_handler=preview_mgr.handle if preview_mgr is not None else None,
+                    logger=log)
+    return engine, transports, preview_mgr
 
 
 def warm(engine) -> None:
@@ -305,10 +343,13 @@ def warm(engine) -> None:
 
 
 def run(engine, transports: dict, client, namespace: str, stop: threading.Event, *,
-        reload: Callable[[], object], beat_s: float = BEAT_S, health: dict | None = None) -> None:
+        reload: Callable[[], object], beat_s: float = BEAT_S, health: dict | None = None,
+        preview_mgr=None) -> None:
     """Starts the transports and beats until `stop`; then stops them and ends every session."""
     for t in transports.values():
         t.start(engine.on_message, engine.on_action)
+    if preview_mgr is not None:
+        preview_mgr.start()
     log.info("assistant_started", namespace=namespace, transports=sorted(transports))
     threading.Thread(target=warm, args=(engine,), name="assistant-warm", daemon=True).start()
     last_disabled = None
@@ -335,6 +376,8 @@ def run(engine, transports: dict, client, namespace: str, stop: threading.Event,
             if stop.wait(beat_s):
                 break
     finally:
+        if preview_mgr is not None:
+            preview_mgr.stop()
         for t in transports.values():
             try:
                 t.stop()
@@ -383,13 +426,14 @@ def main() -> None:
         return
     namespace = pod_namespace(cfg)
     try:
-        engine, transports = build(holder, client, namespace, os.environ)
+        engine, transports, preview_mgr = build(holder, client, namespace, os.environ)
     except ConfigError as exc:
         log.warning("assistant_not_configured", missing=["workflow"], error=str(exc)[:200])
         return
     live.update(engine=engine, transports=transports)
     health["at"] = now_ms()
-    run(engine, transports, client, namespace, stop, reload=load, health=health)
+    run(engine, transports, client, namespace, stop, reload=load, health=health,
+        preview_mgr=preview_mgr)
 
 
 if __name__ == "__main__":

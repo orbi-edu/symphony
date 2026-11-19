@@ -21,6 +21,18 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - New notification events: `needs_approval` and `preview_ready`.
 - `notify.post_with_button`: sends a Slack Block Kit message with one button and a
   plain-text Discord fallback.
+- Seiji for the chat assistant: when a chat role (`assistant`, `researcher`,
+  `planner`) has a Seiji server, the session gets a chat-specific guidance
+  paragraph and the `share_device` host tool. `share_device` posts a "Control
+  the device" button; clicking it sends a private one-time viewer link to the
+  mapped person who asked the turn, while that session holds the lease.
+- PR previews: clicking "Open in simulator" on a merger preview notification
+  starts a simulator on Seiji with the PR's preview build, and sends a control
+  viewer link to the clicker, a reviewer of the PR. One device per (repo, PR);
+  a second click reuses the live lease. The device is released on merge,
+  close, a human approval after the start, a new head, after 55 minutes, and
+  when the assistant restarts. Requires a Seiji server named `seiji` and a
+  GitHub App with `actions: read` and `pull_requests: read`.
 
 ## [0.2.2] - 2026-11-18
 

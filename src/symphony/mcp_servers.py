@@ -295,6 +295,8 @@ class Preset:
     guidance: str
     # `POST {http_base}{viewer_path}` (`{id}`: the held id) returns a viewer link.
     viewer_path: str | None = None
+    # For the chat assistant: different guidance (no shell, offer share_device).
+    chat_guidance: str | None = None
 
 
 SEIJI_GUIDANCE = """\
@@ -309,6 +311,15 @@ and records evidence of each run.
 only: attach `report.md` from `$SEIJI_URL/v1/runs/<run_id>/report.md` instead.
 - Reviewers cannot open Seiji links. Attach the files they need."""
 
+SEIJI_CHAT_GUIDANCE = """\
+Seiji device lab (MCP server `{name}`): Seiji lends you an iOS simulator or an Android \
+emulator so you can show the asker a live device.
+- You have no shell: interact with the device only through the MCP tools \
+(`acquire_device`, `install_app`, `launch_app`, `run_actions`, etc.).
+- Always call `release_device` when the asker is done. A held device costs budget.
+- Offer the asker control with `share_device` so they can interact with the screen \
+themselves."""
+
 PRESETS: dict[str, Preset] = {
     "seiji": Preset(
         fields={
@@ -322,6 +333,7 @@ PRESETS: dict[str, Preset] = {
         identity_path="/v1/me",
         guidance=SEIJI_GUIDANCE,
         viewer_path="/v1/leases/{id}/viewer",
+        chat_guidance=SEIJI_CHAT_GUIDANCE,
     ),
 }
 
@@ -363,6 +375,19 @@ def prompt_guidance(definitions: Iterable[Mapping[str, Any]]) -> str:
         preset = preset_of(definition)
         if preset is not None:
             parts.append(preset.guidance.format(name=definition.get("name", "")))
+    return "\n\n".join(parts)
+
+
+def chat_prompt_guidance(definitions: Iterable[Mapping[str, Any]]) -> str:
+    """The chat-specific preset paragraphs for these definitions (a role's servers).
+
+    Falls back to the regular guidance when no ``chat_guidance`` is set."""
+    parts = []
+    for definition in definitions:
+        preset = preset_of(definition)
+        if preset is not None:
+            text = preset.chat_guidance or preset.guidance
+            parts.append(text.format(name=definition.get("name", "")))
     return "\n\n".join(parts)
 
 
@@ -823,6 +848,24 @@ class McpLaunch:
         except McpError:
             return ""
 
+    def chat_prompt_guidance(self, role: str) -> str:
+        """The chat-specific preset paragraphs for *role*'s servers; empty on error."""
+        try:
+            return chat_prompt_guidance(self.repository.for_role(role))
+        except McpError:
+            return ""
+
+    def has_viewer_server(self, role: str) -> bool:
+        """True when *role* has at least one server whose preset has a viewer."""
+        try:
+            for defn in self.repository.for_role(role):
+                preset = preset_of(defn)
+                if preset is not None and preset.viewer_path is not None:
+                    return True
+        except McpError:
+            pass
+        return False
+
     def end(self, token: str | None) -> None:
         """Revoke the token, then release what the session still holds (best effort)."""
         if not token:
@@ -950,6 +993,11 @@ def session_leases(client, namespace: str, sids: Iterable[str]) -> dict[str, lis
                 continue
         out[sid] = leases
     return out
+
+def held_by_session(client, namespace: str, sid: str, server: str, lease_id: str) -> bool:
+    """True when session `sid` itself holds `lease_id` on `server`. A release, or the end
+    of the session, removes the entry."""
+    return bool(client.hexists(_session_held_key(namespace, sid), _field(server, lease_id)))
 
 
 def held_by_live_session(client, namespace: str, server: str, lease_id: str) -> bool:

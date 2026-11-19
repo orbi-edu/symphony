@@ -14,6 +14,8 @@ It runs as the Deployment `symphony-assistant`. It dials out to Slack (Socket Mo
 - [Memory](#memory)
 - [Team facts](#team-facts)
 - [Sandbox](#sandbox)
+- [Device control](#device-control)
+- [PR previews](#pr-previews)
 - [Plan mode](#plan-mode)
 - [Limits](#limits)
 - [Setup](#setup)
@@ -207,6 +209,27 @@ The pod is deleted when the assistant session of the thread ends (30 minutes wit
 ### Who can use it
 
 Only people mapped in `notify.users`. The tool checks the asker of the current turn at each call, so in a thread that a mapped person started, a message from an unmapped person still cannot run commands. The Role `symphony-assistant` gets `pods` and `pods/exec` in its namespace for this.
+
+## Device control
+
+When the assistant's role has a Seiji server (or any MCP server with a viewer), the session instructions include a paragraph about using the device tools. The assistant has no shell, so it interacts with the device exclusively through MCP tools such as `acquire_device`, `install_app`, `launch_app` and `run_actions`.
+
+The `share_device` host tool lets the assistant post a "Control the device" button in the thread. When a person clicks it, they receive a private one-time viewer link (it opens once, within 60 seconds). Only the person who asked the turn that shared the device, and who is mapped in `notify.users`, receives the link; everyone else sees a refusal. The link exists only while the sharing session itself holds the lease: a lease of another session, or one already released, gives no link. Each click creates a fresh link.
+
+## PR previews
+
+When the merger announces a preview build of a pull request ([merger.md](merger.md), `preview:` in the repository policy) with an "Open in simulator" button (`preview:<owner>/<name>:<pr>:<sha12>`), a click is handled by the assistant process:
+
+1. The clicker must be mapped in `notify.users` and be one of the PR's reviewers: the `requested_reviewers` or anyone with a submitted review. A PR with no reviewer accepts its author.
+2. Symphony acks immediately with "Starting a simulator for #N…". A click while that device is still starting gets "is starting" instead of a second device.
+3. It finds the `ios-simulator-preview` artifact for the PR's current head SHA. If the head moved past the sha in the button, it says so and stops.
+4. It downloads the artifact, extracts `app.zip` and `preview.json`, checks `head_sha`, and uploads the app to Seiji.
+5. It acquires a device, installs the app and launches it, then records the lease.
+6. It requests a control viewer and sends the link privately to the clicker.
+
+One device per (repository, PR number). A second click by any allowed reviewer reuses the live lease and gets a fresh viewer. The device is released when the PR is merged or closed, a human approves it after the preview started, the head changes, 55 minutes have passed, or the lease is gone. A background loop checks every 60 seconds. A device acquired for a click that then fails (install, launch) is released at once. Live previews are recorded in Redis: an assistant that restarts releases the previews of the previous process.
+
+Previews are enabled when a Seiji server named `seiji` is configured and the GitHub App has `actions: read` and `pull_requests: read`.
 
 ## Plan mode
 

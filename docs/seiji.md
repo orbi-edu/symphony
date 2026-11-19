@@ -164,6 +164,16 @@ symphony mcp viewer seiji l_3f9c2a7b1e04 --json
 
 Seiji has its own Tern plugin (id `seiji`) for your own devices. It can be installed next to Symphony's: they share no id, key, command or block ([tern.md](tern.md#alongside-the-seiji-plugin)). Seiji's plugin signs in as you, so it does not see the devices of Symphony's account; use Symphony's **Watch device** for those.
 
+### In the chat assistant
+
+When a chat assistant role (`assistant`, `researcher` or `planner`) has the Seiji server, the session instructions tell the agent how to use the device tools and how to offer the asker control with `share_device`. The agent has no shell — it uses MCP tools only.
+
+The `share_device` host tool posts a "Control the device" button. Only the mapped person who asked the current turn can click it, and only while that session holds the lease; each click creates a fresh one-time link.
+
+### PR previews
+
+When a Seiji server named `seiji` is configured and the GitHub App has `actions: read` and `pull_requests: read`, clicking "Open in simulator" on a merger review notification spins up a simulator in Seiji with the PR's preview build, and sends the clicker a viewer link. See [assistant.md](assistant.md#pr-previews) for the full flow.
+
 ## Limits
 
 - **One account.** All agents share the Seiji user of Symphony: its monthly minutes, its `maxConcurrent` and its builds (`maxBuildsPerUser`, 10 by default).

@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from ..merger.agents import HostTool
-from . import Action, HistoryMessage, Inbound, Outbound, Ref, split_text
+from . import Action, Button, HistoryMessage, Inbound, Outbound, Ref, split_text
 from . import facts as team_facts
 from . import memory as mem
 from .confirm import Confirmer, buttons, mapped_login, render
@@ -157,7 +157,8 @@ SANDBOX_INSTRUCTIONS = (
 
 
 def instructions(role: str, *, transport: str, is_dm: bool, repos: list[str],
-                 soul: Soul | None = None, has_sandbox: bool = False) -> str:
+                 soul: Soul | None = None, has_sandbox: bool = False,
+                 mcp_guidance: str = "") -> str:
     """The session's instructions: the built-in role and safety rules, then the soul."""
     where = f"a {transport.capitalize()} {'direct message' if is_dm else 'thread'}"
     lines = [
@@ -174,6 +175,8 @@ def instructions(role: str, *, transport: str, is_dm: bool, repos: list[str],
         lines.append("The repositories are checked out read-only at their base branch in your working "
                      "directory: " + ", ".join(f"./{r}" for r in repos) + ".")
         lines.append("Cite code as owner/repo:path:line (for example acme/app:src/main.py:12).")
+    if mcp_guidance:
+        lines.append(mcp_guidance)
     if soul is not None and soul.instructions():
         lines.append(soul.instructions())
     return "\n".join(lines)
@@ -239,6 +242,8 @@ class _Thread:
     # The current turn's memory and fact tool results, and whose memory the session has.
     notes: mem.TurnNotes = field(default_factory=mem.TurnNotes)
     injected: set = field(default_factory=set)
+    # The transport user id of the current turn's asker (for share_device).
+    turn_user_id: str = ""
 
 
 def _thread_key(th: _Thread) -> str:
@@ -291,6 +296,9 @@ class Engine:
         stream_interval_s: float = STREAM_INTERVAL_S,
         history: int = HISTORY,
         spawn: Callable[[Callable[[], None]], None] | None = None,
+        mcp_guidance_fn: Callable[[str], str] | None = None,
+        share_device_tool_fn: Callable[[str, str, str], HostTool | None] | None = None,
+        preview_handler: Callable[[Action, Outbound], str] | None = None,
         logger=None,
     ) -> None:
         self.outbounds = outbounds
@@ -310,6 +318,12 @@ class Engine:
         self.stream_interval_s = stream_interval_s
         self.history = history
         self._spawn = spawn or (lambda fn: threading.Thread(target=fn, daemon=True).start())
+        # MCP guidance for chat roles (from McpLaunch.chat_prompt_guidance).
+        self.mcp_guidance_fn = mcp_guidance_fn
+        # (server_name, lease_id, turn_user_id) -> host tool, when the role has a viewer.
+        self.share_device_tool_fn = share_device_tool_fn
+        # Handles preview:<…> button clicks; None when previews are disabled.
+        self.preview_handler = preview_handler
         self.log = logger
         self._lock = threading.Lock()
         self._slots = threading.Condition(self._lock)
@@ -356,9 +370,15 @@ class Engine:
         if out is None or self._stopping:
             return
 
-        handler = self.confirmer.handle
-        if action.action_id.startswith("fact:") and self.facts is not None:
+        handler: Callable[[Action, Outbound], str] | None = None
+        if action.action_id.startswith("preview:") and self.preview_handler is not None:
+            handler = self.preview_handler
+        elif action.action_id.startswith("device:") and self._device_handler is not None:
+            handler = self._device_handler
+        elif action.action_id.startswith("fact:") and self.facts is not None:
             handler = self.facts.handle
+        else:
+            handler = self.confirmer.handle
 
         def run() -> None:
             try:
@@ -370,6 +390,12 @@ class Engine:
                     self.log.warning("assistant_action_failed", error=type(exc).__name__)
 
         self._spawn(run)
+
+    @property
+    def _device_handler(self) -> Callable | None:
+        if self.share_device_tool_fn is None:
+            return None
+        return _make_device_handler(self)
 
     # -- queueing -----------------------------------------------------------------------
     def _accept(self, th: _Thread, turn: _Turn, note: str | None = None) -> None:
@@ -438,6 +464,7 @@ class Engine:
             self._end(th, "completed")
         prompt = f"{turn.asker} asks:\n{turn.text}"
         th.notes.reset(turn.login, th.thread)
+        th.turn_user_id = turn.user_id
         parts: list[str] = []
         if th.agent is None:
             context = self._context(th, out, turn)
@@ -457,8 +484,10 @@ class Engine:
             th.injected = set()
             repos = sorted(self.agents.commits())  # after open: it refreshes the checkouts
             soul = self.souls.read() if self.souls is not None else None
+            guidance = self.mcp_guidance_fn(turn.role) if self.mcp_guidance_fn else ""
             parts += [instructions(turn.role, transport=th.transport, is_dm=th.is_dm, repos=repos,
-                                   soul=soul, has_sandbox=has_sandbox), context]
+                                   soul=soul, has_sandbox=has_sandbox,
+                                   mcp_guidance=guidance), context]
         parts.append(self._memory(th, cfg, turn))
         prompt = "\n\n".join(p for p in (*parts, prompt) if p)
         fmt = self._formatter(th.transport)
@@ -503,6 +532,12 @@ class Engine:
             sb_tool = self.sandbox_tool(_thread_key(th), th.notes)
             if sb_tool is not None:
                 tools.append(sb_tool)
+        # share_device only for a role whose servers bring chat guidance (a device lab).
+        if self.share_device_tool_fn is not None and self.mcp_guidance_fn is not None \
+                and self.mcp_guidance_fn(th.role):
+            out = self.outbounds[th.transport]
+            tools.append(share_device_tool(out, th.channel, th.thread,
+                                           lambda: th.turn_user_id, lambda: th.sid))
         return tools
 
     def _memory(self, th: _Thread, cfg, turn: _Turn) -> str:
@@ -635,3 +670,118 @@ class Engine:
             threads = list(self._threads.values())
         for th in threads:
             self._end(th, "completed")
+
+
+# -- share_device host tool and device: click handler ---------------------------------
+
+SHARE_DEVICE_TOOL = "share_device"
+SHARE_DEVICE_DEFINITION = {
+    "name": SHARE_DEVICE_TOOL,
+    "description": (
+        "Offer the asker a live view of the device screen. Posts a button that, "
+        "when clicked, gives the asker a one-time viewer link."
+    ),
+    "parameters": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["server", "lease_id"],
+        "properties": {
+            "server": {"type": "string", "description": "The MCP server name (e.g. seiji)."},
+            "lease_id": {"type": "string", "description": "The lease id from acquire_device."},
+        },
+    },
+    "loadMode": "essential",
+}
+
+# In-memory map: device:<server>:<lease_id> → transport user_id of the asker who shared it.
+_device_shares: dict[str, str] = {}
+_device_shares_lock = threading.Lock()
+
+
+def _device_action_id(server: str, lease_id: str) -> str:
+    return f"device:{server}:{lease_id}"
+
+
+def _parse_device_action(action_id: str) -> tuple[str, str] | None:
+    """``device:<server>:<lease_id>`` → (server, lease_id), or None."""
+    parts = action_id.split(":", 2)
+    if len(parts) != 3 or parts[0] != "device" or not parts[1] or not parts[2]:
+        return None
+    return parts[1], parts[2]
+
+
+def share_device_tool(
+    outbound: Outbound,
+    channel: str,
+    thread: str,
+    get_user_id: Callable[[], str],
+    get_sid: Callable[[], str] = lambda: "",
+) -> HostTool:
+    """A host tool that posts a ``device:<server>:<lease_id>`` button in the thread.
+
+    *get_user_id* returns the transport user id of the current turn's asker, *get_sid* the
+    session id: a click opens a viewer only while that session itself holds the lease.
+    """
+
+    def answer(args: dict, _index: int) -> str:
+        server = args["server"]
+        lease_id = args["lease_id"]
+        aid = _device_action_id(server, lease_id)
+        user_id = get_user_id()
+        with _device_shares_lock:
+            _device_shares[aid] = (user_id, get_sid())
+        outbound.post(
+            channel, thread,
+            "The device screen is ready to view.",
+            [Button(aid, "Control the device", "primary")],
+        )
+        return "The viewer button has been posted."
+
+    return HostTool(
+        name=SHARE_DEVICE_TOOL,
+        description=SHARE_DEVICE_DEFINITION["description"],
+        parameters=SHARE_DEVICE_DEFINITION["parameters"],
+        answer=answer,
+    )
+
+
+def _make_device_handler(engine: Engine) -> Callable[[Action, Outbound], str]:
+    """Return a handler for ``device:<server>:<lease_id>`` clicks."""
+
+    def handle(action: Action, out: Outbound) -> str:
+        parsed = _parse_device_action(action.action_id)
+        if parsed is None:
+            out.ack_action(action)
+            return "unknown_device_action"
+        server, lease_id = parsed
+        aid = action.action_id
+
+        # Only the asker who shared it AND who is mapped in notify.users can get the link.
+        with _device_shares_lock:
+            share = _device_shares.get(aid)
+        if share is None:
+            out.ack_action(action, "This device share has expired.")
+            return "expired"
+        allowed_user, sid = share
+
+        cfg = engine.policy()
+        login = mapped_login(cfg.notify_users, action.transport, action.user_id)
+        if login is None or action.user_id != allowed_user:
+            out.ack_action(action, "Only the person who asked can open this viewer.")
+            return "not_allowed"
+        if engine.share_device_tool_fn is not None:
+            try:
+                result = engine.share_device_tool_fn(server, lease_id, sid)
+                if isinstance(result, dict):
+                    url = result.get("url", "")
+                    out.ack_action(action, f"Opens once, expires in 60\u202fs: {url}")
+                    return "viewer_sent"
+                out.ack_action(action, "The device is no longer available.")
+                return "lease_gone"
+            except Exception as exc:  # noqa: BLE001
+                out.ack_action(action, f"Could not open the viewer: {type(exc).__name__}")
+                return "viewer_failed"
+        out.ack_action(action, "Device sharing is not configured.")
+        return "not_configured"
+
+    return handle
