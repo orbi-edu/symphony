@@ -54,8 +54,10 @@ _CREDENTIAL = re.compile(
     r"lin_api_[A-Za-z0-9]{12,}|sk-(?:proj-|ant-)?[A-Za-z0-9_-]{16,})|"
     r"[a-z][a-z0-9+.-]*://[^\s/@]+@|"
     r"\bBearer\s+(?!\$)[A-Za-z0-9_.+/-]{8,}|"
+    # A value of 8+ characters: shorter text after `password=` or `Authorization:` is prose or
+    # shell (`sed 's/^password=//p'`, `Authorization: Bearer $TOKEN`), not a credential.
     r"\b(?:api[_-]?key|(?:access[_-]?)?token|password|authorization)\s*[:=]\s*"
-    r"[\"']?(?!(?:\$|\{\{))[A-Za-z0-9_+/.-]+",
+    r"[\"']?(?!(?:\$|\{\{))[A-Za-z0-9_+/.-]{8,}",
     re.IGNORECASE,
 )
 
