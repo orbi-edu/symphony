@@ -19,6 +19,8 @@ Front matter (YAML) keys, all optional:
 - `main_watch`: `{ticket, state, labels}`: with `ticket: true`, a red main opens a ticket on
   the WORKFLOW.md tracker, in `state` (default `Todo`) with `labels` (otherwise the watch only
   notifies)
+- `polish_rounds` (default 0): agent-authored PRs with actionable nits are sent back this
+  many times before going on to CI and the approval gate; 0 keeps today's behaviour
 
 The body holds the repository's own review rules for reviewer and oracle.
 """
@@ -64,6 +66,7 @@ class Policy:
     max_file_kib: int = 1024
     main_watch: dict = field(default_factory=dict)
     preview: dict = field(default_factory=dict)
+    polish_rounds: int = 0
     rules: str = ""
 
     def model(self, role: str, team: dict) -> dict:
@@ -159,6 +162,9 @@ def parse(text: str | None) -> Policy:
     preview = data.get("preview", {}) or {}
     if not isinstance(preview, dict):
         raise PolicyError(f"{PATH}: preview must be a mapping")
+    polish_rounds = data.get("polish_rounds", 0)
+    if not isinstance(polish_rounds, int) or isinstance(polish_rounds, bool) or polish_rounds < 0:
+        raise PolicyError(f"{PATH}: polish_rounds must be a non-negative integer")
     if preview:
         unknown_preview = sorted(set(preview) - {"artifact", "platform"})
         if unknown_preview:
@@ -184,5 +190,6 @@ def parse(text: str | None) -> Policy:
         max_file_kib=_positive(data, "max_file_kib", 1024),
         main_watch=watch,
         preview=dict(preview),
+        polish_rounds=polish_rounds,
         rules=body.strip(),
     )

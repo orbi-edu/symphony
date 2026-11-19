@@ -341,13 +341,15 @@ issue linked to this one, not part of this change.
 {% if issue.state == "Rework" %}
 ## Rework
 
-The merger blocked the pull request. Its report is the most recent comment on the pull
+The merger sent the pull request back. Its report is the most recent comment on the pull
 request that starts with **symphony-merger**: one section per finding, with class, location,
 claim and a fix checklist.
 
-- Fix what that report marks as blocking — **only that**, on the same branch and the same
-  pull request. The re-review covers the delta; unrelated changes widen it and invite new
-  findings.
+- If the report blocks: fix what it marks as blocking — **only that**, on the same branch
+  and the same pull request.
+- If it is a **polish round** (nothing blocks; it lists nits for you): check each listed nit
+  against the code and fix the ones that hold — only those.
+- The re-review covers the delta; unrelated changes widen it and invite new findings.
 - A finding you believe is wrong gets a reply on the pull request with evidence, not a code
   change.
 - When done: push, reply under the report with what you changed per finding, mark the pull

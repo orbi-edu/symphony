@@ -64,6 +64,7 @@ EARLIER = {
     "held": "left this PR to its author's fixes",
     "approved": "approved this PR (the merge train or its author has it back since)",
     "interrupted": "reviewed this PR, and its author pushed during that review,",
+    "polish": "sent this PR back to its author for a polish round (nit fixes)",
 }
 
 

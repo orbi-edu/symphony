@@ -7,6 +7,15 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Merger polish rounds (`polish_rounds: N` in `.symphony/merger.md`): when an
+  agent-authored PR finishes its review with no blocker but has actionable nits
+  (confirmed, partial or not verified), the merger sends it back for the agent to
+  fix them before going on to CI and the approval gate. The round count is separate
+  from rejections, so a later real block is still a first rejection. Human-authored
+  PRs are never polished. Default 0 keeps today's behaviour.
+
 ## [0.2.5] - 2026-11-19
 
 ### Added

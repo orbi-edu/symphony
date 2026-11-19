@@ -218,6 +218,13 @@ class MergerStore:
     def drop_run(self, pr: int) -> None:
         self._hdel("run", pr)
 
+    def polish_rounds(self, pr: int) -> int:
+        raw = self.client.hget(self._k("polish"), str(pr))
+        return int(raw) if raw is not None else 0
+
+    def incr_polish(self, pr: int) -> int:
+        return self.client.hincrby(self._k("polish"), str(pr), 1)
+
     # -- caps and batch ----------------------------------------------------------
     def caps(self) -> dict[int, int]:
         return {int(k): int(v) for k, v in self.client.hgetall(self._k("caps")).items()}

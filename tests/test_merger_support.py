@@ -188,9 +188,10 @@ class FakeGitHub(GitHub):
 
     def open_pr(self, n: int, branch: str, title: str, *, author: str = "alice", body: str = "Does a thing.",
                 ready_at: str = "2026-11-01T10:00:00Z", labels: tuple = (), draft: bool = False,
-                requested_reviewers: list[str] | None = None) -> None:
+                requested_reviewers: list[str] | None = None, author_type: str = "User") -> None:
         self.prs[n] = {"number": n, "state": "open", "draft": draft, "base": "main", "head_ref": branch,
-                       "author": author, "labels": list(labels), "ready_at": ready_at, "title": title,
+                       "author": author, "author_type": author_type, "labels": list(labels),
+                       "ready_at": ready_at, "title": title,
                        "body": body, "mergeable": None,
                        "requested_reviewers": list(requested_reviewers or [])}
         self.comments.setdefault(n, [])
