@@ -97,6 +97,12 @@ TOOLS = [
          "required": ["platform"]}},
     {"name": "release_device", "description": "Release a device that you hold.",
      "inputSchema": {"type": "object", "properties": dict(_LEASE_ARG)}},
+    {"name": "install_app", "description": "Install an app on a device.",
+     "inputSchema": {"type": "object", "properties": {
+         **_LEASE_ARG, "app_id": {"type": "string"}, "url": {"type": "string"}}}},
+    {"name": "launch_app", "description": "Launch an app on a device.",
+     "inputSchema": {"type": "object", "properties": {
+         **_LEASE_ARG, "bundle_id": {"type": "string"}, "arguments": {"type": "array", "items": {"type": "string"}}}}},
     {"name": "run_actions", "description": "Run a sequence of UI steps and record evidence.",
      "inputSchema": {"type": "object", "properties": {
          **_LEASE_ARG, "name": {"type": "string"}, "tags": {"type": "array", "items": {"type": "string"}},
@@ -278,6 +284,21 @@ class SeijiMock:
         lease = self.resolve(args.get("lease_id"))
         lease["status"], lease["end_reason"] = "released", "released"
         return _text(f"released {lease['lease_id']}")
+
+    def _tool_install_app(self, args: dict) -> dict:
+        lease = self.resolve(args.get("lease_id"))
+        app_id = args.get("app_id")
+        url = args.get("url")
+        if not app_id and not url:
+            raise ToolError("pass app_id or url")
+        if app_id and app_id not in self.apps:
+            raise ToolError(f'no build "{app_id}" for you')
+        return _text(f"installed on {lease['lease_id']}")
+
+    def _tool_launch_app(self, args: dict) -> dict:
+        lease = self.resolve(args.get("lease_id"))
+        bundle_id = args.get("bundle_id") or "com.example.app"
+        return _text(f"launched {bundle_id} on {lease['lease_id']}")
 
     def _tool_run_actions(self, args: dict) -> dict:
         actions = args.get("actions")

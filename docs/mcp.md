@@ -59,6 +59,8 @@ Each server lists the agent roles that get it. The roles are the team roles ([co
 
 A role without servers gets no MCP tools. A merger agent keeps its tool allowlist, and the MCP tools come in addition.
 
+For the chat assistant roles, presets that have a `chat_guidance` (such as the `seiji` preset) substitute it for the regular guidance in the session instructions. The chat guidance covers using device tools without a shell and offering the asker control with `share_device`. When the preset also has a viewer, the `share_device` host tool is available in chat sessions.
+
 ### Local mode
 
 In local mode, the engines keep the host's omp agent dir, with its models and logins. Symphony adds MCP without changing that dir:

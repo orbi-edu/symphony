@@ -139,8 +139,9 @@ def test_build_wires_the_engine_with_role_tools(redis_client, tmp_path):
     holder = ConfigHolder()
     assert holder.update(ENABLED, {})
     slack = FakeTransport("slack")
-    engine, transports = entry.build(holder, redis_client, "t", {}, transports={"slack": slack},
-                                     workdir=str(tmp_path))
+    engine, transports, _preview_mgr = entry.build(
+        holder, redis_client, "t", {}, transports={"slack": slack},
+        workdir=str(tmp_path))
     assert transports == {"slack": slack} and engine.outbounds == {"slack": slack}
     names = {role: [t.name for t in engine.agents.tools_for(role)]
              for role in ("assistant", "researcher", "planner")}
