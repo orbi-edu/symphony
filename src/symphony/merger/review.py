@@ -55,7 +55,7 @@ class Run:
     ready_at: str
     issue: str | None
     started_at: int
-    wt: str = ""
+    author_type: str = "User"
     fork: str = ""
     main_ref: str = "origin/main"
     diff: str = ""
@@ -569,7 +569,8 @@ def review_pr(m: Merger, policy: Policy, team: dict, n: int, worker: str) -> tup
         saved = None
     delta = None if saved else plan_delta(m, n, p["head_sha"])
     run = Run(pr=n, repo=m.repo, title=p["title"], body=p["body"], branch=p["head_ref"], head_sha=p["head_sha"],
-              author=p["author"], ready_at=p["ready_at"], issue=m.ticket_of(p), started_at=m.clock())
+              author=p["author"], ready_at=p["ready_at"], issue=m.ticket_of(p), started_at=m.clock(),
+              author_type=p.get("author_type", "User"))
     m.store.set_reviewing(n, head_sha=run.head_sha, worker=worker, phase="pin", started_at=run.started_at)
     try:
         run.wt = m.git.worktree(wt_name(n), run.head_sha)
@@ -608,6 +609,28 @@ def _finish(m: Merger, n: int) -> None:
     m.store.drop_run(n)
 
 
+def _is_bot_author(run: Run) -> bool:
+    """A GitHub App or bot: __typename == Bot, or the login ends with [bot]."""
+    return run.author_type == "Bot" or run.author.endswith("[bot]")
+
+
+def _actionable_nits(findings: list) -> list[dict]:
+    """Findings worth fixing: confirmed, partial or not verified (unrefuted)."""
+    return [f for f in findings
+            if f.get("verdict") in ("confirmed", "partial", "not verified")]
+
+
+def _polish_comment(nits: list[dict]) -> str:
+    """The list of actionable nits for the PR comment and the ticket."""
+    lines = ["The review found nits that an automated author can fix:\n"]
+    for f in nits:
+        fix = f" Fix: {f['fix']}" if f.get("fix") else ""
+        lines.append(f"- **{f['id']}** `{f['location']}`: {f['claim']}{fix}")
+    lines.append("\nFix the ones that hold; for the ones that do not, reply on the PR why; "
+                 "then mark the PR ready.")
+    return "\n".join(lines)
+
+
 def _outcome(m: Merger, policy: Policy, team: dict, run: Run, result: dict, delta) -> tuple[str, str, str, str]:
     n = run.pr
 
@@ -621,6 +644,11 @@ def _outcome(m: Merger, policy: Policy, team: dict, run: Run, result: dict, delt
         if stop in ("blocked", "held"):
             m.move_ticket(run.issue, "rework",
                           f"The merger sent the PR back: {text}\n\n{comment or m.pr_url(n)}")
+        elif stop == "polish":
+            m.move_ticket(run.issue, "rework",
+                          f"The merger sent the PR back for polish.\n\n"
+                          f"{_polish_comment(_actionable_nits(run.findings))}\n\n"
+                          f"{comment or m.pr_url(n)}")
         return stop, run.head_sha, run.ready_at, text[:500]
 
     remote = m.git.ls_remote(run.branch)
@@ -683,6 +711,21 @@ def _outcome(m: Merger, policy: Policy, team: dict, run: Run, result: dict, delt
                 "held",
                 f"not merged: {blockers}. It was sent back once already, so it stays ready: push the fix, and "
                 "the next review covers only what changed.", False, "back_to_author", ci_pending)
+
+    # -- polish round: an agent-authored PR with actionable nits is sent back to its author
+    # before going on to CI / approval / hand-off, so the agent can fix them autonomously.
+    if (policy.polish_rounds > 0
+            and _is_bot_author(run)
+            and run.issue
+            and m.store.polish_rounds(n) < policy.polish_rounds):
+        nits = _actionable_nits(run.findings)
+        if nits:
+            m.store.incr_polish(n)
+            save_baseline(m, n, run.head_sha, run.findings, prior_rounds(m, n), "polish")
+            # The list goes in the report itself: the author's Rework prompt reads the latest
+            # report, and one comment is all the PR needs.
+            return give_back("polish", f"polish round: {len(nits)} actionable nit(s) for its author to fix.\n\n"
+                             f"{_polish_comment(nits)}", True, "back_to_author", ci_pending)
 
     if ci_pending:
         outcome = (f"reviewed, nothing blocking: once CI passes on `{run.head_sha[:9]}` the merge train takes "

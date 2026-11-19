@@ -18,7 +18,7 @@ TIMEOUT_S = 30.0
 
 _PR_FIELDS = """
   number state isDraft baseRefName headRefOid headRefName title body url mergeable id
-  author { login } labels(first: 50) { nodes { name } } createdAt
+  author { login __typename } labels(first: 50) { nodes { name } } createdAt
   timelineItems(last: 1, itemTypes: [READY_FOR_REVIEW_EVENT]) { nodes { ... on ReadyForReviewEvent { createdAt } } }
   reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } } } }
 """
@@ -67,6 +67,7 @@ def _pr_from_graphql(node: dict) -> dict:
         "head_sha": node["headRefOid"],
         "head_ref": node["headRefName"],
         "author": (node.get("author") or {}).get("login", "ghost"),
+        "author_type": (node.get("author") or {}).get("__typename", "User"),
         "labels": [x["name"] for x in (node.get("labels") or {}).get("nodes", [])],
         "ready_at": (ready[0].get("createdAt") if ready and ready[0] else None) or node["createdAt"],
         "title": node.get("title") or "",

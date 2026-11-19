@@ -222,6 +222,31 @@ The labels are `in-audit`, `reviewed`, `needs-maintainer`, `review-bypass`, `rev
 If the process stops after the review and before the outcome, the result stays in `run:<pr>`.
 The next run on the same head uses it and does not call the agents again.
 
+### R14. Polish rounds
+
+When the review finishes with no blocker and the policy has `polish_rounds` ≥ 1:
+
+- The pull request must be agent-authored (a GitHub App or bot).
+- It must have a tracker ticket (`run.issue`).
+- The polish rounds used on this pull request must be fewer than `polish_rounds`.
+- It must have at least one actionable nit (verdict `confirmed`, `partial` or `not verified`).
+
+If all conditions hold, the merger sends the pull request back for a polish round instead of
+going on to CI, the approval gate or hand-off:
+
+- The pull request goes back to draft with a comment listing the actionable nits (location,
+  claim, and fix if any).
+- The ticket moves to `Rework` with the same list. The message says: fix the ones that hold;
+  for the ones that do not, reply on the PR why; then mark the PR ready.
+- The `back_to_author` notification is sent.
+
+Polish rounds are counted separately from rejection rounds. A polish round never increments
+the rejection count, so a later real block is still a first rejection. An escalation still
+needs two blocks.
+
+Once the rounds are used up, nits are only reported, as today. Human-authored pull requests
+never get a polish round.
+
 ### Typed output
 
 The agents give results only through host tools.
@@ -423,6 +448,7 @@ batch_max: 4
 fix_slots: 3
 require_human: false         # true: an escalation goes to needs-maintainer, with no arbiter
 require_approval: false      # true: a human GitHub approval is required before the train merges
+polish_rounds: 0             # 0: today's behaviour; ≥ 1: agent-authored PRs are sent back for nit fixes
 ci: {checks: [test, lint], workflow: CI}  # checks that decide; workflow the train reruns and cancels
 max_file_kib: 1024
 main_watch: {ticket: true, state: Todo, labels: [ci]}   # ticket: false only notifies

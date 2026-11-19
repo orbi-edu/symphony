@@ -444,3 +444,16 @@ def test_missing_source_and_parser_errors_never_expose_raw_diagnostics():
         repository.read()
     assert secret not in str(invalid.value)
     assert secret not in json.dumps(invalid.value.diagnostics)
+
+
+def test_the_shipped_workflow_prompt_is_editable_through_the_api():
+    # Its shell snippets (`sed -n 's/^password=//p'`, `Authorization: Bearer $TOKEN`) are not
+    # credentials: the prompt must not be locked as one.
+    from pathlib import Path
+
+    shipped = (Path(__file__).resolve().parents[1] / "WORKFLOW.md").read_text()
+    repository = WorkflowRepository(ConfigMaps(shipped), "symphony")
+    assert "prompt_body" not in repository.read()["redactedKeys"]
+    body = shipped.split("---\n", 2)[2]
+    payload = reviewed(repository, {"prompt_body": body + "\nOne more line.\n"})
+    assert payload["documentHash"]
