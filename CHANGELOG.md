@@ -7,6 +7,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-11-19
+
 ### Fixed
 
 - Slack: the private answer to a click on a top-level channel message (such as the
