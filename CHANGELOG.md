@@ -7,6 +7,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-11-19
+
 ### Added
 
 - Merger human approval gate (`require_approval: true` in `.symphony/merger.md`):
