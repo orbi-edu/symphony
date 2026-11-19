@@ -7,6 +7,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-11-19
+
 ### Added
 
 - Assistant: attached images (PNG, JPEG, GIF, WebP) in Slack and Discord messages
