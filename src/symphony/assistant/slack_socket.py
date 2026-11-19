@@ -20,6 +20,7 @@ import re
 import threading
 from collections import OrderedDict
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -52,6 +53,13 @@ class SlackError(RuntimeError):
 def backoff(attempt: int, base: float, cap: float) -> float:
     """Exponential backoff with full jitter."""
     return random.uniform(0, min(cap, base * 2 ** attempt))
+
+
+@dataclass(frozen=True)
+class _Click:
+    """`Action.respond` for Slack: whether the clicked message is a thread reply."""
+
+    in_thread: bool
 
 
 class _Recent:
@@ -243,11 +251,14 @@ class SlackSocketTransport:
         channel = (payload.get("channel") or {}).get("id") or container.get("channel_id") or ""
         message_ts = container.get("message_ts") or message.get("ts") or ""
         thread = message.get("thread_ts") or message_ts
+        # Where the clicked message lives: in a thread, or at the top of the channel (a
+        # notification). A note answering the click goes to the same place.
+        in_thread = bool(message.get("thread_ts"))
         for action in payload.get("actions") or []:
             self._on_action(Action(
                 transport=self.name, channel=channel, thread=thread, message_id=message_ts,
                 user_id=user, action_id=action.get("action_id") or "",
-                value=action.get("value") or "", respond=payload.get("response_url"),
+                value=action.get("value") or "", respond=_Click(in_thread),
             ))
 
     def _strip_mention(self, text: str) -> str:
@@ -279,9 +290,12 @@ class SlackSocketTransport:
         self._call("chat.postEphemeral", body)
 
     def ack_action(self, action: Action, text: str | None = None) -> None:
-        # The envelope is acked on receipt; only a note needs a call.
+        # The envelope is acked on receipt; only a note needs a call. A note in the thread
+        # of a top-level message is hidden until someone opens that thread: a click on a
+        # channel message gets its note in the channel.
         if text:
-            self.ephemeral(action.channel, action.thread, action.user_id, text)
+            in_thread = action.respond.in_thread if isinstance(action.respond, _Click) else True
+            self.ephemeral(action.channel, action.thread if in_thread else "", action.user_id, text)
 
     def history(self, channel: str, thread: str, limit: int) -> list[HistoryMessage]:
         out = self._call("conversations.replies",

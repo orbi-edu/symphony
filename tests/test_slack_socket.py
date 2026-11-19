@@ -181,6 +181,19 @@ def test_buttons_action_ephemeral_update_and_history(bot):
     assert history[0].text == f"<@{BOT}> plan the export"
 
 
+def test_a_click_on_a_channel_message_gets_its_note_in_the_channel(bot):
+    # A notification sits at the top of the channel. A note in its (empty) thread would be
+    # hidden until someone opened that thread: the clicker would see nothing.
+    ref = bot.transport.post(CHANNEL, "", "#7 ready to try.", (Button("preview:o/r:7:abc", "Open"),))
+    httpx.post(f"{bot.base}/_control/socket/interactive",
+               json={"user": ALICE, "channel": CHANNEL, "message_ts": ref.message_id,
+                     "action_id": "preview:o/r:7:abc"})
+    action = bot.actions.get(timeout=3)
+    bot.transport.ack_action(action, "Starting a simulator.")
+    [note] = httpx.get(f"{bot.base}/_mock/ephemerals").json()["ephemerals"]
+    assert (note["user"], note["channel"], note["thread_ts"]) == (ALICE, CHANNEL, None)
+
+
 def test_long_text_is_split_into_sections(bot):
     text = ("word " * 1300).strip()  # 6,499 characters
     ref = bot.transport.post(CHANNEL, "", text)

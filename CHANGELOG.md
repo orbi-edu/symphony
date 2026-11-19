@@ -7,6 +7,12 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Slack: the private answer to a click on a top-level channel message (such as the
+  merger's "Open in simulator") went to that message's empty thread, so the clicker saw
+  nothing. It now appears in the channel; a click inside a thread still answers there.
+
 ## [0.2.3] - 2026-11-19
 
 ### Added
