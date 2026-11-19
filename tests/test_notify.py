@@ -110,7 +110,7 @@ def test_bot_posts_chat_post_message_with_mention_and_link(bot):
 def test_every_contract_event_has_its_own_emoji_and_title():
     contract = {
         "input_requested", "back_to_author", "needs_maintainer", "batch_split",
-        "main_red", "main_green", "run_error",
+        "main_red", "main_green", "run_error", "needs_approval", "preview_ready",
     }
     assert set(notify.EVENTS) == contract
     assert len({emoji for emoji, _ in notify.EVENTS.values()}) == len(contract)

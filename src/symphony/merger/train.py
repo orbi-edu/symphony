@@ -193,6 +193,16 @@ class Train:
         rec.pop("pushing", None)
         if pr["base"] != self.m.main:
             return self.finish(rec, {"end": "gone", "text": f"#{n} was retargeted to {pr['base']}", "done": []})
+        # Re-check approval: a dismissed review after hand-off sends it back.
+        from .approval import check_approval
+
+        if not check_approval(self.m, self.policy, rec):
+            nxt = {**rec, "state": "reviewed"}
+            for k in ("pushing", "pushed_at", "ci_since", "infra"):
+                nxt.pop(k, None)
+            self.save(nxt)
+            log.info("merger_approval_dismissed", pr=n)
+            return f"#{n} reviewed: waiting for human approval"
         rec["state"] = "train"
         self.save(rec)
         return None
@@ -304,6 +314,11 @@ class Train:
             if base != m.main:
                 return {"merged": False, "main_head": "", "refused": "", "gone": f"#{n} was retargeted to {base}"}
             self.check()
+            # Final approval check: a dismissed review right before merge must not go through.
+            from .approval import is_approved
+
+            if self.policy.require_approval and not is_approved(self.m, n):
+                return {"merged": False, "main_head": "", "refused": "human approval was dismissed"}
             ok, message = m.gh.merge(n, rec["head_sha"], self.policy.merge_method)
             if ok:
                 refused = ""

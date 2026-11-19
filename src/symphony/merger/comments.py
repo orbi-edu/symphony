@@ -16,6 +16,7 @@ TRAIN_CI = "train-ci"
 BYPASS = "review-bypass"
 NEEDS_MAINTAINER = "needs-maintainer"
 REVIEW_REQUESTED = "review-requested"
+WAIT_APPROVAL = "wait-approval"
 
 REVIEWED_TITLE = "**Reviewed**"
 NOT_MERGED_TITLE = "**Not merged**"

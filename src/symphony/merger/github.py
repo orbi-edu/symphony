@@ -20,6 +20,7 @@ _PR_FIELDS = """
   number state isDraft baseRefName headRefOid headRefName title body url mergeable id
   author { login } labels(first: 50) { nodes { name } } createdAt
   timelineItems(last: 1, itemTypes: [READY_FOR_REVIEW_EVENT]) { nodes { ... on ReadyForReviewEvent { createdAt } } }
+  reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } } } }
 """
 
 
@@ -51,6 +52,8 @@ class GitHub:
     def rerun_failed(self, run_id: int) -> None: raise NotImplementedError
     def rerun(self, run_id: int) -> None: raise NotImplementedError
     def cancel(self, run_id: int) -> None: raise NotImplementedError
+    def reviews(self, n: int) -> list[dict]: raise NotImplementedError
+    def artifact_download_url(self, run_id: int, name: str) -> str | None: raise NotImplementedError
 
 
 def _pr_from_graphql(node: dict) -> dict:
@@ -71,6 +74,11 @@ def _pr_from_graphql(node: dict) -> dict:
         "url": node.get("url") or "",
         "mergeable": node.get("mergeable") or "UNKNOWN",
         "node_id": node["id"],
+        "requested_reviewers": [
+            r["requestedReviewer"]["login"]
+            for r in (node.get("reviewRequests") or {}).get("nodes") or []
+            if (r or {}).get("requestedReviewer") and r["requestedReviewer"].get("login")
+        ],
     }
 
 
@@ -250,3 +258,25 @@ class RestGitHub(GitHub):
 
     def cancel(self, run_id: int) -> None:
         self._req("POST", self._repo(f"/actions/runs/{run_id}/cancel"), ok=(202, 409))
+
+    def reviews(self, n: int) -> list[dict]:
+        """The human reviews on a PR: each has `user`, `state` (APPROVED, CHANGES_REQUESTED,
+        COMMENTED, DISMISSED, PENDING) and `submitted_at`. Reviews by bots and apps (a review
+        service, Symphony itself) are left out: they are not the human approval."""
+        raw = self._pages(self._repo(f"/pulls/{n}/reviews"))
+        return [
+            {"user": (r.get("user") or {}).get("login", "ghost"),
+             "state": r.get("state", ""),
+             "submitted_at": r.get("submitted_at") or ""}
+            for r in raw
+            if (r.get("user") or {}).get("type") != "Bot"
+            and not (r.get("user") or {}).get("login", "").endswith("[bot]")
+        ]
+
+    def artifact_download_url(self, run_id: int, name: str) -> str | None:
+        """The download URL for a named artifact of a workflow run, or None."""
+        data = self._json("GET", self._repo(f"/actions/runs/{run_id}/artifacts"))
+        for a in data.get("artifacts", []):
+            if a.get("name") == name and not a.get("expired"):
+                return self._repo(f"/actions/artifacts/{a['id']}/zip")
+        return None

@@ -58,10 +58,12 @@ class Policy:
     batch_max: int = 4
     fix_slots: int = 3
     require_human: bool = False
+    require_approval: bool = False
     ci_checks: tuple[str, ...] = ()
     ci_workflow: str | None = None
     max_file_kib: int = 1024
     main_watch: dict = field(default_factory=dict)
+    preview: dict = field(default_factory=dict)
     rules: str = ""
 
     def model(self, role: str, team: dict) -> dict:
@@ -135,6 +137,9 @@ def parse(text: str | None) -> Policy:
     require_human = data.get("require_human", False)
     if not isinstance(require_human, bool):
         raise PolicyError(f"{PATH}: require_human must be true or false")
+    require_approval = data.get("require_approval", False)
+    if not isinstance(require_approval, bool):
+        raise PolicyError(f"{PATH}: require_approval must be true or false")
     ci = data.get("ci", {}) or {}
     if not isinstance(ci, dict):
         raise PolicyError(f"{PATH}: ci must be a mapping")
@@ -151,6 +156,18 @@ def parse(text: str | None) -> Policy:
     if unknown:
         raise PolicyError(f"{PATH}: main_watch has unknown keys {', '.join(unknown)} "
                           "(keys: ticket, state, labels)")
+    preview = data.get("preview", {}) or {}
+    if not isinstance(preview, dict):
+        raise PolicyError(f"{PATH}: preview must be a mapping")
+    if preview:
+        unknown_preview = sorted(set(preview) - {"artifact", "platform"})
+        if unknown_preview:
+            raise PolicyError(f"{PATH}: preview has unknown keys {', '.join(unknown_preview)} "
+                              "(keys: artifact, platform)")
+        if not isinstance(preview.get("artifact", ""), str) or not preview.get("artifact"):
+            raise PolicyError(f"{PATH}: preview.artifact must be a non-empty string")
+        if not isinstance(preview.get("platform", ""), str) or not preview.get("platform"):
+            raise PolicyError(f"{PATH}: preview.platform must be a non-empty string")
     return Policy(
         lanes=tuple(lanes),
         blocking_classes=tuple(dict.fromkeys([*GENERIC_BLOCKING, *extra])),
@@ -161,9 +178,11 @@ def parse(text: str | None) -> Policy:
         batch_max=_positive(data, "batch_max", 4),
         fix_slots=_positive(data, "fix_slots", 3),
         require_human=require_human,
+        require_approval=require_approval,
         ci_checks=tuple(ci_checks),
         ci_workflow=workflow,
         max_file_kib=_positive(data, "max_file_kib", 1024),
         main_watch=watch,
+        preview=dict(preview),
         rules=body.strip(),
     )

@@ -49,7 +49,8 @@ The merger does not move a ticket to `Done`:
 - With the GitHub tracker, a closed issue is terminal, whatever its status option.
 
 The merger sends these notification events (`symphony.notify.post`, to Slack and Discord):
-`back_to_author`, `needs_maintainer`, `batch_split`, `main_red`, `main_green`, `run_error`.
+`back_to_author`, `needs_maintainer`, `needs_approval`, `preview_ready`, `batch_split`,
+`main_red`, `main_green`, `run_error`.
 
 ## Stage 1: review
 
@@ -207,7 +208,7 @@ point, the findings and the rounds.
 - No local paths.
 
 The labels are `in-audit`, `reviewed`, `needs-maintainer`, `review-bypass`, `review-requested`,
-`wait-ci` and `train-ci`.
+`wait-ci`, `train-ci` and `wait-approval`.
 
 ### R13. Failed run
 
@@ -365,6 +366,44 @@ The train saves an intent before each effect. It resumes these intents before al
 > **Caution:** the CI of the repository must put the label `train-ci` in its concurrency
 > group. If not, a push of the author cancels the train run.
 
+### T9. Human approval gate
+
+With `require_approval: true` in the policy, a reviewed pull request does not enter the
+merge train until a human approves it on GitHub.
+
+- The merger checks the latest review per human reviewer (the REST
+  `GET /repos/{owner}/{repo}/pulls/{n}/reviews` endpoint).  A review state of `APPROVED`
+  or `CHANGES_REQUESTED` counts; `COMMENTED`, `DISMISSED` and `PENDING` do not.
+- The pull request is approved when at least one reviewer has `APPROVED` and no reviewer
+  has `CHANGES_REQUESTED`.
+- We check latest-per-reviewer rather than `reviewDecision` because `reviewDecision`
+  requires `CODEOWNERS` to be meaningful.  Latest-per-reviewer is deterministic and matches
+  what GitHub's branch protection does.
+- While waiting, the pull request gets the label `wait-approval` and the reviewers get one
+  `needs_approval` notification per (pull request, head sha).
+- A new review (webhook `pull_request_review`, or the next pass) moves it on.
+- The train re-checks before merging: a dismissed approval after hand-off sends the pull
+  request back to `reviewed` and labels it `wait-approval` again.
+- Without `require_approval`, behaviour is unchanged.
+
+### T10. Preview announcement
+
+With `preview:` in the policy, the merger announces when a simulator preview is available.
+
+- On each review worker pass, the merger scans open, non-draft pull requests.
+- For each pull request whose head sha has a completed, successful workflow run that
+  contains a non-expired artifact named `preview.artifact`, the merger posts one Slack
+  message per (repository, pull request, head sha).
+- The message mentions the mapped reviewers (per `notify.users.slack` in `WORKFLOW.md`),
+  or the pull request author when no reviewer is mapped, and contains a button
+  with `action_id` `preview:<owner>/<name>:<pr number>:<head sha 12 hex>`.
+- A head with no preview artifact yet is looked up again after 2 minutes at the earliest.
+- Discord gets the same text as a plain message, with no button.
+- Deduplication is in Redis, keyed by (repository, pull request, head sha), with a 7-day
+  TTL.
+- The announcement does not create a new polling loop: it runs during the review worker's
+  normal pass.
+
 ## Repository policy: `.symphony/merger.md`
 
 The merger reads the policy from `origin/main`. Thus a pull request cannot make the rules
@@ -383,9 +422,13 @@ merge_method: rebase         # rebase | squash | merge
 batch_max: 4
 fix_slots: 3
 require_human: false         # true: an escalation goes to needs-maintainer, with no arbiter
+require_approval: false      # true: a human GitHub approval is required before the train merges
 ci: {checks: [test, lint], workflow: CI}  # checks that decide; workflow the train reruns and cancels
 max_file_kib: 1024
 main_watch: {ticket: true, state: Todo, labels: [ci]}   # ticket: false only notifies
+preview:                     # absent = previews off
+  artifact: ios-simulator-preview   # the Actions artifact name to look for
+  platform: ios                     # passed to the assistant's device handler
 ```
 
 The body of the file holds the review rules of the repository. The reviewer, the oracle and the

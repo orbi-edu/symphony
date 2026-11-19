@@ -142,6 +142,8 @@ class FakeGitHub(GitHub):
         self.ticks = 0
         self._log_offset = 0
         self.lock = threading.RLock()
+        self.pr_reviews: dict[int, list[dict]] = {}  # PR number → list of reviews
+        self.artifacts: dict[int, list[dict]] = {}  # workflow run id → list of artifacts
 
     # -- helpers ---------------------------------------------------------------------
     def _maybe_fail(self, name: str) -> None:
@@ -185,10 +187,12 @@ class FakeGitHub(GitHub):
                     run["conclusion"] = self.plan(run["sha"], run["attempt"])
 
     def open_pr(self, n: int, branch: str, title: str, *, author: str = "alice", body: str = "Does a thing.",
-                ready_at: str = "2026-11-01T10:00:00Z", labels: tuple = (), draft: bool = False) -> None:
+                ready_at: str = "2026-11-01T10:00:00Z", labels: tuple = (), draft: bool = False,
+                requested_reviewers: list[str] | None = None) -> None:
         self.prs[n] = {"number": n, "state": "open", "draft": draft, "base": "main", "head_ref": branch,
                        "author": author, "labels": list(labels), "ready_at": ready_at, "title": title,
-                       "body": body, "mergeable": None}
+                       "body": body, "mergeable": None,
+                       "requested_reviewers": list(requested_reviewers or [])}
         self.comments.setdefault(n, [])
 
     def by_url(self, url: str) -> dict:
@@ -341,6 +345,15 @@ class FakeGitHub(GitHub):
             r["status"] = "completed"
             r["conclusion"] = "cancelled"
             self.cancelled.append(r["sha"])
+
+    def reviews(self, n: int) -> list[dict]:
+        return list(self.pr_reviews.get(n, []))
+
+    def artifact_download_url(self, run_id: int, name: str) -> str | None:
+        for a in self.artifacts.get(run_id, []):
+            if a.get("name") == name and not a.get("expired"):
+                return f"https://artifacts/{run_id}/{name}"
+        return None
 
 
 class FakeOmp:
