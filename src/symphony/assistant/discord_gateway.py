@@ -388,7 +388,9 @@ class DiscordGatewayTransport:
         else:
             thread = message_id
         self._remember(message_id, thread)
-        files = tuple(File(name=a.get("filename") or "file", url=a.get("url") or "")
+        files = tuple(File(name=a.get("filename") or "file", url=a.get("url") or "",
+                           mimetype=a.get("content_type") or "",
+                           size=int(a.get("size") or 0))
                       for a in data.get("attachments") or [] if isinstance(a, dict))
         self._on_message(Inbound(
             transport=self.name, channel=channel, thread=thread, message_id=message_id,
@@ -430,6 +432,31 @@ class DiscordGatewayTransport:
         with self._roots_lock:
             return self._roots.get(message_id)
 
+
+    # downloads --------------------------------------------------------------------
+
+    _DOWNLOAD_TIMEOUT_S = 30.0
+    _MAX_FILE_BYTES = 5 * 1024 * 1024
+
+    def download(self, file: File) -> bytes:
+        """Download a Discord CDN attachment (no auth needed)."""
+        try:
+            with self._http.stream(
+                "GET", file.url, timeout=self._DOWNLOAD_TIMEOUT_S,
+                follow_redirects=True,
+            ) as resp:
+                if resp.status_code != 200:
+                    raise DiscordError("files.download", resp.status_code, None)
+                chunks: list[bytes] = []
+                total = 0
+                for chunk in resp.iter_bytes(8192):
+                    total += len(chunk)
+                    if total > self._MAX_FILE_BYTES:
+                        raise DiscordError("files.download", 413, None)
+                    chunks.append(chunk)
+                return b"".join(chunks)
+        except httpx.TimeoutException as exc:
+            raise DiscordError("files.download", 408, None) from exc
     # outbound -------------------------------------------------------------------------
 
     def post(self, channel: str, thread: str, text: str,

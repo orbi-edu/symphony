@@ -7,6 +7,13 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Assistant: attached images (PNG, JPEG, GIF, WebP) in Slack and Discord messages
+  are downloaded and sent to the model as image blocks, up to 4 per turn and
+  5 MiB each. Non-image and oversize files are still listed by name. On Slack
+  the bot scope `files:read` is needed; a missing scope degrades gracefully.
+
 ## [0.2.4] - 2026-11-19
 
 ### Fixed

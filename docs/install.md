@@ -453,6 +453,7 @@ In the same Slack app as the notifications bot:
    | `channels:history` | Receive thread replies in public channels, and read a thread for context (`conversations.replies`) |
    | `groups:history` | Read a thread in a private channel |
    | `mpim:history` | Read a thread in a group DM |
+   | `files:read` | Optional. Download attached images so the assistant can see them ([assistant.md](assistant.md#attachments)). Without it, file names still appear but the images are not read |
 
 4. Open **Event Subscriptions** and turn it on. Subscribe to the bot events `app_mention`, `message.im` and `message.channels`. With Socket Mode, no request URL is needed.
 5. Open **Interactivity & Shortcuts** and turn it on, for the proposal buttons. No request URL is needed.

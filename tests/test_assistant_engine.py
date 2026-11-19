@@ -80,8 +80,9 @@ class FakeAgent:
         self.prompts: list[str] = []
         self.closed: str | None = None
 
-    def ask(self, prompt, on_text, timeout_s):
+    def ask(self, prompt, on_text, timeout_s, images=()):
         self.prompts.append(prompt)
+        self.last_images = images
         script = self.factory.scripts.pop(0) if self.factory.scripts else None
         if script is None:
             return TurnResult("completed", f"answer to: {prompt.splitlines()[-1]}")

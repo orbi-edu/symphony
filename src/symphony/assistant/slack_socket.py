@@ -235,7 +235,9 @@ class SlackSocketTransport:
         thread = thread_ts or ts
         self._threads.add((channel, thread))
         files = tuple(File(name=f.get("name") or f.get("title") or "file",
-                           url=f.get("url_private") or "")
+                           url=f.get("url_private") or "",
+                           mimetype=f.get("mimetype") or "",
+                           size=int(f.get("size") or 0))
                       for f in event.get("files") or [] if isinstance(f, dict))
         self._on_message(Inbound(
             transport=self.name, channel=channel, thread=thread, message_id=ts, user_id=user,
@@ -265,6 +267,70 @@ class SlackSocketTransport:
         if self.bot_user_id:
             text = re.sub(rf"<@{re.escape(self.bot_user_id)}(\|[^>]*)?>", "", text)
         return text.strip()
+
+    # downloads --------------------------------------------------------------------
+
+    _SLACK_HOSTS = frozenset({"files.slack.com", "files-pri.slack.com"})
+    _DOWNLOAD_TIMEOUT_S = 30.0
+    _MAX_FILE_BYTES = 5 * 1024 * 1024
+
+    def download(self, file: File) -> bytes:
+        """Download a Slack ``url_private`` file using the bot token.
+
+        Follows redirects only to Slack hosts.  Raises on auth failure (missing
+        ``files:read`` scope), timeout, oversize responses and non-Slack redirects.
+        """
+        url = file.url
+        from urllib.parse import urlparse
+
+        # The bot token goes only to Slack (its file hosts, or the configured API host — a
+        # test double in tests): a file url from anywhere else is not fetched.
+        allowed = self._SLACK_HOSTS | {urlparse(self._api_url or slack_api_url()).hostname or ""}
+        if (urlparse(url).hostname or "") not in allowed:
+            raise SlackError("files.download", "not_a_slack_url")
+        headers = {"Authorization": f"Bearer {self._bot_token}"}
+        try:
+            with self._http.stream(
+                "GET", url, headers=headers, timeout=self._DOWNLOAD_TIMEOUT_S,
+                follow_redirects=False,
+            ) as resp:
+                # Follow redirects only to Slack hosts.
+                if resp.status_code in (301, 302, 303, 307, 308):
+                    location = resp.headers.get("Location", "")
+                    host = urlparse(location).hostname or ""
+                    if host not in allowed:
+                        raise SlackError("files.download", "redirect_to_non_slack_host")
+                    resp.close()
+                    return self._download_final(location, headers)
+                if resp.status_code == 403 or resp.status_code == 401:
+                    raise SlackError("files.download", "missing_scope")
+                if resp.status_code != 200:
+                    raise SlackError("files.download", f"http_{resp.status_code}")
+                return self._read_body(resp)
+        except httpx.TimeoutException as exc:
+            raise SlackError("files.download", "timeout") from exc
+
+    def _download_final(self, url: str, headers: dict) -> bytes:
+        with self._http.stream(
+            "GET", url, headers=headers, timeout=self._DOWNLOAD_TIMEOUT_S,
+            follow_redirects=False,
+        ) as resp:
+            if resp.status_code != 200:
+                raise SlackError("files.download", f"http_{resp.status_code}")
+            return self._read_body(resp)
+
+    def _read_body(self, resp: httpx.Response) -> bytes:
+        # Without `files:read`, Slack answers 200 with its HTML sign-in page instead of the file.
+        if resp.headers.get("content-type", "").split(";")[0].strip().lower() == "text/html":
+            raise SlackError("files.download", "missing_scope")
+        chunks: list[bytes] = []
+        total = 0
+        for chunk in resp.iter_bytes(8192):
+            total += len(chunk)
+            if total > self._MAX_FILE_BYTES:
+                raise SlackError("files.download", "file_too_large")
+            chunks.append(chunk)
+        return b"".join(chunks)
 
     # outbound -------------------------------------------------------------------------
 

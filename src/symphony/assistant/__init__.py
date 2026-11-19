@@ -18,11 +18,12 @@ from typing import Protocol, runtime_checkable
 
 @dataclass(frozen=True)
 class File:
-    """A file attached to a message. The engine only names it; it does not download it."""
+    """A file attached to a message."""
 
     name: str
     url: str = ""
-
+    mimetype: str = ""
+    size: int = 0
 
 @dataclass(frozen=True)
 class Inbound:
