@@ -7,6 +7,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-11-21
+
 ### Added
 
 - Failure triage (`triage:`, off by default). A runner that dies or stalls, or a ticket
