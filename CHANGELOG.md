@@ -14,6 +14,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the workspace). Before, every new label landed on the team, outside the group, and a
   single-select `repo` group stopped covering the new repositories. A prefix with no group
   still creates a team label.
+- An empty repository (no commit yet) is no longer a provisioning error retried on every
+  discovery pass: it gets its labels, and the policy pull request waits for the first push,
+  checked again once a day.
 
 ## [0.2.11] - 2026-11-21
 

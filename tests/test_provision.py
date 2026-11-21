@@ -38,6 +38,8 @@ class FakeGitHub:
                 repo["pulls"].append(pr)
                 return httpx.Response(201, json=pr)
             if rest.startswith("/git/ref/heads/"):
+                if repo.get("empty"):
+                    return httpx.Response(409, json={"message": "Git Repository is empty."})
                 return httpx.Response(200, json={"object": {"sha": "a" * 40}})
             if rest == "/git/refs" and method == "POST":
                 branch = body["ref"].removeprefix("refs/heads/")
@@ -117,6 +119,21 @@ def test_a_failure_is_recorded_on_the_repository_and_retried_on_the_next_pass(
     gh = FakeGitHub(account("acme/web"))
     by_name = run(kv, clock, gh, MemoryTracker(), found=items()[:1])
     assert by_name["acme/web"]["provisioning"]["error"] is None and gh.repos["acme/web"]["pulls"]
+
+
+def test_an_empty_repository_waits_for_its_first_commit_without_an_error(
+        kv, clock, monkeypatch):
+    monkeypatch.setenv("GITHUB_API_URL", "https://api.github.test")
+    gh = FakeGitHub(account("acme/web"))
+    gh.repos["acme/web"]["empty"] = True
+    by_name = run(kv, clock, gh, MemoryTracker(), found=items()[:1])
+    assert by_name["acme/web"]["provisioning"]["error"] is None
+    assert by_name["acme/web"]["provisioning"]["policy_pr"] is None
+    assert gh.repos["acme/web"]["pulls"] == []
+    gh.repos["acme/web"]["empty"] = False  # the first push
+    clock.advance(provision.RECHECK_MS)
+    by_name = run(kv, clock, gh, MemoryTracker(), found=items()[:1])
+    assert by_name["acme/web"]["provisioning"]["policy_pr"] == gh.repos["acme/web"]["pulls"][0]["html_url"]
 
 
 def test_the_discovery_pass_stores_what_provisioning_did(kv, clock, monkeypatch):
