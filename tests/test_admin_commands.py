@@ -453,6 +453,34 @@ def test_delayed_process_stop_cannot_kill_a_successor_generation():
             process.wait(timeout=5)
 
 
+@pytest.mark.skipif(
+    not _every_process_environment_readable(),
+    reason="Workspace generation stopping needs Linux procfs with every process readable",
+)
+def test_a_zombie_does_not_block_the_generation_stop():
+    """Agents orphan processes; until they are reaped they are zombies, whose environ cannot
+    be read. A zombie holds nothing, so the stop must still be confirmed."""
+    zombie = subprocess.Popen(["true"])  # exits at once; not waited on, so it stays a zombie
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        with open(f"/proc/{zombie.pid}/status") as status:
+            if any(line.startswith("State:") and "Z" in line for line in status):
+                break
+        time.sleep(0.05)
+
+    class LocalSandbox:
+        def exec_script(self, script, timeout_s=None):
+            result = subprocess.run(
+                ["sh", "-c", script], capture_output=True, text=True, timeout=timeout_s
+            )
+            return result.returncode, result.stdout
+
+    try:
+        kill_agent_generation(LocalSandbox(), uuid.uuid4().hex, 1)
+    finally:
+        zombie.wait(timeout=5)
+
+
 def test_standalone_provider_audit_shares_cursor_without_command_receipts(commands):
     store, _ = commands
     command = accept(store)
