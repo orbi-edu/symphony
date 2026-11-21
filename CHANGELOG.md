@@ -7,6 +7,13 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- The assistant reaches every repository the GitHub App reaches. The repositories Symphony
+  works on stay checked out; the others are listed in the instructions, and the agent opens
+  one with the new `open_repository` tool when the person names it. The sandbox accepts them
+  too. Before, a repository no ticket had touched was "not in my workspace".
+
 ## [0.2.10] - 2026-11-21
 
 ### Added

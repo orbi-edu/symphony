@@ -145,7 +145,9 @@ def test_build_wires_the_engine_with_role_tools(redis_client, tmp_path):
     assert transports == {"slack": slack} and engine.outbounds == {"slack": slack}
     names = {role: [t.name for t in engine.agents.tools_for(role)]
              for role in ("assistant", "researcher", "planner")}
-    assert names["assistant"] == names["researcher"] == ["symphony_status", "tracker_search"]
-    assert names["planner"] == ["symphony_status", "tracker_search", "propose_tickets"]
+    assert names["assistant"] == names["researcher"] == [
+        "symphony_status", "tracker_search", "open_repository"]
+    assert names["planner"] == ["symphony_status", "tracker_search", "open_repository",
+                                "propose_tickets"]
     status = engine.agents.tools_for("assistant")[0].answer({}, 0)
     assert json.loads(status)["counts"]["running"] == 0

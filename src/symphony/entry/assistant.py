@@ -136,7 +136,12 @@ def build(cfg_holder: ConfigHolder, client, namespace: str, env: Mapping[str, st
     from ..assistant.facts import PERMISSIONS as FACT_PERMISSIONS
     from ..assistant.facts import FactConfirmer, FactPRs
     from ..assistant.memory import MemoryStore
-    from ..assistant.runtime import AssistRunner, ReadOnlyRepos, default_repositories
+    from ..assistant.runtime import (
+        AssistRunner,
+        ReadOnlyRepos,
+        default_repositories,
+        reachable_repositories,
+    )
     from ..assistant.soul import MAX_BYTES, SoulReader
     from ..assistant.soul import source as soul_source
     from ..endpoints import github_api_url
@@ -159,13 +164,16 @@ def build(cfg_holder: ConfigHolder, client, namespace: str, env: Mapping[str, st
     tracker = _Trackers(policy)
 
     def repositories() -> list[str]:
+        """What the agents may read: `assistant.repositories`, else every reachable one."""
         cfg = policy()
-        return list(cfg.assistant_repositories or default_repositories(client, namespace, cfg))
+        return list(cfg.assistant_repositories or reachable_repositories(client, namespace, cfg))
 
     def mirrored() -> list[str]:
-        """The repositories to mirror: the agents' and the soul's."""
-        repos = repositories()
-        src = soul_source(policy())
+        """Always checked out: the repositories Symphony works on, and the soul's. The other
+        reachable ones are checked out on demand (`open_repository`)."""
+        cfg = policy()
+        repos = list(cfg.assistant_repositories or default_repositories(client, namespace, cfg))
+        src = soul_source(cfg)
         if src is not None and src[0] not in {r.lower() for r in repos}:
             repos.append(src[0])
         return repos
@@ -180,7 +188,8 @@ def build(cfg_holder: ConfigHolder, client, namespace: str, env: Mapping[str, st
 
     def tools_for(role: str) -> list:
         out = [tools.status_tool(status),
-               tools.search_tool(lambda query, limit: tracker().search(query, limit))]
+               tools.search_tool(lambda query, limit: tracker().search(query, limit)),
+               tools.open_repository_tool(repositories, lambda repo: repos.open(repo))]
         if role == "planner":
             out.append(tools.propose_tool(repositories()))
         return out
@@ -321,7 +330,7 @@ def build(cfg_holder: ConfigHolder, client, namespace: str, env: Mapping[str, st
     engine = Engine(outbounds=transports, agents=runner, policy=policy, confirmer=confirmer,
                     memory=MemoryStore(client, namespace), souls=souls, facts=facts,
                     sandbox_tool=sandbox_tool_fn, on_session_end=on_session_end_fn,
-                    server_url=github_server_url(),
+                    server_url=github_server_url(), reachable=repositories,
                     mcp_guidance_fn=mcp.chat_prompt_guidance,
                     share_device_tool_fn=_viewer_for_click,
                     preview_handler=preview_mgr.handle if preview_mgr is not None else None,

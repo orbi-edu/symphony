@@ -344,7 +344,7 @@ The chat assistant on Slack and Discord ([assistant.md](assistant.md)). It is of
 | `assistant.enabled` | bool | `false` | Turns the assistant on. Off, it idles and logs `assistant_disabled` once a minute. |
 | `assistant.slack.channels` | list of channel IDs | `[]` | Slack channels where it answers @mentions. DMs always work when it is on. |
 | `assistant.discord.channels` | list of channel IDs | `[]` | Discord channels where it answers @mentions. An ID is a number. Quote it. |
-| `assistant.repositories` | list of `owner/name` | every repository Symphony knows | The repositories it reads, as read-only worktrees. Unset: the default repository, the merger repositories and those of tracked tickets. |
+| `assistant.repositories` | list of `owner/name` | every repository Symphony reaches | The repositories it reads, as read-only worktrees. Unset: the default repository, the merger repositories and those of tracked tickets are checked out, and every other repository the GitHub App reaches is opened on demand (`open_repository`). |
 | `assistant.max_concurrent` | int, above 0 | `3` | Turns that run at the same time. More turns wait. |
 | `assistant.turn_timeout_s` | int, above 0 | `600` | The longest turn, in seconds. |
 | `assistant.ticket_state` | string | `"Backlog"` | The state of tickets created with **Create**. |
