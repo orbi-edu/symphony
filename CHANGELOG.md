@@ -7,6 +7,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.9] - 2026-11-21
+
 ### Added
 
 - Repository discovery. Every 15 minutes the daemon lists the repositories the GitHub App
