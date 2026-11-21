@@ -106,8 +106,10 @@ def detect(paths: list[str], read: Callable[[str], str | None], runtimes: frozen
              and (found := _markers(paths, top, 2))}
     root = _markers(paths, "", 0)
     if len(units) >= 2:
-        components = {top: {"path": top, "runtime": _runtime(found, read, runtimes)}
-                      for top, found in units.items()}
+        # Component names follow the workflow's rule (`[a-z0-9][a-z0-9-]*`); the path keeps
+        # the directory's own spelling.
+        components = {_component_name(top): {"path": top, "runtime": _runtime(found, read, runtimes)}
+                      for top, found in units.items() if _component_name(top)}
         distinct = {c["runtime"] for c in components.values()}
         if root:
             distinct.add(_runtime(root, read, runtimes))
@@ -119,6 +121,10 @@ def detect(paths: list[str], read: Callable[[str], str | None], runtimes: frozen
         for kind, files in found.items():
             merged.setdefault(kind, []).extend(files)
     return {"runtime": _runtime(merged, read, runtimes), "components": {}}
+
+
+def _component_name(directory: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", directory.lower()).strip("-")
 
 
 def effective(cfg: Config, doc: dict | None) -> Config:
@@ -202,11 +208,14 @@ class Refresher:
     `start` runs one pass in the background and never two at once."""
 
     def __init__(self, kv, token: Callable[[], str | None], now_ms: Callable[[], int],
-                 http: httpx.Client | None = None) -> None:
+                 http: httpx.Client | None = None,
+                 after: Callable[[list[dict], Config], None] | None = None) -> None:
         self.kv = kv
         self.token = token
         self.now_ms = now_ms
         self.http = http or httpx.Client()
+        # Runs on the fresh items before they are stored (provisioning), and may annotate them.
+        self.after = after
         self._running = threading.Lock()
 
     def due(self) -> bool:
@@ -232,6 +241,11 @@ class Refresher:
             if not token:
                 return
             items = discover(self.http, token, known_runtimes(cfg))
+            if self.after is not None:
+                try:
+                    self.after(items, cfg)
+                except Exception as exc:  # noqa: BLE001 — the discovery itself still counts
+                    log.warning("repos_after_discovery_failed", error=str(exc)[:300])
             self.kv.put(DISCOVERY_KEY, {"observed_at_ms": self.now_ms(), "items": items})
             log.info("repos_discovered", repositories=len(items))
         except Exception as exc:  # noqa: BLE001 — discovery is advisory; the last pass stays

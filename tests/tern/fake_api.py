@@ -470,13 +470,37 @@ def fresh(*names: str) -> dict:
     return {n: {"status": "fresh", "observedAt": iso_ago(2), "note": "read fine"} for n in names}
 
 
-def repos_doc() -> dict:
+def repos_doc(st: dict | None = None) -> dict:
+    setup = (st or {}).get("setup", {})
+    bb = setup.get("base_branches", {})
+    rt = setup.get("repo_runtimes", {})
+    comps = setup.get("components", {})
     return {
         "observedAt": iso_ago(1),
         "items": [
-            {"name": "acme/web", "runtime": "node-22", "routes": ["issue", "default"], "issues": 3},
-            {"name": "acme/billing", "runtime": "python-3.13", "routes": ["issue", "retrospective"], "issues": 2},
-            {"name": "acme/gateway", "runtime": "go-1.24", "routes": ["retrospective"], "issues": None},
+            {"name": "acme/web", "runtime": "node-22", "routes": ["issue", "default"], "issues": 3,
+             "detected_runtime": "node-22", "default_branch": "main", "archived": False,
+             "configured_runtime": rt.get("acme/web"),
+             "base_branch": bb.get("acme/web"),
+             "components": comps.get("acme/web") or {"frontend": {"path": "web", "runtime": "node-22"}},
+             "components_source": "configured" if comps.get("acme/web") else "detected",
+             "merger_policy": True, "policy_pr": "https://github.com/acme/web/pull/830",
+             "provisioning_error": None},
+            {"name": "acme/billing", "runtime": "python-3.13", "routes": ["issue", "retrospective"], "issues": 2,
+             "detected_runtime": "python-3.13", "default_branch": "develop", "archived": False,
+             "configured_runtime": rt.get("acme/billing"),
+             "base_branch": bb.get("acme/billing"),
+             "components": comps.get("acme/billing"),
+             "components_source": "configured" if comps.get("acme/billing") else None,
+             "merger_policy": True, "policy_pr": None, "provisioning_error": None},
+            {"name": "acme/gateway", "runtime": "go-1.24", "routes": ["retrospective"], "issues": None,
+             "detected_runtime": "go-1.24", "default_branch": "main", "archived": True,
+             "configured_runtime": rt.get("acme/gateway"),
+             "base_branch": bb.get("acme/gateway"),
+             "components": comps.get("acme/gateway"),
+             "components_source": "configured" if comps.get("acme/gateway") else None,
+             "merger_policy": None, "policy_pr": None,
+             "provisioning_error": "branch protection prevents push to main"},
         ],
         "sources": fresh("state", "workflow", "learning"),
         "limits": {"runs": 200, "resources": 200, "truncated": False},
@@ -712,6 +736,8 @@ def make_handler(fake: Fake):
                 return {**s["catalog"], "providers": [p for p in s["catalog"]["providers"] if p["id"] == wanted]}
             if path == "/v1/admin/providers":
                 return s["providers"]
+            if path == "/v1/repos":
+                return repos_doc(s)
             if path in PROJECTIONS:
                 return PROJECTIONS[path]()
             if path == "/v1/audit":
@@ -969,10 +995,23 @@ def make_handler(fake: Fake):
                 repo = body.get("default_repo")
                 if repo is not None and repo not in INSTALLED_REPOS:
                     return self._error(422, "repo_not_installed", f"The GitHub App is not installed on {repo}.")
-                st["default_repo"] = repo
+                if "default_repo" in body:
+                    st["default_repo"] = repo
+                # Merge maps: the client sends the FULL map each time.
+                if "base_branches" in body:
+                    st["base_branches"] = {k: v for k, v in (body["base_branches"] or {}).items() if v}
+                if "runtimes" in body:
+                    st["repo_runtimes"] = {k: v for k, v in (body["runtimes"] or {}).items() if v}
+                if "components" in body:
+                    st["components"] = {k: v for k, v in (body["components"] or {}).items() if v}
                 _, detail, _ = repositories_detail(st, fake.state["issues"], fake.live_mergers())
-                return self._send(200, {"default_repo": repo, "mergers": detail["mergers"],
-                                        "without_merger": detail["without_merger"]})
+                return self._send(200, {
+                    "default_repo": st.get("default_repo"),
+                    "base_branches": st.get("base_branches", {}),
+                    "repo_runtimes": st.get("repo_runtimes", {}),
+                    "components": st.get("components", {}),
+                    "mergers": detail["mergers"],
+                    "without_merger": detail["without_merger"]})
             tested = {"ok": True, "error": None, "at": iso_ago(0)}
             if method == "PUT" and path == "/v1/setup/notifications":
                 for provider in ("slack", "discord"):

@@ -161,6 +161,11 @@ class TrackerAdapter(Protocol):
         the tracker are created. Returns `{identifier, url}`."""
         ...
 
+    def ensure_labels(self, names: Sequence[str]) -> None:
+        """Create the labels among `names` that the board does not have yet (case-insensitive).
+        Existing ones are left alone."""
+        ...
+
     def state_of(self, identifier: str) -> dict | None:
         """`{name, type}`, `type` being "active" | "terminal" | "unknown"; None when unknown."""
         ...

@@ -240,6 +240,14 @@ The workflow always wins. Dispatch uses a detection only for a repository with n
 archived one. `/v1/repos`, `symphony repos` and Tern's Repositories page list both values,
 marking the detected ones.
 
+After each discovery the daemon also **provisions** every repository that is not archived. Each step is idempotent, and only what is missing is created:
+
+- **Tracker labels:** `repo:<owner/name>` and `component:<name>` for each component, configured or detected.
+- **GitHub labels** in the repository: the merger's labels (`reviewed`, `wait-ci`, `wait-approval`, `needs-maintainer`, …), `tracker.required_labels` and the learnings label.
+- **Merger policy.** A repository without `.symphony/merger.md` gets a pull request from the branch `symphony/merger-policy` that adds a default policy (`require_approval: true`, `merge_method: squash`, review rules to fill in). If a pull request on that branch already exists, open, merged or closed, Symphony never opens another one. Closing it means "no policy here".
+
+A successful repository is checked again once a day, a failed one on the next discovery. `/v1/repos` shows the policy pull request (`policy_pr`) and the last error (`provisioning_error`). The daemon mints its own installation token for this, with `contents`, `pull_requests` and `issues` write.
+
 ### Docker in the workspace
 
 The agent image includes the Docker engine. Choose one posture:

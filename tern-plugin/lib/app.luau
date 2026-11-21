@@ -11,6 +11,7 @@ local apimod = require("./api")
 local cli = require("./cli")
 local fmt = require("./fmt")
 local V = require("./views")
+local P = require("./projections")
 
 local M = {}
 
@@ -326,6 +327,8 @@ local function slot(state: any): string?
 	local v = state.view
 	if v == "dashboard" or v == "sessions" or v == "merger" then
 		return v
+	elseif v == "repositories" then
+		return "repositories"
 	elseif v == "admin" then
 		local t = state.admin_tab
 		if t == "models" or t == "providers" or t == "tokens" or t == "mcp" or t == "assistant" then
@@ -348,6 +351,10 @@ local function slot_ids(state: any, s: string): { string }
 	elseif s == "merger" then
 		for _, x in V.merger_actionables(state) do
 			table.insert(ids, x.id)
+		end
+	elseif s == "repositories" then
+		for _, r in P.repo_items(state) do
+			table.insert(ids, tostring(r.name))
 		end
 	elseif s == "models" then
 		local cfg = state.data.config
@@ -1165,6 +1172,176 @@ local function mcp_form_key(state: any, k: Key, cx: any): boolean
 	return true
 end
 
+-- ── Repositories ──────────────────────────────────────────────────────────
+-- Per-repository configuration: runtime, base branch and components. Saved with
+-- `PUT /v1/setup/repositories` which takes the full maps for every repository.
+
+local REPO_FIELDS = { "runtime", "base_branch", "components" }
+
+local function repo_input_path(id: string): string
+	return "main.repositories.md.detail." .. id .. ".input"
+end
+
+local function repo_focus(state: any, cx: any)
+	local form = state.repo_form
+	if form and form.focus ~= "runtime" then
+		cx:frame({ { "focus", repo_input_path(form.focus) } })
+	end
+end
+
+local function repo_open(state: any, cx: any, name: string)
+	local r = P.find_repo(state, name)
+	if not r or P.repo_readonly(state, r) then
+		return
+	end
+	state.confirm = nil
+	local values = P.repo_form_values(r)
+	state.repo_form = { name = name, values = values, focus = "runtime", error = nil }
+	repo_focus(state, cx)
+end
+
+-- Build the body for PUT /v1/setup/repositories: full maps with this repo's change merged.
+local function repo_save_body(state: any): any
+	local form = state.repo_form
+	if not form then
+		return nil
+	end
+	local name = form.name
+	local v = form.values
+	-- Start from the current maps across all repositories.
+	local bb_map: { [string]: string? } = {}
+	local rt_map: { [string]: string? } = {}
+	local comp_map: { [string]: any } = {}
+	for _, r in P.repo_items(state) do
+		local rn = tostring(r.name)
+		if r.base_branch then
+			bb_map[rn] = r.base_branch
+		end
+		if r.configured_runtime then
+			rt_map[rn] = r.configured_runtime
+		end
+		if r.components_source == "configured" and type(r.components) == "table" then
+			comp_map[rn] = r.components
+		end
+	end
+	-- Apply this repository's changes.
+	local runtime = trim(v.runtime or "")
+	if runtime ~= "" then
+		rt_map[name] = runtime
+	else
+		rt_map[name] = nil
+	end
+	local base = trim(v.base_branch or "")
+	if base ~= "" then
+		bb_map[name] = base
+	else
+		bb_map[name] = nil
+	end
+	-- Parse components: "name=path@runtime" space-separated.
+	local comp_text = trim(v.components or "")
+	if comp_text ~= "" then
+		local repo_comps: { [string]: any } = {}
+		for entry in string.gmatch(comp_text, "%S+") do
+			local cname, rest = string.match(entry, "^([%w%-]+)=(.+)$")
+			if not cname then
+				return nil, "Enter each component as name=path@runtime."
+			end
+			local cpath, crt = string.match(rest, "^(.-)@(.+)$")
+			if not cpath then
+				cpath = rest
+			end
+			repo_comps[cname] = { path = cpath, runtime = crt }
+		end
+		comp_map[name] = repo_comps
+	else
+		comp_map[name] = nil
+	end
+	return {
+		runtimes = rt_map,
+		base_branches = bb_map,
+		components = comp_map,
+	}, nil
+end
+
+local function repo_save(state: any)
+	local form = state.repo_form
+	if not form or state.busy.repo_save then
+		return
+	end
+	local body, problem = repo_save_body(state)
+	if problem then
+		form.error = problem
+		state.cx:render()
+		return
+	end
+	if not body then
+		return
+	end
+	form.error = nil
+	api_action(state, "repo_save", "PUT", "/v1/setup/repositories", body, nil, "", { "repos" }, function()
+		local saved_name = form.name
+		state.repo_form = nil
+		flash(state, "success", "Configuration saved for " .. saved_name)
+	end)
+end
+
+-- Keys while the repo form is open: tab moves fields, ←→ picks runtime, text for inputs.
+local function repo_form_key(state: any, k: Key, cx: any): boolean
+	local form = state.repo_form
+	if not form then
+		return false
+	end
+	local n = k.name
+	if n == "escape" then
+		state.repo_form = nil
+		return true
+	elseif n == "enter" then
+		repo_save(state)
+		return true
+	elseif n == "tab" then
+		local at = table.find(REPO_FIELDS, form.focus) or 1
+		form.focus = REPO_FIELDS[((at - 1 + (if k.shift then -1 else 1)) % #REPO_FIELDS) + 1]
+		repo_focus(state, cx)
+		return true
+	end
+	-- Runtime is a segmented choice.
+	if form.focus == "runtime" then
+		if n == "left" or n == "right" or k.text == " " then
+			local ids = {}
+			for _, known in P.KNOWN_RUNTIMES do
+				table.insert(ids, known)
+			end
+			local cur = form.values.runtime or ""
+			-- If current value isn't in the list, add it.
+			if cur ~= "" and not table.find(ids, cur) then
+				table.insert(ids, 1, cur)
+			end
+			table.insert(ids, "")  -- auto-detect
+			local at = table.find(ids, cur) or 1
+			form.values.runtime = ids[((at - 1 + (if n == "left" then -1 else 1)) % #ids) + 1]
+		end
+		return true
+	end
+	-- Text input for base_branch and components.
+	local cur = form.values[form.focus] or ""
+	if n == "paste" then
+		form.values[form.focus] = cur .. (string.gsub(k.text or "", "[\r\n]+", " "))
+	elseif n == "backspace" then
+		if k.alt then
+			form.values[form.focus] = ""
+		else
+			local len = utf8.len(cur) or 0
+			form.values[form.focus] = if len > 0 then string.sub(cur, 1, (utf8.offset(cur, len) or 1) - 1) else ""
+		end
+	elseif k.text and k.text ~= "" and not k.ctrl and not k.meta then
+		form.values[form.focus] = cur .. k.text
+	else
+		return false
+	end
+	form.error = nil
+	return true
+end
+
 local function set_view(state: any, view: string)
 	if view == "admin" and not apimod.can(state.api, "admin") and state.api.auth == "ok" then
 		flash(state, "warning", "Admin needs a token with the admin role")
@@ -1489,6 +1666,18 @@ local function on_action(state: any, act: string, value: string?, cx: any)
 	elseif act == "mcp_focus" and state.mcp_form then
 		state.mcp_form.focus = v
 		mcp_focus(state, cx)
+	elseif act == "repo_sel" then
+		state.sel.repositories = v
+	elseif act == "repo_edit" then
+		state.sel.repositories = v
+		repo_open(state, cx, v)
+	elseif act == "repo_save" then
+		repo_save(state)
+	elseif act == "repo_cancel" then
+		state.repo_form = nil
+	elseif act == "repo_focus" and state.repo_form then
+		state.repo_form.focus = v
+		repo_focus(state, cx)
 	elseif act == "confirm_ok" then
 		local c = state.confirm
 		state.confirm = nil
@@ -1530,6 +1719,9 @@ local function key(state: any, k: Key, cx: any): boolean?
 	end
 	if state.mcp_form and state.view == "admin" and state.admin_tab == "mcp" and (k.name == "paste" or not (k.meta or k.ctrl)) then
 		return mcp_form_key(state, k, cx)
+	end
+	if state.repo_form and state.view == "repositories" and (k.name == "paste" or not (k.meta or k.ctrl)) then
+		return repo_form_key(state, k, cx)
 	end
 	if k.meta or k.ctrl then
 		return false
@@ -1671,6 +1863,12 @@ local function key(state: any, k: Key, cx: any): boolean?
 			mcp_remove(state, id)
 			return true
 		end
+	elseif s == "repositories" and n == "e" and apimod.can(state.api, "admin") then
+		local r = P.find_repo(state, id)
+		if r and not P.repo_readonly(state, r) then
+			repo_open(state, cx, id)
+			return true
+		end
 	end
 	return false
 end
@@ -1711,6 +1909,8 @@ M.def = {
 			-- Admin › MCP: the card's open form (add, edit or headers) and each server's last test.
 			mcp_form = nil,
 			mcp_tests = {},
+			-- Repositories: the open edit form for a single repository's config.
+			repo_form = nil,
 			offline = nil,
 			stopped = false,
 		}
@@ -1763,11 +1963,27 @@ M.def = {
 				if f then
 					mcp_choice(state.mcp_form, f, ev.item)
 				end
+			elseif state.repo_form and type(ev.item) == "string" then
+				-- A choice in the repo config form: `…detail.<field>.seg`.
+				local f = string.match(ev.id or "", "^main%.repositories%.md%.detail%.([%w_]+)%.seg$")
+				if f then
+					state.repo_form.values[f] = ev.item
+					state.repo_form.focus = f
+					state.repo_form.error = nil
+				end
 			end
-		elseif ev.ev == "focus" and state.mcp_form and type(ev.id) == "string" then
-			local f = string.match(ev.id, "^main%.admin%.mcp%.md%.detail%.form%.([%w_]+)%.input$")
-			if f then
-				state.mcp_form.focus = f
+		elseif ev.ev == "focus" and type(ev.id) == "string" then
+			if state.mcp_form then
+				local f = string.match(ev.id, "^main%.admin%.mcp%.md%.detail%.form%.([%w_]+)%.input$")
+				if f then
+					state.mcp_form.focus = f
+				end
+			end
+			if state.repo_form then
+				local f = string.match(ev.id, "^main%.repositories%.md%.detail%.([%w_]+)%.input$")
+				if f then
+					state.repo_form.focus = f
+				end
 			end
 		elseif ev.ev == "action" and type(ev.act) == "string" then
 			local value = ev.value

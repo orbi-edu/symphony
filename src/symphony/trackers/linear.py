@@ -548,6 +548,13 @@ class LinearTracker:
             raise TrackerInputError(f"no Linear team with key {self.team_key!r}")
         return teams[0], None
 
+    def ensure_labels(self, names: Sequence[str]) -> None:
+        """Missing labels are created on the board's team, in batches the label query allows."""
+        team, _ = self._board_team()
+        wanted = sorted({n for n in names if n.strip()})
+        for start in range(0, len(wanted), 50):
+            self._label_ids(team["id"], wanted[start:start + 50], create=True)
+
     def create_issue(
         self, title: str, body: str, *, labels: Sequence[str], state: str | None = None,
         repo: str | None = None,

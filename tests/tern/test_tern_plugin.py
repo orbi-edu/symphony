@@ -754,3 +754,57 @@ def test_admin_assistant_shows_the_soul_people_and_items_and_wipes_after_a_confi
         h.wait_gone("deploys on Fridays")
         assert "2 items" not in h.text() and "bob" in h.text()
         no_errors(h)
+
+
+def test_repo_detail_shows_detected_values_and_saving_sends_merged_maps():
+    with Harness() as h:
+        h.run("plugin.symphony.repositories")
+        text = h.wait_text("acme/web")
+        assert "acme/billing" in text and "acme/gateway" in text
+        # acme/web is auto-selected (first row); its detail card shows detected values.
+        text = h.wait_text("node-22")
+        assert "detected" in text.lower() or "Detected runtime" in text
+        assert "frontend" in text  # detected component
+        # Open the edit form for acme/web.
+        h.key("e")
+        h.wait_text("Save")
+        h.wait_text("Cancel")
+        # Tab to base_branch field and type a value.
+        h.key("tab")
+        time.sleep(0.3)
+        h.type("develop")
+        # Tab to components and add a component (field has detected "frontend=web@node-22").
+        h.key("tab")
+        time.sleep(0.3)
+        h.type(" api=src/api@node")
+        # Save.
+        h.key("Enter")
+        w = h.wait_write("PUT", "/v1/setup/repositories")
+        body = w["body"]
+        # The save sends the full maps: base_branches includes acme/web's new value.
+        assert body["base_branches"]["acme/web"] == "develop"
+        # Runtime: acme/web had node-22 from detected, so it's in the runtimes map.
+        assert body["runtimes"]["acme/web"] == "node-22"
+        # Components: acme/web gets both the kept detected one and the new one.
+        assert body["components"]["acme/web"]["frontend"]["path"] == "web"
+        assert body["components"]["acme/web"]["api"]["path"] == "src/api"
+        assert body["components"]["acme/web"]["api"]["runtime"] == "node"
+        h.wait_text("Configuration saved for acme/web", "sf-dock")
+        no_errors(h)
+
+
+def test_repo_non_admin_cannot_save():
+    with Harness(role="viewer") as h:
+        h.run("plugin.symphony.repositories")
+        text = h.wait_text("acme/web")
+        assert "acme/billing" in text
+        # The detail card should not show a Configure button (non-admin).
+        time.sleep(1)
+        text = h.text()
+        assert "Configure" not in text
+        # Pressing e should not open a form.
+        h.key("e")
+        time.sleep(0.5)
+        assert "Save" not in h.text()
+        assert "Cancel" not in h.text()
+        no_errors(h)

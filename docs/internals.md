@@ -32,6 +32,7 @@ The `state` keys have no namespace prefix. All other keys have a namespace prefi
 |---|---|---|---|
 | `issue:<issue_id>` | String (JSON) | The tracking entry of a ticket: `status`, `identifier`, `attempt`, `dispatch_seq`, `runs`, `tokens`, `session_id`, `bridge_token`, timestamps | 7 days idle |
 | `repos:discovery` | String (JSON) | The daemon's last repository discovery: `{observed_at_ms, items:[{name, default_branch, archived, merger_policy, runtime, components, truncated}], error?}`. Dispatch reads it to fill what WORKFLOW.md leaves unset; `/v1/repos` shows it | 7 days idle |
+| `repos:provisioned:<owner/name>` | String (JSON) | What provisioning last did for a repository: `{signature, at, failed, outcome: {labels_created, policy_pr, error}}` (`provision.py`) | 7 days idle |
 | `dispatch:<issue_id>:<seq>` | String (JSON) | The dispatch token of one dispatch: `{daemon_owner, created_at}` | 7 days idle |
 | `generation:<issue_id>` | Integer | The last dispatch sequence of a ticket | Never |
 | `toolcall:<issue_id>:<seq>:<call_id>` | String (JSON) | The cached result of one host tool call, so a replay never repeats a mutation | 7 days idle |
