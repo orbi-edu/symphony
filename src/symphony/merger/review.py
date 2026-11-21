@@ -360,7 +360,8 @@ def ci_now(m: Merger, policy: Policy, n: int, head_sha: str, branch: str, revive
 
 
 def parked_of(m: Merger, run: Run) -> dict:
-    return {"pr": run.pr, "branch": run.branch, "author": run.author, "title": run.title,
+    return {"pr": run.pr, "branch": run.branch, "author": run.author, "author_type": run.author_type,
+            "title": run.title,
             "issue": run.issue, "head_sha": run.head_sha, "ready_at": run.ready_at,
             "started_at": run.started_at, "parked_at": m.clock(), "findings": run.findings,
             "rounds": prior_rounds(m, run.pr)}
@@ -386,7 +387,9 @@ def hand_off(m: Merger, policy: Policy, run, report: str, edit: str | None = Non
     n = run["pr"] if isinstance(run, dict) else run.pr
     get = (lambda k: run[k]) if isinstance(run, dict) else (lambda k: getattr(run, k))
     rec = {
-        "pr": n, "branch": get("branch"), "author": get("author"), "title": get("title"),
+        "pr": n, "branch": get("branch"), "author": get("author"),
+        "author_type": run.get("author_type") if isinstance(run, dict) else run.author_type,
+        "title": get("title"),
         "issue": get("issue"), "head_sha": get("head_sha"), "reviewed_at": m.clock(),
         "ready_at": get("ready_at"), "started_at": get("started_at"), "policy": cm.VERSION,
         "state": "publishing", "publication": {"report": report, "done": [], **({"edit": edit} if edit else {})},
@@ -411,7 +414,8 @@ def bypass_hand_off(m: Merger, policy: Policy, p: dict) -> None:
     now = m.clock()
     report = (f"**Review bypassed**\n\n**{cm.VERSION}** on `{p['head_sha'][:9]}`: the `{cm.BYPASS}` label hands "
               "it to the merge train without a review. The train merges it once CI passes on main.")
-    rec = {"pr": n, "branch": p["head_ref"], "author": p["author"], "title": p["title"],
+    rec = {"pr": n, "branch": p["head_ref"], "author": p["author"], "author_type": p.get("author_type"),
+           "title": p["title"],
            "issue": m.ticket_of(p), "head_sha": p["head_sha"], "reviewed_at": now,
            "ready_at": p["ready_at"], "started_at": now, "policy": "bypass", "state": "publishing",
            "publication": {"report": report, "done": []}}
@@ -468,7 +472,15 @@ def settle_parked(m: Merger, policy: Policy, owner: str) -> None:
                 continue
             ci = ci_now(m, policy, n, rec["head_sha"], rec["branch"], revive=True)
             if not ci["open"]:
-                unpark(m, rec, "the PR is closed")
+                # Check if the PR was merged outside the train.
+                try:
+                    pr_state = m.gh.pr(n)["state"]
+                except Exception:  # noqa: BLE001
+                    pr_state = "closed"
+                if pr_state == "merged":
+                    m.move_ticket(rec.get("issue"), "done",
+                                  f"PR #{n} was merged on GitHub outside the merge train.")
+                unpark(m, rec, "the PR is closed" if pr_state != "merged" else "the PR was merged outside the train")
             elif ci["state"] == "moved":
                 unpark(m, rec, "its author pushed")
             elif rec["kind"] == "clean" and ci["draft"]:
@@ -512,7 +524,7 @@ def ci_sent_back(m: Merger, rec: dict, failed: list[str]) -> None:
                                                      cm.ci_line("failed", rec["head_sha"], failed), rec["body"], drafted))
     m.store.unpark(n)
     cm.say(m, "back_to_author", n, rec.get("title", ""), rec["author"], rec.get("comment") or m.pr_url(n),
-           "CI failed")
+           "CI failed", is_bot=cm.is_bot_author(rec))
     m.move_ticket(rec.get("issue"), "rework", f"The merger sent the PR back: {outcome}\n\n{rec.get('comment') or m.pr_url(n)}")
 
 
@@ -637,7 +649,8 @@ def _outcome(m: Merger, policy: Policy, team: dict, run: Run, result: dict, delt
     def give_back(stop: str, text: str, draft: bool, event: str | None, ci_pending: bool) -> tuple:
         _finish(m, n)
         comment, drafted = cm.conclude(m, run, result, text, draft, event,
-                                       cm.ci_line("pending", run.head_sha) if ci_pending else "")
+                                       cm.ci_line("pending", run.head_sha) if ci_pending else "",
+                                       is_bot=_is_bot_author(run))
         if ci_pending:
             m.store.park({**parked_of(m, run), "kind": "report", "title": cm.NOT_MERGED_TITLE, "outcome": text,
                           "body": cm.scrubbed_body(m, run, result), "drafted": drafted, "comment": comment})

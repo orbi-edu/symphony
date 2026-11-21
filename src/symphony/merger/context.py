@@ -4,7 +4,7 @@ ticket tracker, Slack, the team config, and the wait that wake-ups cut short."""
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
 import structlog
@@ -62,17 +62,21 @@ class Merger:
     def pr_url(self, n: int) -> str:
         return f"{github_server_url()}/{self.repo}/pull/{n}"
 
-    def notify(self, event: str, text: str, *, link: str | None = None, login: str | None = None) -> None:
+    def notify(self, event: str, text: str, *, link: str | None = None, logins: Sequence[str] = ()) -> None:
         if self.notify_post is None:
             return
         try:
-            self.notify_post(event, text, link=link, github_login=login)
+            self.notify_post(event, text, link=link, github_logins=logins)
         except Exception as exc:  # noqa: BLE001 — a channel outage never stops a merge
             log.warning("merger_notify_failed", event=event, error=str(exc)[:300])
 
     def ticket_of(self, pr: dict) -> str | None:
-        """The ticket a PR implements: Symphony's branches and titles carry its identifier."""
+        """The ticket a PR implements: Symphony's branches and titles carry its identifier.
+        A learnings PR names a ticket in its title but must not be attributed to it."""
         if self.tracker is None:
+            return None
+        from ..reflector import LEARNINGS_BRANCH_PREFIX
+        if (pr.get("head_ref") or "").startswith(LEARNINGS_BRANCH_PREFIX):
             return None
         for text in (pr.get("head_ref", ""), pr.get("title", ""), pr.get("body", "")):
             identifier = self.tracker.identifier_in(text or "", repo=self.repo)

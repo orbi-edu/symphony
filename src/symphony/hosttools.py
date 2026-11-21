@@ -40,7 +40,9 @@ ASK_DEFINITION = {
         "Ask the people supervising this ticket a question and wait for their answer. Use it "
         "only when you cannot proceed responsibly without a human decision (ambiguous "
         "requirements, risky or irreversible choices). If nobody answers in time you get an "
-        "instruction to proceed with your best judgment."
+        "instruction to proceed with your best judgment. Never ask for credentials, keys, "
+        "tokens or passwords: ask a person to run the command in an authorized environment "
+        "and post only the output."
     ),
     "parameters": {
         "type": "object",
@@ -57,6 +59,64 @@ ASK_DEFINITION = {
     },
     "loadMode": "essential",
 }
+
+# -- secret-request guard ---------------------------------------------------------
+
+_SECRET_ENVVAR_RE = re.compile(
+    r"[A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|PASSWD|API_KEY|ACCESS_KEY|PRIVATE_KEY)[A-Z0-9_]*",
+)
+
+# Known dangerous env-var names that alone trigger refusal.
+_KNOWN_SECRET_VARS = frozenset({
+    "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
+})
+
+# Request verbs (English / Portuguese), whole words only — "post the output" or "the column"
+# must not count.
+_VERB_PATTERN = (
+    r"\b(?:share|send|provide|paste|give|grant|expose|reveal|disclose"
+    r"|disponibiliz\w*|forne[cç]\w*|envi(?:ar|e|em|a|ou)|mand(?:ar|e|em|a|ou)"
+    r"|pass(?:ar|e|em|a|ou)|col(?:ar|e|em|a|ou)|compartilh\w*)\b"
+)
+
+# Secret nouns (English / Portuguese), whole words only.
+_NOUN_PATTERN = (
+    r"\b(?:credentials?|access\s+keys?|secret(?:\s+keys?)?|tokens?|passwords?|api\s+keys?"
+    r"|private\s+keys?|credencia(?:l|is)|chaves?|senhas?)\b"
+)
+
+# A request verb near a secret noun, in either order.
+_VERB_NOUN_RE = re.compile(
+    rf"{_VERB_PATTERN}.{{0,60}}{_NOUN_PATTERN}"
+    rf"|{_NOUN_PATTERN}.{{0,60}}{_VERB_PATTERN}",
+    re.IGNORECASE | re.DOTALL,
+)
+
+_SECRET_REFUSAL = (
+    "Refused: never ask for credentials, keys or tokens in chat. Instead, ask a person to "
+    "run the exact command in an environment authorized for it and post only the output to "
+    "the ticket or PR. Record in the Workpad that this check was not run by the agent."
+)
+
+
+def _is_secret_request(text: str) -> bool:
+    """True when the question asks people to share secrets."""
+    # (a) Explicit secret env-var names (uppercase identifiers).
+    for m in _SECRET_ENVVAR_RE.finditer(text):
+        token = m.group(0)
+        if token in _KNOWN_SECRET_VARS:
+            return True
+        # Generic pattern: only flag when surrounded by word-boundary-like context
+        # (not part of a longer lowercase word) and at least 6 chars.
+        start, end = m.start(), m.end()
+        before_ok = start == 0 or not text[start - 1].isalpha()
+        after_ok = end == len(text) or not text[end].isalpha()
+        if before_ok and after_ok and len(token) >= 6:
+            return True
+    # (b) Request verb near a secret noun.
+    if _VERB_NOUN_RE.search(text):
+        return True
+    return False
 
 CREATE_ISSUES_TOOL = "symphony_create_issues"
 CREATE_ISSUES_DEFINITION = {
@@ -447,6 +507,9 @@ class HostToolBroker:
         question = str(args.get("question") or "").strip()
         if not question:
             self._respond(call_id, "symphony_ask needs a non-empty question", is_error=True)
+            return
+        if _is_secret_request(question):
+            self._respond(call_id, _SECRET_REFUSAL, is_error=True)
             return
         raw_options = args.get("options")
         options = [str(o) for o in raw_options] if isinstance(raw_options, list) else []

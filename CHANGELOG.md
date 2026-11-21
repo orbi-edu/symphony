@@ -7,6 +7,39 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Retry budget (`agent.max_failed_attempts`, default 8): after that many failed attempts in
+  a row the ticket is `blocked` instead of retried forever. The ticket and the channel
+  (`retries_exhausted`) get the last failure, who acts and the next step; `symphony
+  reevaluate` or any later edit of the ticket queues it again with a fresh count. Each crash
+  report now shows how much of the budget is used.
+- Intake verdicts (`tracker.intake_states`, default `[Backlog, Triage]`): a ticket with
+  Symphony's labels is told once per change whether it is queued and, if not, what is
+  missing — the state, a label, the repository or an open blocker. A verdict that needs a
+  person also goes to the channel (`not_queued`). The assistant's "create" reply says the
+  same for the tickets it creates.
+- `symphony_ask` refuses a question that asks for credentials, keys or tokens: nothing is
+  stored or posted, and the agent is told to ask for the command's output instead. The
+  prompt says the same.
+
+### Changed
+
+- The approval notice is one message per (PR, head) with separate lines for CI, the
+  merger's review, who must approve and the next step; it mentions every mapped reviewer,
+  says when no reviewer is requested, and reminds once after 24 hours. `notify.post` takes
+  `github_logins` (a list) instead of `github_login`.
+- "PR returned to its author" says no human action is needed when the agent authored it.
+
+### Fixed
+
+- The approval notice showed the merger's comment title (`**Waiting for CI**`) instead of
+  the PR title.
+- A PR merged on GitHub outside the merge train now moves its ticket to Done; before, the
+  ticket stayed in Merging.
+- A retrospective "learnings" PR no longer moves its source ticket: sending it back moved a
+  Done ticket to Rework and re-ran the agent.
+
 ## [0.2.6] - 2026-11-20
 
 ### Added

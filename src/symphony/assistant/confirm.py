@@ -199,6 +199,15 @@ class Confirmer:
         self.store.update(pid, status="created", by=login, created=made, started=start)
         lines = [f"Created by {login}" + (" and started" if start else "") + ":"]
         lines += [f"- {m['identifier']}: {m['title']} {m['url']}".rstrip() for m in made]
+        labels = ", ".join(f"`{label}`" for label in policy.required_labels)
+        if start:
+            lines.append("Queued: an agent starts each one at the next free slot; a ticket blocked by "
+                         "another starts once that one is done.")
+        else:
+            lines.append(f"Not queued: they wait in {policy.ticket_state}"
+                         + (f" without the {labels} label" if labels else "")
+                         + f". To queue one, move it to {policy.start_state}"
+                         + (f" and add {labels}." if labels else "."))
         out.update(_ref(action), "\n".join(lines), ())
         try:
             self.audit(login, f"proposal:{pid}", ", ".join(identifiers))

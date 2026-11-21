@@ -23,7 +23,7 @@ from tests.omp_fakes import FakeEngine, FakeSandbox, aborted_run, runner_env
 import symphony
 from symphony import state
 from symphony.config import parse_workflow
-from symphony.hosttools import ASK_FALLBACK
+from symphony.hosttools import _SECRET_REFUSAL, ASK_FALLBACK, _is_secret_request
 from symphony.runner import HUMAN_MESSAGE_HEADER, run_attempt
 from symphony.sessions import EV_INPUT_REQUESTED, EV_INPUT_RESOLVED, EV_INTENT_APPLIED, EV_STATE
 from symphony.trackers.memory import MemoryTracker
@@ -39,7 +39,7 @@ CFG = parse_workflow(
 def notifications(monkeypatch):
     sent = []
     fake = types.ModuleType("symphony.notify")
-    fake.post = lambda event, text, *, link=None, github_login=None: sent.append((event, text, link))
+    fake.post = lambda event, text, *, link=None, github_logins=(): sent.append((event, text, link))
     monkeypatch.setitem(sys.modules, "symphony.notify", fake)
     monkeypatch.setattr(symphony, "notify", fake, raising=False)
     return sent
@@ -401,6 +401,71 @@ def test_an_unanswered_ask_returns_the_fallback_and_never_stalls(attempt, notifi
     assert resolved["by"] == "timeout" and resolved["answer"] is None
     assert env.sessions.meta(SID)["input_request"] is None
 
+
+
+# -- secret-request guard -----------------------------------------------------------
+
+@pytest.mark.parametrize("question", [
+    "Or make dev credentials available here (AWS_ACCESS_KEY_ID/SECRET/SESSION_TOKEN)?",
+    "Ou disponibilizar credenciais de dev aqui?",
+    "Can you share the Stripe API key?",
+    "Qual é a senha do banco? Pode me passar?",
+    "Please paste the AWS_SECRET_ACCESS_KEY so I can run the test.",
+    "Can you provide the database password?",
+    "Send me the private key for the deploy service.",
+])
+def test_ask_refuses_secret_requests(attempt, notifications, question):
+    env, _, engine = attempt()
+    engine.push(ask(question=question))
+    engine.push(lambda e: bool(tool_results(e, "h1")))
+    engine.run()
+
+    run_attempt(env, "i1", 1, 1)
+    (result,) = tool_results(engine, "h1")
+    assert result["isError"] is True
+    assert result["result"]["content"][0]["text"] == _SECRET_REFUSAL
+    # Nothing stored, nothing notified.
+    assert events(env, EV_INPUT_REQUESTED) == []
+    assert notifications == []
+
+
+@pytest.mark.parametrize("question", [
+    "Can someone with access to the dev account run `node scripts/sample.js` on branch x and paste the output on the PR?",
+    "Alguém com acesso pode rodar o script e colar a saída no ticket?",
+    "Should the API return 401 when the session token is expired?",
+    "Which database should we use?",
+    "The deploy failed — can someone check the logs?",
+    "Can someone run the token refresh job and post the output on the ticket?",
+    "Which column should hold the password hash, `hash` or `secret_hash`?",
+])
+def test_ask_allows_non_secret_questions(attempt, notifications, question):
+    env, _, engine = attempt(cfg=replace(CFG, input_timeout_ms=150))
+    engine.push(ask(question=question))
+    engine.push(lambda e: bool(tool_results(e, "h1")))
+    engine.run()
+
+    run_attempt(env, "i1", 1, 1)
+    (result,) = tool_results(engine, "h1")
+    # Not refused — gets the timeout fallback since nobody answers.
+    assert result["isError"] is False
+    assert result["result"]["content"][0]["text"] == ASK_FALLBACK
+
+
+def test_is_secret_request_unit():
+    """Direct unit tests for the detection function edge cases."""
+    # Must refuse
+    assert _is_secret_request("AWS_ACCESS_KEY_ID") is True
+    assert _is_secret_request("AWS_SESSION_TOKEN") is True
+    assert _is_secret_request("share the credentials") is True
+    assert _is_secret_request("forneça a senha") is True
+    assert _is_secret_request("STRIPE_API_KEY is needed") is True
+    assert _is_secret_request("give me the access key") is True
+    assert _is_secret_request("compartilhar credenciais") is True
+    # Must allow
+    assert _is_secret_request("paste the output on the PR") is False
+    assert _is_secret_request("colar a saída no ticket") is False
+    assert _is_secret_request("session token is expired") is False
+    assert _is_secret_request("which database?") is False
 
 class SecretTracker(MemoryTracker):
     """A tracker whose credential must never leave the runner."""

@@ -89,6 +89,7 @@ Each process reads `WORKFLOW.md` from `$SYMPHONY_WORKFLOW_MOUNT/WORKFLOW.md` (de
 | `tracker.active_states` | list of strings | `[Todo, In Progress, Rework]` | The states where the implementer works. |
 | `tracker.terminal_states` | list of strings | `[Closed, Cancelled, Canceled, Duplicate, Done]` | The states that end a ticket. They trigger the cleanup and the retrospective. |
 | `tracker.required_labels` | list of strings | `[]` | A ticket needs all these labels to be dispatched. The comparison ignores case. |
+| `tracker.intake_states` | list of strings | `[Backlog, Triage]` | States where a ticket waits before it is ready. A ticket addressed to Symphony (a `tracker.required_labels` label or a `repo:` label) gets one comment per verdict change: queued, or not queued with what is missing (state, label, repository, blocker). A verdict that needs a person also goes to the channel (`not_queued`). Tickets last changed before Symphony first looked are left alone. Empty turns the Backlog read off; active tickets are still checked. |
 | `tracker.states.review` | string | `In Review` | The state that the implementer sets when it hands over to the merger. It must not be active. |
 | `tracker.states.rework` | string | `Rework` | The state that the merger sets when it blocks a pull request. It must be active. |
 | `tracker.states.merging` | string | `Merging` | The state that the merger sets when the train takes the pull request. It must not be active. |
@@ -165,6 +166,7 @@ The git credential helper is ready before `after_create` runs, so `git clone` ov
 | `agent.max_concurrent_agents_by_state` | map of state to integer | `{}` | A lower limit for one state, for example `{Rework: 1}`. State names ignore case. Symphony ignores values that are not positive integers. |
 | `agent.max_turns` | integer | `20` | The turn cap of one attempt. At the cap, the attempt ends as a continuation. It must be positive. |
 | `agent.max_retry_backoff_ms` | integer | `300000` | The maximum wait before a retry after a failed attempt. |
+| `agent.max_failed_attempts` | integer | `8` | Failed attempts in a row before Symphony stops retrying. The ticket becomes `blocked`; the ticket and the channel (`retries_exhausted`) get the last failure, who acts and the next step. `symphony reevaluate` or any later edit of the ticket queues it again with a fresh count. A clean exit resets the count. `0` retries forever. |
 | `agent.input_timeout_ms` | integer | `900000` | How long `symphony_ask` waits for a person. Also how long an interrupted agent waits for a message. It must be positive. |
 | `agent.stall_timeout_ms` | integer | `300000` | The silence that counts as a stall. Two windows in sequence stop the attempt. Zero or a negative value turns stall detection off. |
 

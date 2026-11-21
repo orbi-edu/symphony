@@ -119,16 +119,27 @@ def drop_in_audit(m: Merger, n: int) -> None:
 # Slack is read by the team: one line with the PR and what happened; the report has the rest.
 SAY = {
     "back_to_author": "went back to the author",
+    "back_to_author_bot": "went back to the author (agent-authored; the agent picks it up in Rework, no human action needed)",
     "needs_maintainer": "needs a maintainer (the single rejection is used up and the arbiter confirmed the block)",
 }
 
 
-def say(m: Merger, event: str, n: int, title: str, login: str | None, link: str, why: str = "") -> None:
+def is_bot_author(rec: dict) -> bool:
+    """A GitHub App or bot authored the PR. GraphQL gives an App's login without `[bot]`, so
+    the type decides; the suffix covers records written before the type was kept."""
+    return rec.get("author_type") == "Bot" or (rec.get("author") or "").endswith("[bot]")
+
+
+def say(m: Merger, event: str, n: int, title: str, login: str | None, link: str, why: str = "",
+        *, is_bot: bool = False) -> None:
     reason = f": {why}" if why else ""
-    m.notify(event, f"PR #{n} {title[:90]} {SAY[event]}{reason}", link=link, login=login)
+    text_key = f"{event}_bot" if is_bot and f"{event}_bot" in SAY else event
+    m.notify(event, f"PR #{n} {title[:90]} {SAY[text_key]}{reason}",
+             link=link, logins=[login] if login else [])
 
 
-def conclude(m: Merger, run, result, outcome: str, draft: bool, event: str | None, ci: str = "") -> tuple[str, bool]:
+def conclude(m: Merger, run, result, outcome: str, draft: bool, event: str | None, ci: str = "",
+             *, is_bot: bool = False) -> tuple[str, bool]:
     """Back to the author: draft (when asked), in-audit off, the report posted, the channel
     told. Never throws: returns the comment URL ("" when posting failed) and whether it went
     back to draft."""
@@ -141,7 +152,7 @@ def conclude(m: Merger, run, result, outcome: str, draft: bool, event: str | Non
     except Exception:  # noqa: BLE001
         pass
     if event:
-        say(m, event, run.pr, run.title, run.author, comment or m.pr_url(run.pr))
+        say(m, event, run.pr, run.title, run.author, comment or m.pr_url(run.pr), is_bot=is_bot)
     return comment, drafted
 
 
@@ -228,7 +239,8 @@ def train_conclude(m: Merger, rec: dict, save) -> None:
     def tell() -> None:
         if o["end"] == "draft":
             say(m, "back_to_author", n, rec.get("title", ""), rec.get("author"),
-                o.get("comment") or m.pr_url(n), "the merge train could not merge it")
+                o.get("comment") or m.pr_url(n), "the merge train could not merge it",
+                is_bot=is_bot_author(rec))
             m.move_ticket(rec.get("issue"), "rework",
                           f"The merge train sent the PR back: {o['text']}\n\n{o.get('comment') or m.pr_url(n)}")
 

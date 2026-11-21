@@ -23,6 +23,7 @@ DECAY_AFTER_INCORPORATIONS = 10
 ORPHAN_RETRO_AGE_MS = 60 * 60 * 1000
 SWEEP_WINDOW_DAYS = 7
 AGENTS_MD_BYTE_BUDGET = 32 * 1024
+LEARNINGS_BRANCH_PREFIX = "symphony/learnings/"
 
 
 @dataclass(frozen=True)
@@ -391,7 +392,7 @@ def run_retrospective(
             files[path] = body
 
     pr_url = github.open_pr(
-        branch=f"symphony/learnings/{identifier}",
+        branch=f"{LEARNINGS_BRANCH_PREFIX}{identifier}",
         title=f"learnings: {identifier}",
         body=(
             f"Lessons distilled from the retrospective of {identifier} "

@@ -30,6 +30,7 @@ stateDiagram-v2
     Escalated --> Merging: the AI arbiter dismisses every finding
     Escalated --> Maintainer: the arbiter upholds a finding (needs-maintainer)
     Merging --> Done: the train merges, then the tracker closes the ticket
+    Merging --> Done: a human merges the PR on GitHub outside the train
     Merging --> Rework: CI red alone, or a conflict with no resolution
 ```
 
@@ -43,14 +44,16 @@ The merger finds the ticket with `tracker.identifier_in()`, from the branch name
 request title or the pull request body. A tracker failure goes to the log as
 `merger_ticket_failed`. It never stops a merge.
 
-The merger does not move a ticket to `Done`:
+The merger moves a ticket to `Done` when a pull request is merged on GitHub outside the merge
+train (a human approved and merged while the merger held the PR parked or in reviewed state).
+Otherwise:
 
 - With Linear, the Linear↔GitHub integration moves the ticket.
 - With the GitHub tracker, a closed issue is terminal, whatever its status option.
 
 The merger sends these notification events (`symphony.notify.post`, to Slack and Discord):
 `back_to_author`, `needs_maintainer`, `needs_approval`, `preview_ready`, `batch_split`,
-`main_red`, `main_green`, `run_error`.
+`main_red`, `main_green`, `run_error`, `retries_exhausted`, `not_queued`.
 
 ## Stage 1: review
 

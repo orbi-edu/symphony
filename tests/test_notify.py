@@ -92,7 +92,7 @@ def test_bot_posts_chat_post_message_with_mention_and_link(bot):
         "back_to_author",
         "PR #12 has 2 blocking findings <see report> & fix",
         link="https://github.com/o/r/pull/12",
-        github_login="alice-dev",
+        github_logins=["alice-dev"],
     )
     assert sent is True
     [request] = bot.requests
@@ -111,6 +111,7 @@ def test_every_contract_event_has_its_own_emoji_and_title():
     contract = {
         "input_requested", "back_to_author", "needs_maintainer", "batch_split",
         "main_red", "main_green", "run_error", "needs_approval", "preview_ready",
+        "retries_exhausted", "not_queued",
     }
     assert set(notify.EVENTS) == contract
     assert len({emoji for emoji, _ in notify.EVENTS.values()}) == len(contract)
@@ -129,7 +130,7 @@ def test_discord_message_keeps_title_and_link_when_cut():
 
 def test_unmapped_login_posts_without_mention(bot):
     notify.configure({"slack": {"alice": "U1"}})
-    assert notify.post("needs_maintainer", "arbiter could not decide", github_login="bob")
+    assert notify.post("needs_maintainer", "arbiter could not decide", github_logins=["bob"])
     assert "<@" not in bot.requests[0]["body"]["text"]
 
 
@@ -199,7 +200,7 @@ def test_mentions_read_from_mounted_workflow_and_reloaded(bot, monkeypatch, tmp_
         "---\ntracker:\n  kind: memory\nnotify:\n  users:\n    slack:\n      Carol: U777\n"
         "---\nprompt body\n---\n"
     )
-    assert notify.post("input_requested", "Which database?", github_login="carol")
+    assert notify.post("input_requested", "Which database?", github_logins=["carol"])
     assert bot.requests[-1]["body"]["text"].startswith(
         ":raising_hand: *Agent is waiting for an answer* <@U777>"
     )
@@ -208,7 +209,7 @@ def test_mentions_read_from_mounted_workflow_and_reloaded(bot, monkeypatch, tmp_
     import os
 
     os.utime(workflow, (stat.st_atime, stat.st_mtime + 5))
-    assert notify.post("input_requested", "Second question", github_login="carol")
+    assert notify.post("input_requested", "Second question", github_logins=["carol"])
     assert "<@U888>" in bot.requests[-1]["body"]["text"]
 
 
@@ -216,7 +217,7 @@ def test_configured_map_wins_over_workflow(bot, monkeypatch, tmp_path):
     monkeypatch.setenv("SYMPHONY_WORKFLOW_MOUNT", str(tmp_path))
     (tmp_path / "WORKFLOW.md").write_text("---\nnotify:\n  users:\n    slack:\n      dave: U1\n---\n")
     notify.configure({"slack": {"dave": "U2"}})
-    assert notify.post("needs_maintainer", "help", github_login="dave")
+    assert notify.post("needs_maintainer", "help", github_logins=["dave"])
     assert "<@U2>" in bot.requests[-1]["body"]["text"]
 
 
@@ -232,3 +233,20 @@ def test_concurrent_identical_posts_send_once(bot):
         thread.join()
     assert sorted(results) == [False, False, False, False, True]
     assert len(bot.requests) == 1
+
+
+def test_multiple_logins_mentioned_in_slack(bot):
+    """github_logins with two mapped users produces both mentions in the header."""
+    notify.configure({"slack": {"alice": "U1", "bob": "U2"}})
+    assert notify.post("needs_approval", "waiting", github_logins=["alice", "bob"])
+    text = bot.requests[0]["body"]["text"]
+    assert "<@U1>" in text and "<@U2>" in text
+
+
+def test_multiple_logins_only_mapped_appear(bot):
+    """An unmapped login in the list does not produce a mention."""
+    notify.configure({"slack": {"alice": "U1"}})
+    assert notify.post("needs_approval", "waiting", github_logins=["alice", "charlie"])
+    text = bot.requests[0]["body"]["text"]
+    assert "<@U1>" in text
+    assert "charlie" not in text or "<@" not in text.split("charlie")[0][-10:]

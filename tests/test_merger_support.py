@@ -577,7 +577,7 @@ def make_merger(redis_client, tmp_path, world: World, gh: FakeGitHub, agents: Sc
         repo=gh.repo,
         states=STATES,
         tracker=tracker if tracker is not None else FakeTracker(),
-        notify_post=lambda event, text, link=None, github_login=None: notes.append((event, text, link, github_login)),
+        notify_post=lambda event, text, link=None, github_logins=(): notes.append((event, text, link, list(github_logins))),
         pause=pause or (lambda s: gh.tick()),
         clock=clock,
         ticket_labels=("symphony",),

@@ -46,6 +46,10 @@ class FakeEffects:
         self.reported = getattr(self, "reported", [])
         self.reported.append((issue_id, message))
 
+    def notify(self, event, text, *, link=None):
+        self.notified = getattr(self, "notified", [])
+        self.notified.append((event, text, link))
+
     def names(self):
         return [e for e, _ in self.events]
 
