@@ -867,7 +867,7 @@ def _finish(
         kv.put(state.issue_key(issue_id), entry)
         return outcome
     if outcome == "done":
-        entry.update(runner_call_id=None, last_event_at=now, updated_at=now)
+        entry.update(runner_call_id=None, last_event_at=now, updated_at=now, failures=0)
         kv.put(state.issue_key(issue_id), entry)
     elif outcome == "continuation":
         mark_clean_continuation(kv, issue_id, entry, now, updated_at)

@@ -213,3 +213,8 @@ class K8sEffects:
             make_tracker(self.cfg).comment(issue_id, message)
         except Exception as exc:  # noqa: BLE001 — visibility is not worth the daemon
             log.warning("ticket_report_failed", issue_id=issue_id, error=str(exc))
+
+    def notify(self, event: str, text: str, *, link: str | None = None) -> None:
+        from . import notify  # never raises: a channel failure is logged there
+
+        notify.post(event, text, link=link)

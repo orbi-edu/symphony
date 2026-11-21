@@ -1,4 +1,4 @@
-"""Slack and Discord notifications (internals §8): `post(event, text, *, link=None, github_login=None)`.
+"""Slack and Discord notifications (internals §8): `post(event, text, *, link=None, github_logins=())`.
 
 Channels, picked from the environment at call time; every configured channel gets each event:
 
@@ -32,7 +32,7 @@ import hashlib
 import os
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 
 import httpx
 import structlog
@@ -64,6 +64,8 @@ EVENTS: dict[str, tuple[str, str]] = {
     "main_red": (":red_circle:", "main is broken"),
     "main_green": (":large_green_circle:", "main is green again"),
     "run_error": (":x:", "Run failed with an error"),
+    "retries_exhausted": (":octagonal_sign:", "Symphony stopped retrying a ticket"),
+    "not_queued": (":inbox_tray:", "Ticket not queued"),
 }
 _UNKNOWN_EVENT = (":bell:", "Symphony notice")
 # Discord does not expand `:shortcodes:` sent through the API, so it gets the characters.
@@ -77,10 +79,12 @@ DISCORD_EMOJI: dict[str, str] = {
     "main_red": "\N{LARGE RED CIRCLE}",
     "main_green": "\N{LARGE GREEN CIRCLE}",
     "run_error": "\N{CROSS MARK}",
+    "retries_exhausted": "\N{OCTAGONAL SIGN}",
+    "not_queued": "\N{INBOX TRAY}",
 }
 _UNKNOWN_DISCORD_EMOJI = "\N{BELL}"
 
-Sender = Callable[[str, str | None], bool]  # (message, mapped user id) → delivered
+Sender = Callable[[str, list[str]], bool]  # (message, mapped user ids) → delivered
 
 _lock = threading.Lock()
 _sent: dict[str, float] = {}  # channel + message digest → monotonic time of the last delivery
@@ -109,7 +113,7 @@ def post(
     text: str,
     *,
     link: str | None = None,
-    github_login: str | None = None,
+    github_logins: Sequence[str] = (),
 ) -> bool:
     """Send the event to every configured channel. True when at least one channel accepted
     it; False when none is configured, or each one deduplicated or failed (failures are
@@ -119,7 +123,7 @@ def post(
     delivered = False
     for channel in CHANNELS:
         try:
-            if _post(channel, event, text, link=link, github_login=github_login):
+            if _post(channel, event, text, link=link, github_logins=github_logins):
                 delivered = True
         except Exception as exc:  # noqa: BLE001 — a notification never fails its caller
             log.warning(
@@ -130,14 +134,15 @@ def post(
 
 
 def _post(
-    channel: str, event: str, text: str, *, link: str | None, github_login: str | None
+    channel: str, event: str, text: str, *, link: str | None, github_logins: Sequence[str]
 ) -> bool:
     send = _slack_sender() if channel == "slack" else _discord_sender()
     if send is None:
         return False
-    user_id = _user_id(channel, github_login)
+    user_ids = _user_ids(channel, github_logins)
     fmt = format_message if channel == "slack" else format_discord_message
-    message = fmt(event, text, link=link, mention=f"<@{user_id}>" if user_id else "")
+    mentions = " ".join(f"<@{uid}>" for uid in user_ids)
+    message = fmt(event, text, link=link, mention=mentions)
     digest = hashlib.sha256(f"{channel}\0{event}\0{message}".encode()).hexdigest()
     now = time.monotonic()
     with _lock:
@@ -150,7 +155,7 @@ def _post(
         _sent[digest] = now
     delivered = False
     try:
-        delivered = send(message, user_id)
+        delivered = send(message, user_ids)
     finally:
         if not delivered:
             with _lock:
@@ -228,19 +233,19 @@ def _discord_sender() -> Sender | None:
     if token and channel:
         url = f"{discord_api_url()}/channels/{channel}/messages"
         headers["Authorization"] = f"Bot {token}"
-        return lambda message, user: _send_discord(url, headers, {}, message, user)
+        return lambda message, users: _send_discord(url, headers, {}, message, users)
     if webhook:
-        return lambda message, user: _send_discord(webhook, headers, {"wait": "true"}, message, user)
+        return lambda message, users: _send_discord(webhook, headers, {"wait": "true"}, message, users)
     return None
 
 
 def _send_discord(
-    url: str, headers: dict[str, str], params: dict[str, str], message: str, user_id: str | None
+    url: str, headers: dict[str, str], params: dict[str, str], message: str, user_ids: list[str]
 ) -> bool:
     payload = {
         "content": message,
-        # `parse` must stay empty when `users` is listed; together they ping only that user.
-        "allowed_mentions": {"parse": [], "users": [user_id]} if user_id else {"parse": []},
+        # `parse` must stay empty when `users` is listed; together they ping only those users.
+        "allowed_mentions": {"parse": [], "users": user_ids} if user_ids else {"parse": []},
     }
     response = httpx.post(url, headers=headers, params=params, json=payload, timeout=TIMEOUT_S)
     if response.status_code == 429:
@@ -298,11 +303,13 @@ def _json(response: httpx.Response) -> dict:
     return body if isinstance(body, dict) else {}
 
 
-def _user_id(channel: str, github_login: str | None) -> str | None:
-    if not github_login:
-        return None
+def _user_ids(channel: str, github_logins: Sequence[str]) -> list[str]:
+    if not github_logins:
+        return []
     users = _configured_users if _configured_users is not None else _users_from_workflow()
-    return users.get(channel, {}).get(github_login.casefold())
+    channel_map = users.get(channel, {})
+    return [uid for login in github_logins
+            for uid in [channel_map.get(login.casefold())] if uid]
 
 
 def _normalize_users(users: Mapping) -> dict[str, dict[str, str]]:
@@ -385,8 +392,7 @@ def post_with_button(
                     error=type(exc).__name__)
     # Discord — plain text, no button.
     try:
-        login = (github_logins or [None])[0]
-        if _post("discord", event, text, link=link, github_login=login):
+        if _post("discord", event, text, link=link, github_logins=github_logins or []):
             delivered = True
     except Exception as exc:  # noqa: BLE001
         log.warning("notify_failed", notify_channel="discord", notify_event=event,

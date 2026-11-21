@@ -331,3 +331,63 @@ def test_an_author_push_after_the_hand_off_drops_the_pr_from_the_train(env):
     assert out.startswith("#7 gone") and "author pushed" in out
     assert env.m.store.rec(7) is None and env.gh.merges == []
     assert env.gh.comments[7] == []  # gone: no comment, its next review covers the push
+
+
+def test_merged_outside_train_moves_ticket_to_done_via_take(env):
+    """A PR merged on GitHub while in reviewed state (not yet in train) moves
+    the ticket to Done."""
+    handed(env, 7, {"src/a.py": "A = 1\n"})
+    # Simulate human merging on GitHub
+    env.gh.prs[7]["state"] = "merged"
+    out = env.train.step()
+    assert "merged on GitHub outside the merge train" in out
+    assert ("ENG-7", "Done") in env.tracker.moves
+    comment_texts = [c for _, c in env.tracker.comments if _ == "ENG-7"]
+    assert any("merged on GitHub outside the merge train" in c for c in comment_texts)
+
+
+def test_merged_outside_train_parked_moves_ticket_to_done(env):
+    """A parked PR that is merged on GitHub moves the ticket to Done."""
+    from symphony.merger.review import settle_parked
+
+    branch = "eng-7"
+    head = env.world.commit(branch, {"src/a.py": "A = 1\n"}, "feat: a")
+    env.gh.open_pr(7, branch, "ENG-7 change", author="dev7")
+    env.m.store.park({
+        "pr": 7, "branch": branch, "author": "dev7", "title": "ENG-7 change",
+        "issue": "ENG-7", "head_sha": head, "ready_at": "2026-11-01T10:00:00Z",
+        "started_at": env.m.clock(), "parked_at": env.m.clock(), "findings": [],
+        "rounds": 0, "kind": "clean", "outcome": "", "body": "", "drafted": False,
+        "comment": "",
+    })
+    # Mark PR as merged
+    env.gh.prs[7]["state"] = "merged"
+    policy = env.m.policy()
+    settle_parked(env.m, policy, "worker-1")
+    assert ("ENG-7", "Done") in env.tracker.moves
+    comment_texts = [c for _, c in env.tracker.comments if _ == "ENG-7"]
+    assert any("merged on GitHub outside the merge train" in c for c in comment_texts)
+
+
+def test_learnings_pr_sent_back_does_not_move_any_ticket(env):
+    """Regression: a learnings PR names a ticket in its title but must not attribute
+    to it — sending it back must not move the source ticket."""
+    branch = "symphony/learnings/ENG-99"
+    head = env.world.commit(branch, {"AGENTS.md": "# learnings\n"}, "learnings: ENG-99")
+    env.gh.open_pr(10, branch, "learnings: ENG-99", author="dev1")
+    env.gh.prs[10]["labels"].append(cm.REVIEWED)
+    env.m.store.put_rec({
+        "pr": 10, "branch": branch, "author": "dev1", "title": "learnings: ENG-99",
+        "issue": None, "head_sha": head, "reviewed_at": env.m.clock(),
+        "ready_at": "2026-11-01T10:00:00Z", "started_at": env.m.clock(),
+        "policy": cm.VERSION, "state": "reviewed",
+        "publication": {"report": "r", "done": ["comment", "labels", "ticket"]},
+    })
+    # Verify ticket_of returns None for learnings branch
+    pr = env.gh.pr(10)
+    assert env.m.ticket_of(pr) is None
+    # Step puts it through the train — it merges fine
+    result = env.train.step()
+    assert result is not None
+    # No ticket was moved to Rework
+    assert all(ident != "ENG-99" for ident, _ in env.tracker.moves)

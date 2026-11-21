@@ -18,6 +18,7 @@ This document describes the trust boundaries of Symphony, the path of each crede
 - [Read-only investigations](#read-only-investigations)
 - [Fencing](#fencing)
 - [Merger controls](#merger-controls)
+- [Secret-request guard](#secret-request-guard)
 - [Local mode](#local-mode)
 - [Operator checklist](#operator-checklist)
 
@@ -290,6 +291,11 @@ Fencing makes sure that only the current dispatch of a ticket can change state.
 - The merger runs one train at a time under a lease.
 
 [merger.md](merger.md) gives the details.
+
+
+## Secret-request guard
+
+`symphony_ask` posts the agent's question verbatim to the team's Slack channel. A question that asks people to share credentials, keys or tokens would expose secrets in chat. The runner's host-tool broker detects such questions — by matching known secret environment-variable patterns and by finding a request verb near a secret noun (English and Portuguese) — and refuses them with an error before anything is stored or posted. The agent is told to ask a person to run the command in an authorized environment and post only the output.
 
 ## Local mode
 

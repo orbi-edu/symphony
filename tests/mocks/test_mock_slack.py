@@ -64,7 +64,7 @@ def test_notify_via_bot_token(slack_env, monkeypatch):
     monkeypatch.setenv("SLACK_BOT_TOKEN", TOKEN)
     monkeypatch.setenv("SLACK_CHANNEL", "#symphony")
     notify.configure({"slack": {"alice": "U0ALICE01"}})
-    assert notify.post("main_red", "CI failed", link="https://x/1", github_login="alice")
+    assert notify.post("main_red", "CI failed", link="https://x/1", github_logins=["alice"])
     [msg] = _messages(slack_env)
     assert msg["via"] == "chat.postMessage"
     assert msg["channel"] == slack.DEFAULT_CHANNEL["id"]

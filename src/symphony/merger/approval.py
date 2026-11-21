@@ -11,6 +11,8 @@ handles.
 
 from __future__ import annotations
 
+import time
+
 import structlog
 
 from . import comments as cm
@@ -79,23 +81,87 @@ def _approval_dedup_key(store, n: int, head_sha: str) -> str:
     return store._k(f"approval:{n}:{head_sha[:12]}")  # noqa: SLF001
 
 
+REMINDER_AFTER_S = 86400  # 24 hours
+
+
+def _approval_reviewers_and_logins(m: Merger, n: int, pr: dict) -> tuple[list[str], list[str]]:
+    """(all reviewer logins for the message, mapped logins for mentions)."""
+    from .. import notify as _notify
+
+    logins: list[str] = []
+    for login in pr.get("requested_reviewers", []):
+        if isinstance(login, dict):
+            login = login.get("login", "")
+        if login and login.casefold() not in [x.casefold() for x in logins]:
+            logins.append(login)
+    try:
+        for r in m.gh.reviews(n):
+            user = r.get("user", "")
+            if user and user.casefold() not in [x.casefold() for x in logins]:
+                logins.append(user)
+    except Exception:  # noqa: BLE001
+        pass
+    users = (_notify._configured_users  # noqa: SLF001
+             if _notify._configured_users is not None  # noqa: SLF001
+             else _notify._users_from_workflow())  # noqa: SLF001
+    # A login mapped on any channel is mentioned; each channel resolves its own id.
+    mapped = [lg for lg in logins
+              if any(section.get(lg.casefold()) for section in users.values())]
+    return logins, mapped
+
+
 def _notify_needs_approval(m: Merger, n: int, rec: dict) -> None:
-    """One notification per (PR, head sha), mentioning each mapped reviewer (the author
-    when none is mapped)."""
-    key = _approval_dedup_key(m.store, n, rec["head_sha"])
-    if not m.store.client.set(key, "1", nx=True, ex=86400):
-        return
+    """One notification per (PR, head sha) listing CI status, review status, who must
+    act, and the next step.  A reminder fires once if still waiting 24 h later."""
+    head_sha = rec["head_sha"]
+    key = _approval_dedup_key(m.store, n, head_sha)
+    value = m.store.client.get(key)
+    if value is not None:
+        # Already sent — check if a reminder is due.
+        if value == "reminded":
+            return
+        # `value` is the epoch-seconds of the first notice.
+        try:
+            sent_at = float(value)
+        except (TypeError, ValueError):
+            return
+        if time.time() - sent_at < REMINDER_AFTER_S:
+            return
+        m.store.client.set(key, "reminded", xx=True, keepttl=True)
+        is_reminder = True
+    else:
+        # Kept for as long as a head can plausibly wait; a new head gets its own key.
+        if not m.store.client.set(key, str(time.time()), nx=True, ex=30 * 86400):
+            return  # another pass sent it first
+        is_reminder = False
+
     try:
         pr = m.gh.pr(n)
-    except Exception:  # noqa: BLE001 — the author is still worth a ping
-        pr = {"number": n, "author": rec.get("author") or ""}
-    for login in _mapped_reviewers(m, pr) or [None]:
-        m.notify(
-            "needs_approval",
-            f"PR #{n} {rec.get('title', '')[:90]} is reviewed and waiting for a human approval.",
-            link=m.pr_url(n),
-            login=login,
-        )
+    except Exception:  # noqa: BLE001
+        pr = {"number": n, "author": rec.get("author") or "", "title": rec.get("title", "")}
+    pr_title = pr.get("title", "") or rec.get("title", "")
+    all_reviewers, mapped = _approval_reviewers_and_logins(m, n, pr)
+
+    sha9 = head_sha[:9]
+    lines = []
+    prefix = "Reminder: " if is_reminder else ""
+    lines.append(f"{prefix}PR #{n} {pr_title[:90]}")
+    lines.append(f"CI: passed on {sha9}")
+    lines.append("Merger review: nothing blocking")
+    if all_reviewers:
+        names = ", ".join(all_reviewers)
+        lines.append(f"Waiting on: an approval on GitHub from {names}")
+    else:
+        lines.append(
+            "Waiting on: no reviewer is requested — request one on the PR "
+            "(anyone with write access can approve)")
+    lines.append("Next: once approved, the merge train merges it.")
+    m.notify(
+        "needs_approval",
+        "\n".join(lines),
+        link=m.pr_url(n),
+        logins=mapped,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -133,36 +199,10 @@ def _mapped_reviewers(m: Merger, pr: dict) -> list[str]:
     """GitHub logins of the PR's reviewers per contract §4: requested reviewers plus
     those with a submitted review, mapped in `notify.users.slack`. With none mapped, the
     PR author (Symphony does not know the tracker creator's GitHub login)."""
-    from .. import notify as _notify
-
-    logins: list[str] = []
-    # requested_reviewers come from the PR dict (FakeGitHub provides them, REST sets them)
-    for login in pr.get("requested_reviewers", []):
-        if isinstance(login, dict):
-            login = login.get("login", "")
-        if login and login.casefold() not in [x.casefold() for x in logins]:
-            logins.append(login)
-    # submitted reviews
-    try:
-        reviews = m.gh.reviews(pr["number"])
-        for r in reviews:
-            user = r.get("user", "")
-            if user and user.casefold() not in [x.casefold() for x in logins]:
-                logins.append(user)
-    except Exception:  # noqa: BLE001
-        pass
-    # Filter to mapped logins
-    users = (_notify._configured_users  # noqa: SLF001
-             if _notify._configured_users is not None  # noqa: SLF001
-             else _notify._users_from_workflow())  # noqa: SLF001
-    slack_map = users.get("slack", {})
-    mapped = [lg for lg in logins if slack_map.get(lg.casefold())]
+    _, mapped = _approval_reviewers_and_logins(m, pr["number"], pr)
     if mapped:
         return mapped
-    # Fallback: the PR author.
     author = pr.get("author", "")
-    if author and slack_map.get(author.casefold()):
-        return [author]
     return [author] if author else []
 
 

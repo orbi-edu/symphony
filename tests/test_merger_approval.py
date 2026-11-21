@@ -451,3 +451,103 @@ def test_check_previews_scans_open_prs(env):
     with mock.patch("symphony.notify.post_with_button", side_effect=lambda *a, **kw: posted.append(kw) or True):
         check_previews_for_open_prs(env.m, policy)
     assert len(posted) == 1
+
+
+# ---------------------------------------------------------------------------
+# Approval notice: PR title, multi-reviewer, no reviewer, dedup, reminder
+# ---------------------------------------------------------------------------
+
+
+def test_approval_notice_carries_pr_title_not_waiting_title(env_approval):
+    """Regression: the approval notice must show the PR title, not 'Waiting for CI'."""
+    handed(env_approval, 7, {"src/a.py": "A = 1\n"})
+    env_approval.train.step()
+    approval_notes = [n for n in env_approval.notes if n[0] == "needs_approval"]
+    assert len(approval_notes) == 1
+    text = approval_notes[0][1]
+    assert "ENG-7 change" in text
+    assert "Waiting for CI" not in text
+
+
+def test_approval_notice_mentions_two_mapped_reviewers(env_approval):
+    """One message mentions both mapped reviewers."""
+    from symphony import notify
+    notify.configure({"slack": {"reviewer1": "U1", "reviewer2": "U2"}})
+    handed(env_approval, 7, {"src/a.py": "A = 1\n"})
+    env_approval.gh.prs[7]["requested_reviewers"] = ["reviewer1", "reviewer2"]
+    env_approval.train.step()
+    approval_notes = [n for n in env_approval.notes if n[0] == "needs_approval"]
+    assert len(approval_notes) == 1
+    logins = approval_notes[0][3]  # the github_logins list
+    assert "reviewer1" in logins
+    assert "reviewer2" in logins
+    text = approval_notes[0][1]
+    assert "reviewer1" in text and "reviewer2" in text
+    notify.reset()
+
+
+def test_approval_notice_no_reviewer_says_so(env_approval):
+    """When no reviewer is requested, the message says so."""
+    handed(env_approval, 7, {"src/a.py": "A = 1\n"})
+    env_approval.gh.prs[7]["requested_reviewers"] = []
+    # Remove the default author fallback by setting author to empty
+    env_approval.gh.prs[7]["author"] = ""
+    env_approval.train.step()
+    approval_notes = [n for n in env_approval.notes if n[0] == "needs_approval"]
+    assert len(approval_notes) == 1
+    text = approval_notes[0][1]
+    assert "no reviewer is requested" in text
+
+
+def test_approval_same_head_twice_sends_one_message(env_approval):
+    """Same (PR, head) fires only one notice."""
+    handed(env_approval, 7, {"src/a.py": "A = 1\n"})
+    env_approval.train.step()
+    env_approval.train.step()
+    approval_notes = [n for n in env_approval.notes if n[0] == "needs_approval"]
+    assert len(approval_notes) == 1
+
+
+def test_approval_new_head_gets_new_message(env_approval):
+    """A new head sha gets a fresh notice."""
+    handed(env_approval, 7, {"src/a.py": "A = 1\n"})
+    env_approval.train.step()
+    # Push a new head
+    head2 = env_approval.world.commit("eng-7", {"src/a.py": "A = 2\n"}, "feat: update")
+    env_approval.gh.prs[7]["head_sha"] = head2
+    # The train sees the push and drops the PR
+    env_approval.train.step()
+    # Re-hand it with new head
+    env_approval.m.store.put_rec({
+        "pr": 7, "branch": "eng-7", "author": "dev7", "title": "ENG-7 change",
+        "issue": "ENG-7", "head_sha": head2, "reviewed_at": env_approval.m.clock(),
+        "ready_at": "2026-11-01T10:00:00Z", "started_at": env_approval.m.clock(),
+        "policy": "symphony-merger", "state": "reviewed",
+        "publication": {"report": "r", "done": ["comment", "labels", "ticket"]},
+    })
+    env_approval.train.step()
+    approval_notes = [n for n in env_approval.notes if n[0] == "needs_approval"]
+    assert len(approval_notes) == 2
+
+
+def test_approval_reminder_after_24h(env_approval, monkeypatch):
+    """A reminder fires once after 24 h."""
+    import time as _time
+    real_time = _time.time()
+    clock = [real_time]
+    monkeypatch.setattr(_time, "time", lambda: clock[0])
+    handed(env_approval, 7, {"src/a.py": "A = 1\n"})
+    env_approval.train.step()
+    approval_notes = [n for n in env_approval.notes if n[0] == "needs_approval"]
+    assert len(approval_notes) == 1
+    # Advance 24h + 1
+    clock[0] = real_time + 86401
+    env_approval.train.step()
+    approval_notes = [n for n in env_approval.notes if n[0] == "needs_approval"]
+    assert len(approval_notes) == 2
+    assert "Reminder:" in approval_notes[1][1]
+    # No second reminder
+    clock[0] = real_time + 86401 * 2
+    env_approval.train.step()
+    approval_notes = [n for n in env_approval.notes if n[0] == "needs_approval"]
+    assert len(approval_notes) == 2

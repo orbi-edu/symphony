@@ -812,10 +812,14 @@ def process_commands(store, kv, tracker, cfg, fx, owner, now_ms, *, publish_work
                             raise CommandError(
                                 "human_gate", "Tracker prerequisites do not permit this work."
                             )
+                        # A human looked: a ticket the retry budget had stopped gets a new one.
                         entry.update(
                             status="retry_queued",
                             retry_at=max(entry.get("retry_at") or 0, _now()),
                             updated_at=_now(),
+                            failures=0,
+                            blocked_reason=None,
+                            exhaustion_reported_at=None,
                         )
                         pipe.set(state.issue_key(issue_id), _json(entry), ex=kv.ttl_s)
                         result = "Eligibility refreshed; admission, backoff and capacity still govern dispatch."

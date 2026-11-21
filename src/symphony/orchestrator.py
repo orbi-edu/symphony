@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from typing import Protocol
 
-from . import prwatch, state, telemetry
+from . import intake, prwatch, state, telemetry
 from .config import Config, known_runtimes, resolve_workspace
 from .repos import validate_runtime_component
 from .trackers.base import Issue, TrackerAdapter, TrackerUnavailable
@@ -60,6 +60,11 @@ class Effects(Protocol):
         """
         ...
 
+    def notify(self, event: str, text: str, *, link: str | None = None) -> None:
+        """Post a notice to the team's channel (`symphony.notify`). Best effort: a channel
+        outage never fails a tick."""
+        ...
+
 
 def compute_backoff_ms(failed_attempt: int, cap_ms: int) -> int:
     """Backoff per upstream spec §8.5: min(10s × 2^(attempt−1), cap)."""
@@ -102,19 +107,41 @@ def dispatch_order(issues: list[Issue]) -> list[Issue]:
     )
 
 
+RETRIES_EXHAUSTED = "retries_exhausted"
+
+
 def retry_after_failure(entry: dict, cfg: Config, now_ms: int, failure_summary: str) -> dict:
     """The fields a failed attempt sets: it consumes the attempt and applies backoff; the
-    summary feeds the L1 loop (FR-006). Pure, so a fenced writer can apply it atomically."""
+    summary feeds the L1 loop (FR-006). Pure, so a fenced writer can apply it atomically.
+
+    After `agent.max_failed_attempts` failures in a row the ticket is `blocked` instead of
+    queued again: a cause that does not go away (an expired credential, a broken image)
+    must reach a human, not loop for days. The daemon reports it on its next tick."""
     failed = entry["attempt"]
-    return {
-        "status": "retry_queued",
+    failures = entry.get("failures", 0) + 1
+    fields = {
         "attempt": failed + 1,
-        "retry_at": now_ms + compute_backoff_ms(failed, cfg.max_retry_backoff_ms),
+        "failures": failures,
         "runner_call_id": None,
         "stall_strikes": 0,
         "failure_summary": failure_summary,
         "updated_at": now_ms,
     }
+    if cfg.max_failed_attempts and failures >= cfg.max_failed_attempts:
+        return {**fields, "status": "blocked", "retry_at": None, "blocked_reason": RETRIES_EXHAUSTED,
+                "exhaustion_reported_at": None}
+    return {**fields, "status": "retry_queued",
+            "retry_at": now_ms + compute_backoff_ms(failed, cfg.max_retry_backoff_ms)}
+
+
+# The report's own comment moves the ticket's `updated_at` a moment after it is sent; an
+# update later than this counts as a person touching the ticket.
+REPORT_ECHO_MS = 60_000
+
+
+def _touched_after_report(issue: Issue, entry: dict) -> bool:
+    reported_at = entry.get("exhaustion_reported_at")
+    return bool(reported_at) and intake.changed_since(issue, reported_at + REPORT_ECHO_MS)
 
 
 def mark_retry_after_failure(
@@ -134,6 +161,7 @@ def mark_clean_continuation(
         runner_call_id=None,
         stall_strikes=0,
         last_clean_exit_at=now_ms,
+        failures=0,
         last_issue_updated_at=issue_updated_at,
         failure_summary=None,
         updated_at=now_ms,
@@ -343,8 +371,18 @@ def tick(
                     kv.put(state.issue_key(issue_id), entry)
                     fx.emit("orphan_claim_reopened", issue_id=issue_id, attempt=entry["attempt"])
             elif entry.get("status") == "blocked":
-                if (refresh or issue.updated_at != entry.get("last_issue_updated_at")) and not entry.get("admin_authorization_revoked"):
-                    entry.update(status="retry_queued", retry_at=now_ms, updated_at=now_ms)
+                exhausted = entry.get("blocked_reason") == RETRIES_EXHAUSTED
+                revoked = entry.get("admin_authorization_revoked")
+                if exhausted and not refresh and not entry.get("exhaustion_reported_at"):
+                    _report_exhausted(issue, entry, cfg, fx)
+                    entry.update(exhaustion_reported_at=now_ms, updated_at=now_ms)
+                    kv.put(state.issue_key(issue_id), entry)
+                elif not revoked and (refresh or (
+                    _touched_after_report(issue, entry) if exhausted
+                    else issue.updated_at != entry.get("last_issue_updated_at")
+                )):
+                    entry.update(status="retry_queued", retry_at=now_ms, updated_at=now_ms, failures=0,
+                                 blocked_reason=None, exhaustion_reported_at=None)
                     kv.put(state.issue_key(issue_id), entry)
                     fx.emit("blocked_reopened", issue_id=issue_id)
 
@@ -428,6 +466,9 @@ def tick(
     # dispatch when the ticket comes back to an active state.
     tracked_ids = {iid for iid, e in tracked.items() if e.get("status") != PARKED}
     valid_runtimes = known_runtimes(cfg)
+    # Tickets that are Symphony's already: the intake verdict is only for the others.
+    owned = set(tracked) | set(held)
+    routing: dict[str, str] = {}
     candidates = []
     for i in active:
         if i.id in held or not eligible(i, cfg, tracked_ids):
@@ -437,8 +478,10 @@ def tick(
         )
         if rc_reason:
             fx.emit("issue_not_routable", issue_id=i.id, identifier=i.identifier, reason=rc_reason)
+            routing[i.id] = rc_reason
             continue
         candidates.append(i)
+    started: set[str] = set()
     for issue in dispatch_order(candidates):
         if not admission_open():
             break
@@ -478,8 +521,47 @@ def tick(
         busy += 1
         per_state[issue.state] = per_state.get(issue.state, 0) + 1
         dispatched += 1
+        started.add(issue.id)
 
+    _intake(kv, tracker, cfg, now_ms, fx, active, owned - started, started, routing, wake_reasons)
     return {"dispatched": dispatched, "tracked": len(tracked), "busy": busy}
+
+
+_TRACKER_WAKES = ("linear:", "github:issues:", "github:sub_issues:", "github:issue_dependencies:",
+                  "github:projects_v2_item:")
+
+
+def _intake(
+    kv: state.KV, tracker: TrackerAdapter, cfg: Config, now_ms: int, fx: Effects,
+    active: list[Issue], owned: set[str], started: set[str], routing: dict[str, str],
+    wake_reasons: Iterable[str],
+) -> None:
+    """Tell each ticket addressed to Symphony whether it is queued and, if not, what is
+    missing (`intake.py`). Active tickets are checked on every tick, from the poll already
+    made; the intake states (Backlog…) on a tracker webhook or every `intake.INTERVAL_MS`."""
+    mark = intake.watermark(kv, now_ms)
+    seen = list(active)
+    woken = any(r.startswith(_TRACKER_WAKES) for r in wake_reasons)
+    if cfg.intake_states and intake.due(kv, now_ms, woken):
+        kv.put(intake.LAST_PASS_KEY, now_ms)
+        try:
+            seen += tracker.fetch_issues_by_states(list(cfg.intake_states))
+        except TrackerUnavailable:
+            fx.emit("tracker_unavailable", phase="intake")
+    for issue in seen:
+        if issue.id in owned or not intake.addressed(issue, cfg) or not intake.changed_since(issue, mark):
+            continue
+        if issue.id in started:
+            # Its answer is the agent at work; remembered so a later stop is news again.
+            intake.remember(kv, issue.id, intake.Verdict("queued", True, False, ""))
+            continue
+        v = intake.verdict(issue, cfg, routing.get(issue.id))
+        if not intake.remember(kv, issue.id, v):
+            continue
+        fx.report_to_ticket(issue.id, f"**Symphony** — {v.text}")
+        if v.human:
+            fx.notify("not_queued", v.text, link=issue.url)
+        fx.emit("intake_verdict", issue_id=issue.id, verdict=v.key)
 
 
 PARKED = "parked"
@@ -720,15 +802,43 @@ def _check_stall(kv: state.KV, issue_id: str, entry: dict, cfg: Config, now_ms: 
     attempt = entry.get("attempt", "?")
     mark_retry_after_failure(kv, issue_id, entry, cfg, now_ms, summary)
     fx.emit("stall_killed" if still_running else "runner_crash_requeued", issue_id=issue_id)
+    if entry.get("status") == "blocked":
+        return  # the retries ran out: the next tick reports that, with the cause
     window_min = cfg.stall_timeout_ms / 60_000
     window = f"{window_min:.0f} minutes" if window_min >= 1 else f"{cfg.stall_timeout_ms / 1000:.0f} seconds"
     detail = f"went silent for more than {window} and was stopped" if still_running else "stopped unexpectedly"
+    budget = (f" This is failure {entry['failures']} of {cfg.max_failed_attempts} in a row; at "
+              f"{cfg.max_failed_attempts} Symphony stops retrying and asks for a human."
+              if cfg.max_failed_attempts else "")
     fx.report_to_ticket(
         issue_id,
         f"**Attempt {attempt} ended without finishing** — it {detail}. "
         f"A new attempt is queued; the branch and this Workpad are kept, so the next one "
-        f"continues rather than restarts.\n\n_Reported by the orchestrator, not the agent: "
+        f"continues rather than restarts.{budget}\n\n_Reported by the orchestrator, not the agent: "
         f"it was no longer running to report for itself._",
+    )
+
+
+def _report_exhausted(issue: Issue, entry: dict, cfg: Config, fx: Effects) -> None:
+    """Retries ran out: say on the ticket and in the channel what failed, who acts, and
+    what brings the ticket back. One report per exhaustion (`exhaustion_reported`)."""
+    failures = entry.get("failures") or cfg.max_failed_attempts
+    cause = (entry.get("failure_summary") or "no failure summary was recorded").strip()[:300]
+    queue_again = (f"run `symphony reevaluate {issue.identifier}`, or edit the ticket (a comment "
+                   "is enough) to queue a new attempt")
+    fx.report_to_ticket(
+        issue.id,
+        f"**Symphony stopped retrying this ticket** — {failures} attempts in a row ended without "
+        f"finishing.\n\n- **What failed:** {cause}\n- **Who acts:** a Symphony operator: retrying did "
+        f"not clear it, so the cause is likely outside this ticket.\n- **Next step:** fix the "
+        f"cause, then {queue_again}. The branch and this Workpad are kept.\n\n_Reported by the "
+        f"orchestrator, not the agent._",
+    )
+    fx.notify(
+        "retries_exhausted",
+        f"{issue.identifier} stopped after {failures} failed attempts in a row.\n"
+        f"What failed: {cause}\nWho acts: a Symphony operator.\nNext: fix the cause, then {queue_again}.",
+        link=issue.url,
     )
 
 

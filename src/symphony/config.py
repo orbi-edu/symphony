@@ -51,6 +51,9 @@ class Config:
     active_states: tuple[str, ...] = ("Todo", "In Progress", "Rework")
     terminal_states: tuple[str, ...] = ("Closed", "Cancelled", "Canceled", "Duplicate", "Done")
     required_labels: tuple[str, ...] = ()
+    # States where a ticket waits before it is ready (Backlog, Triage). A ticket there that
+    # carries Symphony's labels is told it is not queued yet, and why (`intake.py`).
+    intake_states: tuple[str, ...] = ("Backlog", "Triage")
     # `tracker.issues` (memory tracker only): the seed board, so every process that mounts
     # the same WORKFLOW.md sees the same tickets — moving one means republishing the file.
     memory_issues: tuple[dict, ...] = ()
@@ -67,6 +70,9 @@ class Config:
     max_concurrent_agents_by_state: dict = field(default_factory=dict)
     max_turns: int = 20
     max_retry_backoff_ms: int = 300_000
+    # Failed attempts in a row before Symphony stops retrying and asks a human (the ticket
+    # becomes `blocked`). A clean exit resets the count. 0 retries forever.
+    max_failed_attempts: int = 8
     # How long `symphony_ask` waits for a human before the agent proceeds on its own
     # judgment (internals §3). The run never hangs on an absent human.
     input_timeout_ms: int = 900_000
@@ -830,6 +836,7 @@ def parse_workflow(text: str, env: Mapping[str, str] | None = None) -> Config:
         active_states=_str_list(tracker, "active_states", defaults.active_states),
         terminal_states=_str_list(tracker, "terminal_states", defaults.terminal_states),
         required_labels=_str_list(tracker, "required_labels", defaults.required_labels),
+        intake_states=_str_list(tracker, "intake_states", defaults.intake_states),
         memory_issues=_memory_issues(tracker),
         tracker_states=tracker_states,
         investigation_label=_typed(
@@ -846,6 +853,9 @@ def parse_workflow(text: str, env: Mapping[str, str] | None = None) -> Config:
         max_turns=_typed(agent, "max_turns", int, defaults.max_turns),
         max_retry_backoff_ms=_typed(
             agent, "max_retry_backoff_ms", int, defaults.max_retry_backoff_ms
+        ),
+        max_failed_attempts=_typed(
+            agent, "max_failed_attempts", int, defaults.max_failed_attempts
         ),
         input_timeout_ms=_typed(agent, "input_timeout_ms", int, defaults.input_timeout_ms),
         stall_timeout_ms=_typed(agent, "stall_timeout_ms", int, defaults.stall_timeout_ms),

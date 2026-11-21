@@ -13,6 +13,9 @@ tracker:
   active_states: [Todo, In Progress, Rework]
   terminal_states: [Done, Canceled, Duplicate]
   required_labels: [symphony]
+  # A ticket with Symphony's labels in one of these states is told on the ticket (and the
+  # channel) that it is not queued yet, and what queues it.
+  intake_states: [Backlog, Triage]
   # The states of the review pipeline (docs/merger.md). The implementer hands over to
   # `review`; the merger writes `rework` and `merging`; `done` comes from the Linear↔GitHub
   # integration when the pull request lands.
@@ -78,6 +81,9 @@ agent:
   max_concurrent_agents: 2
   max_turns: 20
   max_retry_backoff_ms: 300000
+  # Failed attempts in a row before Symphony stops retrying, reports the cause and waits
+  # for a human (`symphony reevaluate`, or any edit of the ticket). 0 retries forever.
+  max_failed_attempts: 8
   # Daemon stall detector. Sized against the LONGEST legitimate tool call, not against a
   # hung agent: the engine emits nothing while a tool runs, so any single command that
   # outlasts this window is killed as if the agent had frozen. With a .NET SDK and a
@@ -260,9 +266,13 @@ Your tools beyond the workspace:
   "blocks" relations, in one call. `symphony_attach_evidence` — attach a file from the
   workspace (a screenshot, a log) to this ticket.
 - `symphony_ask` — ask a person, and wait for the answer. Use it ONLY when you are blocked
-  on a decision that is not yours to make (product behavior, scope, access you do not have).
-  If nobody answers in time you will be told to proceed: do so on your best judgment and
-  record the assumption in the Workpad. Never use it for permission to do your job.
+  on a decision that is not yours to make (product behavior, scope). When a check needs
+  access you lack (cloud accounts, production data, paid APIs), never ask for credentials,
+  keys or tokens: ask a person to run the exact command in an environment authorized for it
+  and post only the output to the ticket or PR. Record in the Workpad that the check was
+  not run by the agent. If nobody answers in time you will be told to proceed: do so on
+  your best judgment and record the assumption in the Workpad. Never use it for permission
+  to do your job.
 - Git pushes and the GitHub API work for this ticket's repositories (and only those). The
   REST API is at `$GITHUB_API_URL` (`https://api.github.com` when unset). Get the token from
   git's credential helper and send it as `Authorization: Bearer $TOKEN`:

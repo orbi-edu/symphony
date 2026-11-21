@@ -17,6 +17,7 @@ from __future__ import annotations
 import math
 import re
 
+from ..reflector import LEARNINGS_BRANCH_PREFIX
 from . import comments as cm
 from .ci import cancel_ci, ci_state, latest_run, restart_ci
 from .context import Merger, log
@@ -173,6 +174,15 @@ class Train:
         if pr["state"] == "merged" and rec["state"] == "train":
             return self.finish(rec, merged_outcome() if merged_outcome else
                                {"end": "merged", "text": "CI passed; merged.", "done": []})
+        if pr["state"] == "merged":
+            # Merged outside the merge train (e.g. a human merged it on GitHub). A record
+            # written before learnings PRs were excluded may still name a source ticket.
+            if not (rec.get("branch") or "").startswith(LEARNINGS_BRANCH_PREFIX):
+                self.m.move_ticket(rec.get("issue"), "done",
+                                   f"PR #{n} was merged on GitHub outside the merge train.")
+            return self.finish(rec, {"end": "merged",
+                                     "text": f"#{n} was merged on GitHub outside the merge train.",
+                                     "done": []})
         if pr["state"] != "open" or pr["draft"]:
             return self.finish(rec, {"end": "gone", "text": f"#{n} is {'a draft' if pr['draft'] else pr['state']}", "done": []})
 
@@ -577,7 +587,7 @@ class Train:
                     authors = sorted({x["author"] for x in recs})
                     m.notify("batch_split", f"CI failed twice on the batch {everyone}. The PRs go back to the merge "
                              "train in smaller batches until the failing PR is found.", link=m.pr_url(recs[0]["pr"]),
-                             login=authors[0] if len(authors) == 1 else None)
+                             logins=authors)
                     return end(recs, f"CI failed in the batch {everyone}: {r['reason']}")
                 git.fetch()
                 if not git.is_ancestor(git.origin_main, recs[0]["head_sha"]):

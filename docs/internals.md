@@ -378,16 +378,18 @@ certification and the tests use it.
 
 ### Notifications
 
-- **Post:** `symphony.notify.post(event, text, *, link=None, github_login=None)`. The
-  events are `input_requested`, `back_to_author`, `needs_maintainer`, `batch_split`,
-  `main_red`, `main_green` and `run_error`. Each configured channel gets each event:
+- **Post:** `symphony.notify.post(event, text, *, link=None, github_logins=())`. The
+  events are `input_requested`, `back_to_author`, `needs_maintainer`, `needs_approval`,
+  `preview_ready`, `batch_split`, `main_red`, `main_green`, `run_error`,
+  `retries_exhausted` and `not_queued`. Each configured channel gets each event:
   - Slack: `SLACK_BOT_TOKEN` and `SLACK_CHANNEL`, or `SLACK_WEBHOOK_URL`.
   - Discord: `DISCORD_BOT_TOKEN` and `DISCORD_CHANNEL_ID`, or `DISCORD_WEBHOOK_URL`.
 - **Mentions:** `notify.users` in `WORKFLOW.md` has one map per channel:
   `{slack: {<github login>: <Slack user id>}, discord: {<github login>: <Discord user id>}}`.
-  A flat map is an error.
+  A flat map is an error. `github_logins` is a sequence of GitHub logins; every mapped login
+  gets a mention in the header. On Discord, `allowed_mentions.users` lists all mapped ids.
 - **Discord format:** Discord markdown, at most 2000 characters. `allowed_mentions` allows only
-  the mapped user. If Discord answers 429 with a short `retry_after`, `notify` waits and tries
+  the mapped users. If Discord answers 429 with a short `retry_after`, `notify` waits and tries
   one more time.
 - Without a configuration, `post` does nothing. The same event and text are sent at most once
   in 60 s.

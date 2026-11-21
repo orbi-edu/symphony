@@ -82,7 +82,7 @@ def test_notify_via_bot_mentions_only_the_mapped_user(bot):
     notify.configure({"slack": {"alice": "U0ALICE"}, "discord": {"Alice": ALICE}})
     text = f"PR #12 needs you <@{BOB}> @everyone"
     assert notify.post("back_to_author", text, link="https://github.com/o/r/pull/12",
-                       github_login="alice")
+                       github_logins=["alice"])
     [msg] = _messages(bot)
     assert msg["via"] == "bot" and msg["channel_id"] == CHANNEL
     assert msg["content"] == (
@@ -95,9 +95,18 @@ def test_notify_via_bot_mentions_only_the_mapped_user(bot):
     assert msg["user_agent"].startswith("DiscordBot (")
 
 
+def test_notify_discord_mentions_several_mapped_users(bot):
+    """Multiple github_logins produces mentions for all mapped Discord users."""
+    notify.configure({"discord": {"alice": ALICE, "bob": BOB}})
+    assert notify.post("needs_approval", "waiting for review", github_logins=["alice", "bob"])
+    [msg] = _messages(bot)
+    assert f"<@{ALICE}>" in msg["content"] and f"<@{BOB}>" in msg["content"]
+    assert set(msg["allowed_mentions"]["users"]) == {ALICE, BOB}
+
+
 def test_notify_via_webhook_without_mapping_pings_nobody(env, monkeypatch):
     monkeypatch.setenv("DISCORD_WEBHOOK_URL", env + discord.DEFAULT_WEBHOOK_PATH)
-    assert notify.post("main_green", f"fixed by <@{ALICE}>", github_login="carol")
+    assert notify.post("main_green", f"fixed by <@{ALICE}>", github_logins=["carol"])
     [msg] = _messages(env)
     assert msg["via"] == "webhook"
     assert msg["content"] == f"\N{LARGE GREEN CIRCLE} **main is green again**\nfixed by <@{ALICE}>"
@@ -161,7 +170,7 @@ def test_both_channels_get_each_event(bot, monkeypatch):
         monkeypatch.setenv("SLACK_BOT_TOKEN", slack.DEFAULT_TOKEN)
         monkeypatch.setenv("SLACK_CHANNEL", "symphony")
         notify.configure({"slack": {"alice": "U0ALICE01"}, "discord": {"alice": ALICE}})
-        assert notify.post("needs_maintainer", "arbiter undecided", github_login="alice")
+        assert notify.post("needs_maintainer", "arbiter undecided", github_logins=["alice"])
         [on_slack] = httpx.get(f"{slack_base}/_mock/messages").json()["messages"]
         [on_discord] = _messages(bot)
         assert on_slack["text"] == ":rotating_light: *A maintainer is needed* <@U0ALICE01>\narbiter undecided"

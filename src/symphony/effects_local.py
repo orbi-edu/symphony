@@ -580,3 +580,9 @@ class LocalEffects:
             self._tracker_for(self.cfg).comment(issue_id, message)
         except Exception as exc:  # noqa: BLE001 — visibility is not worth the daemon
             log.warning("ticket_report_failed", issue_id=issue_id, error=str(exc))
+
+    def notify(self, event: str, text: str, *, link: str | None = None) -> None:
+        """Same as `K8sEffects`: the configured channels, best effort."""
+        from . import notify
+
+        notify.post(event, text, link=link)
