@@ -5,7 +5,7 @@ Concrete wrappers for the pure interfaces, mirroring what app.py's Modal classes
 - `PodSandbox`      implements `workspace.SandboxLike` over `pod exec` (WebSocket);
 - `EngineProc`      implements the `omp_rpc` Line{Reader,Writer} protocols over an
                     interactive exec into the workspace pod;
-- workspace pods    replace `modal.Sandbox` (named `ws-<key>`, `sleep infinity`,
+- workspace pods    replace `modal.Sandbox` (named `ws-<key>`, a reaping PID 1,
                     exec'd into; per-workspace PVC replaces the session Volume);
 - Jobs              replace `Function.spawn` (one Job per dispatch, `backoffLimit: 0`
                     — platform retries stay off, recovery belongs to the orchestrator,
@@ -23,7 +23,7 @@ import threading
 import time
 
 from . import endpoints
-from .edge import SESSION_MOUNT, WORKFLOW_MOUNT, WORKSPACE_CONTAINER, log
+from .edge import SESSION_MOUNT, WORKFLOW_MOUNT, WORKSPACE_CONTAINER, WORKSPACE_INIT, log
 from .omp_rpc import split_frames
 from .workspace import dns_name, workspace_key
 
@@ -380,7 +380,7 @@ def _workspace_manifest(cfg, name: str, image: str) -> dict:
                 {
                     "name": WORKSPACE_CONTAINER,
                     "image": image,
-                    "command": ["sleep", "infinity"],
+                    "command": ["bash", "-c", WORKSPACE_INIT],
                     "resources": {
                         "requests": {"cpu": cpu, "memory": mem},
                         "limits": {"cpu": cpu, "memory": mem},

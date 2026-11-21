@@ -34,6 +34,10 @@ def _generation_stop_script(issue_id: str, seq: int) -> str:
 generation_pids() {
     for path in /proc/[0-9]*/environ; do
         [ -d "${path%/environ}" ] || continue
+        # A zombie has exited: it holds nothing, and its environ cannot be read (ESRCH).
+        case $(sed -n 's/^State:[[:space:]]*//p' "${path%/environ}/status" 2>/dev/null) in
+            Z*|X*) continue ;;
+        esac
         if environment=$(tr '\000' '\n' < "$path" 2>/dev/null); then
             :
         else

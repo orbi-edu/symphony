@@ -18,6 +18,7 @@ from .. import ghapp, kube
 from .. import reflector as reflector_mod
 from ..config import ConfigHolder, bind_role_model
 from ..edge import (
+    WORKSPACE_INIT,
     TrackerNotConfigured,
     gateway_url,
     load_config,
@@ -54,7 +55,7 @@ def _distill_pod_manifest(cfg, name: str) -> dict:
                 {
                     "name": WORKSPACE_CONTAINER,
                     "image": kube.agent_image_for(cfg),
-                    "command": ["sleep", "infinity"],
+                    "command": ["bash", "-c", WORKSPACE_INIT],
                     "resources": {
                         "requests": {"cpu": "1", "memory": "2048Mi"},
                         "limits": {"cpu": "1", "memory": "2048Mi"},

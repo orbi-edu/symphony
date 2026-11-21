@@ -7,6 +7,15 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Every attempt that left an orphan process (omp's broker, a browser) ended as a runner
+  crash: the workspace's PID 1 was `sleep infinity`, which never reaps, and the stop script
+  could not read a zombie's environment, so it refused to confirm the engine had stopped.
+  The Job failed after the work was done, and the daemon waited two stall windows before
+  queuing a new attempt. Agent pods now run a reaping PID 1, and the stop script skips
+  zombies.
+
 ## [0.2.7] - 2026-11-21
 
 ### Added

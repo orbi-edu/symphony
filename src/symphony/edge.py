@@ -27,6 +27,10 @@ APP_NAME = os.environ.get("SYMPHONY_APP_NAME", "symphony")
 WORKFLOW_MOUNT = os.environ.get("SYMPHONY_WORKFLOW_MOUNT", "/workflow")
 SESSION_MOUNT = "/omp-sessions"
 WORKSPACE_CONTAINER = "workspace"
+# PID 1 of the agent pods (run with `bash -c`). It must reap: agents leave orphans (omp's
+# broker, browsers) that would stay zombies under a `sleep infinity` PID 1, and a zombie
+# makes the generation stop unprovable. bash reaps every child on SIGCHLD, adopted ones too.
+WORKSPACE_INIT = "trap 'exit 0' TERM; while :; do sleep 3600 & wait $!; done"
 
 # OTLP's signal path for traces. The runner sets the per-signal endpoint, which the SDK
 # uses verbatim, so the path must already be part of it.
