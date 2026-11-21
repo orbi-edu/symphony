@@ -7,6 +7,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.12] - 2026-11-21
+
 ### Fixed
 
 - Provisioning creates a prefixed label inside the label group its prefix names, so
