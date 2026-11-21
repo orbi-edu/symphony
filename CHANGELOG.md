@@ -7,6 +7,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.10] - 2026-11-21
+
 ### Added
 
 - Repository provisioning, after each discovery and for every repository that is not
