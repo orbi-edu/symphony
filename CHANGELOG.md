@@ -7,6 +7,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-11-20
+
 ### Added
 
 - Merger polish rounds (`polish_rounds: N` in `.symphony/merger.md`): when an
@@ -15,6 +17,12 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   fix them before going on to CI and the approval gate. The round count is separate
   from rejections, so a later real block is still a first rejection. Human-authored
   PRs are never polished. Default 0 keeps today's behaviour.
+### Fixed
+
+- Workflow API: the shipped prompt was locked as a "legacy credential-bearing field"
+  because its shell snippets (`password=`, `Authorization: Bearer $TOKEN`) matched the
+  credential pattern. A keyword value now counts as a credential only from 8 characters.
+
 
 ## [0.2.5] - 2026-11-19
 
