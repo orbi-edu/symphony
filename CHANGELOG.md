@@ -7,6 +7,19 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Failure triage (`triage:`, off by default). A runner that dies or stalls, or a ticket
+  that uses up its retry budget, opens one `investigation` ticket for `triage.repo` per
+  failure signature. The ticket starts in the first active state and carries the evidence
+  the cluster has (Job condition, container exit, last error, last log lines, credentials
+  redacted). The agent finds the cause and specifies the fix as sub-issues. A repeat adds
+  an occurrence instead; a closed investigation reopens as a new one; `triage.max_per_day`
+  caps new tickets; a failing investigation is never triaged. The channel gets
+  `triage_opened`, and the retry-budget report names the investigation as who acts.
+- A runner Job that ended without recording an outcome is requeued on the next tick
+  instead of after two stall windows (one hour with the shipped `stall_timeout_ms`).
+
 ### Fixed
 
 - Every attempt that left an orphan process (omp's broker, a browser) ended as a runner

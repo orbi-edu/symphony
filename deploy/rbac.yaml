@@ -138,6 +138,9 @@ rules:
     resources: ["pods/exec"]
     verbs: ["get", "create"] # WebSocket exec uses GET; POST exec uses create
   - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"] # failure triage reads a failed runner's last log lines
+  - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
     verbs: ["get", "delete"]
   - apiGroups: [""]

@@ -53,7 +53,8 @@ Otherwise:
 
 The merger sends these notification events (`symphony.notify.post`, to Slack and Discord):
 `back_to_author`, `needs_maintainer`, `needs_approval`, `preview_ready`, `batch_split`,
-`main_red`, `main_green`, `run_error`, `retries_exhausted`, `not_queued`.
+`main_red`, `main_green`, `run_error`. The daemon sends the ticket-side events
+(`retries_exhausted`, `not_queued`, `triage_opened`).
 
 ## Stage 1: review
 

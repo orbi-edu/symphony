@@ -66,6 +66,7 @@ EVENTS: dict[str, tuple[str, str]] = {
     "run_error": (":x:", "Run failed with an error"),
     "retries_exhausted": (":octagonal_sign:", "Symphony stopped retrying a ticket"),
     "not_queued": (":inbox_tray:", "Ticket not queued"),
+    "triage_opened": (":stethoscope:", "Failure under investigation"),
 }
 _UNKNOWN_EVENT = (":bell:", "Symphony notice")
 # Discord does not expand `:shortcodes:` sent through the API, so it gets the characters.
@@ -81,6 +82,7 @@ DISCORD_EMOJI: dict[str, str] = {
     "run_error": "\N{CROSS MARK}",
     "retries_exhausted": "\N{OCTAGONAL SIGN}",
     "not_queued": "\N{INBOX TRAY}",
+    "triage_opened": "\N{STETHOSCOPE}",
 }
 _UNKNOWN_DISCORD_EMOJI = "\N{BELL}"
 

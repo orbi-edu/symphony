@@ -105,11 +105,10 @@ def test_crash_reports_count_the_budget_and_the_last_one_does_not_promise_a_retr
         entry = kv.get(state.issue_key("i1"))
         entry.update(status="running", runner_call_id="fc-1", last_event_at=clock.now_ms(), retry_at=None)
         kv.put(state.issue_key("i1"), entry)
-        for _ in range(2):  # two silent windows, and the call is gone
-            clock.advance(c.stall_timeout_ms + 1_000)
-            fx = FakeEffects(running=set())
-            tick(kv, tracker, c, clock.now_ms(), fx, owner="d1")
-            reports += [m for _, m in getattr(fx, "reported", [])]
+        clock.advance(3 * c.polling_interval_ms)  # silent, and the runner Job is gone
+        fx = FakeEffects(running=set())
+        tick(kv, tracker, c, clock.now_ms(), fx, owner="d1")
+        reports += [m for _, m in getattr(fx, "reported", [])]
     fx = FakeEffects()
     tick(kv, tracker, c, clock.now_ms(), fx, owner="d1")  # the tick after reports the stop
     reports += [m for _, m in fx.reported]

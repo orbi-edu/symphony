@@ -50,6 +50,9 @@ class FakeEffects:
         self.notified = getattr(self, "notified", [])
         self.notified.append((event, text, link))
 
+    def failure_evidence(self, call_id):
+        return getattr(self, "evidence", {"job": call_id})
+
     def names(self):
         return [e for e, _ in self.events]
 

@@ -586,3 +586,7 @@ class LocalEffects:
         from . import notify
 
         notify.post(event, text, link=link)
+
+    def failure_evidence(self, call_id: str) -> dict:
+        """A local attempt is a thread with no separate record of how it ended."""
+        return {"job": call_id}

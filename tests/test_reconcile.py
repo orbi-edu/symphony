@@ -10,6 +10,7 @@ from tests.test_dispatch import FakeEffects, cfg
 
 from symphony import effects, kube, orchestrator, state
 from symphony.orchestrator import startup_sweep, tick
+from symphony.trackers.memory import MemoryTracker
 
 
 def dispatch_one(kv, clock, tracker, c=None, issue_id="i1"):
@@ -62,16 +63,25 @@ def test_progress_resets_stall_strikes(kv, clock, tracker):
     assert fx.cancelled == []
 
 
-def test_dead_runner_requeued_as_crash(kv, clock, tracker):
+def test_dead_runner_requeued_as_crash_without_waiting_for_the_stall_windows(kv, clock, tracker):
     c = dispatch_one(kv, clock, tracker)
     set_running(kv, clock)
-    clock.advance(2 * (c.stall_timeout_ms + 1_000))
-    tick(kv, tracker, c, clock.now_ms() - c.stall_timeout_ms - 1_000, FakeEffects(), owner="d1")
-    fx = FakeEffects(running=set())  # call is NO longer running
+    clock.advance(3 * c.polling_interval_ms)  # far below the stall timeout
+    fx = FakeEffects(running=set())  # the runner Job ended without recording an outcome
     tick(kv, tracker, c, clock.now_ms(), fx, owner="d1")
     assert fx.cancelled == []  # nothing to cancel — it died on its own
     assert "runner_crash_requeued" in fx.names()
     assert kv.get(state.issue_key("i1"))["attempt"] == 2
+
+
+def test_a_live_silent_runner_is_left_alone_until_the_stall_windows(kv, clock, tracker):
+    c = dispatch_one(kv, clock, tracker)
+    set_running(kv, clock)
+    clock.advance(3 * c.polling_interval_ms)
+    fx = FakeEffects(running={"fc-1"})
+    tick(kv, tracker, c, clock.now_ms(), fx, owner="d1")
+    assert "runner_crash_requeued" not in fx.names()
+    assert kv.get(state.issue_key("i1"))["status"] == "running"
 
 
 @pytest.mark.parametrize("phase", ["Failed", "Succeeded"])
@@ -395,7 +405,8 @@ def test_a_stall_kill_is_announced_on_the_ticket(kv):
     )
     fx = FakeEffects()
     fx.running.add("fc-1")
-    orchestrator._check_stall(kv, "i1", kv.get(state.issue_key("i1")), c, 10_000, fx)
+    issue = MemoryTracker().add_issue("i1", "ENG-901")
+    orchestrator._check_stall(kv, MemoryTracker(), issue, kv.get(state.issue_key("i1")), c, 10_000, fx)
 
     assert "stall_killed" in fx.names()
     reported = getattr(fx, "reported", [])
@@ -430,7 +441,8 @@ def test_a_lost_report_never_costs_the_retry(kv):
     )
     fx = Mute()
     try:
-        orchestrator._check_stall(kv, "i1", kv.get(state.issue_key("i1")), c, 10_000, fx)
+        orchestrator._check_stall(kv, MemoryTracker(), MemoryTracker().add_issue("i1", "ENG-901"),
+                                  kv.get(state.issue_key("i1")), c, 10_000, fx)
     except RuntimeError:
         pass  # the effect raised; what matters is the state it left behind
     assert kv.get(state.issue_key("i1"))["status"] == "retry_queued"

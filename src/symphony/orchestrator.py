@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from typing import Protocol
 
-from . import intake, prwatch, state, telemetry
+from . import intake, prwatch, state, telemetry, triage
 from .config import Config, known_runtimes, resolve_workspace
 from .repos import validate_runtime_component
 from .trackers.base import Issue, TrackerAdapter, TrackerUnavailable
@@ -63,6 +63,11 @@ class Effects(Protocol):
     def notify(self, event: str, text: str, *, link: str | None = None) -> None:
         """Post a notice to the team's channel (`symphony.notify`). Best effort: a channel
         outage never fails a tick."""
+        ...
+
+    def failure_evidence(self, call_id: str) -> dict:
+        """What the runtime knows about a failed runner call (`triage.record` reads `job`,
+        `reason`, `container`, `error` and `lines`). Best effort; `{}` when nothing."""
         ...
 
 
@@ -123,6 +128,7 @@ def retry_after_failure(entry: dict, cfg: Config, now_ms: int, failure_summary: 
         "attempt": failed + 1,
         "failures": failures,
         "runner_call_id": None,
+        "last_call_id": entry.get("runner_call_id") or entry.get("last_call_id"),
         "stall_strikes": 0,
         "failure_summary": failure_summary,
         "updated_at": now_ms,
@@ -362,7 +368,7 @@ def tick(
                 del tracked[issue_id]
                 fx.emit("issue_unroutable", issue_id=issue_id)
             elif entry.get("status") == "running":
-                _check_stall(kv, issue_id, entry, cfg, now_ms, fx)
+                _check_stall(kv, tracker, issue, entry, cfg, now_ms, fx)
             elif entry.get("status") == "claimed":
                 age_ticks = (now_ms - entry.get("claimed_at", now_ms)) / max(cfg.polling_interval_ms, 1)
                 if not entry.get("runner_call_id") and age_ticks > ORPHAN_CLAIM_TICKS:
@@ -374,7 +380,7 @@ def tick(
                 exhausted = entry.get("blocked_reason") == RETRIES_EXHAUSTED
                 revoked = entry.get("admin_authorization_revoked")
                 if exhausted and not refresh and not entry.get("exhaustion_reported_at"):
-                    _report_exhausted(issue, entry, cfg, fx)
+                    _report_exhausted(kv, tracker, issue, entry, cfg, now_ms, fx)
                     entry.update(exhaustion_reported_at=now_ms, updated_at=now_ms)
                     kv.put(state.issue_key(issue_id), entry)
                 elif not revoked and (refresh or (
@@ -767,15 +773,29 @@ def _record_retry(kv: state.KV, entry: dict, now_ms: int) -> None:
     state.bump_metric_category(kv, _yyyymm(now_ms), "retries", reason)
 
 
-def _check_stall(kv: state.KV, issue_id: str, entry: dict, cfg: Config, now_ms: int, fx: Effects) -> None:
+def _check_stall(
+    kv: state.KV, tracker: TrackerAdapter, issue: Issue, entry: dict, cfg: Config, now_ms: int,
+    fx: Effects,
+) -> None:
     """Stall: silence beyond the threshold for TWO consecutive windows + confirmation
     that the call is still running — the double check avoids killing a healthy runner (FR-007).
     Timestamps compared here (`last_event_at`) are written by the runner and read by
     the daemon, but the comparison is always against the WRITER's clock over whole
-    tolerance windows — never a decision on a thin clock-skew margin."""
+    tolerance windows — never a decision on a thin clock-skew margin.
+
+    A runner whose Job has ended while the entry still says running is not silent but dead,
+    and is requeued at once instead of after the stall windows."""
     if cfg.stall_timeout_ms <= 0:
         return  # upstream §6.4: non-positive stall timeout disables stall detection
+    issue_id = issue.id
     silence = now_ms - entry.get("last_event_at", now_ms)
+    call_id = entry.get("runner_call_id")
+    if (call_id and silence > 2 * cfg.polling_interval_ms and not fx.is_call_running(call_id)
+            and _still_owned_by(kv, issue_id, call_id)):
+        # The runner records its outcome before it exits: a finished Job whose entry still
+        # names it as running died without one.
+        _requeue_failed(kv, tracker, issue, entry, cfg, now_ms, fx, still_running=False)
+        return
     if silence <= cfg.stall_timeout_ms:
         if entry.get("stall_strikes"):
             entry.update(stall_strikes=0, stall_seen_event_at=None)
@@ -786,27 +806,48 @@ def _check_stall(kv: state.KV, issue_id: str, entry: dict, cfg: Config, now_ms: 
     if entry.get("stall_seen_event_at") != entry.get("last_event_at"):
         entry.update(stall_strikes=0, stall_seen_event_at=entry.get("last_event_at"))
     strikes = entry.get("stall_strikes", 0) + 1
-    call_id = entry.get("runner_call_id")
     if strikes < STALL_STRIKES_TO_KILL:
         entry.update(stall_strikes=strikes, updated_at=now_ms)
         kv.put(state.issue_key(issue_id), entry)
         fx.emit("stall_strike", issue_id=issue_id, strikes=strikes)
         return
     still_running = bool(call_id) and fx.is_call_running(call_id)
+    _requeue_failed(kv, tracker, issue, entry, cfg, now_ms, fx, still_running=still_running)
+
+
+def _still_owned_by(kv: state.KV, issue_id: str, call_id: str) -> bool:
+    fresh = kv.get(state.issue_key(issue_id)) or {}
+    return fresh.get("status") == "running" and fresh.get("runner_call_id") == call_id
+
+
+def _requeue_failed(
+    kv: state.KV, tracker: TrackerAdapter, issue: Issue, entry: dict, cfg: Config, now_ms: int,
+    fx: Effects, *, still_running: bool,
+) -> None:
+    """Stop what is left of a stalled or dead attempt, requeue it, say so on the ticket, and
+    hand the failure to triage. The evidence is read first: cancelling deletes the Job."""
+    issue_id = issue.id
+    call_id = entry.get("runner_call_id")
+    evidence = fx.failure_evidence(call_id) if call_id else {}
     if still_running:
         fx.cancel_runner(call_id, issue_id=issue_id, seq=entry.get("dispatch_seq", 1))
     fx.kill_agent_process(entry.get("sandbox_name"))
     summary = "stall detected (silence > threshold for 2 windows)" if still_running else "runner died mid-attempt"
+    if evidence.get("error"):
+        summary += f": {evidence['error']}"
     # Read BEFORE the requeue: `mark_retry_after_failure` advances the counter, so
     # afterwards `attempt` names the one about to start, not the one that just died.
     attempt = entry.get("attempt", "?")
+    triage.record(kv, tracker, cfg, issue, dict(entry), summary, evidence, fx, now_ms)
     mark_retry_after_failure(kv, issue_id, entry, cfg, now_ms, summary)
     fx.emit("stall_killed" if still_running else "runner_crash_requeued", issue_id=issue_id)
     if entry.get("status") == "blocked":
         return  # the retries ran out: the next tick reports that, with the cause
     window_min = cfg.stall_timeout_ms / 60_000
     window = f"{window_min:.0f} minutes" if window_min >= 1 else f"{cfg.stall_timeout_ms / 1000:.0f} seconds"
-    detail = f"went silent for more than {window} and was stopped" if still_running else "stopped unexpectedly"
+    detail = (f"went silent for more than {window} and was stopped" if still_running
+              else "stopped unexpectedly" + (f" ({triage.redact(evidence['error'])[:200]})"
+                                             if evidence.get("error") else ""))
     budget = (f" This is failure {entry['failures']} of {cfg.max_failed_attempts} in a row; at "
               f"{cfg.max_failed_attempts} Symphony stops retrying and asks for a human."
               if cfg.max_failed_attempts else "")
@@ -819,25 +860,35 @@ def _check_stall(kv: state.KV, issue_id: str, entry: dict, cfg: Config, now_ms: 
     )
 
 
-def _report_exhausted(issue: Issue, entry: dict, cfg: Config, fx: Effects) -> None:
+def _report_exhausted(
+    kv: state.KV, tracker: TrackerAdapter, issue: Issue, entry: dict, cfg: Config, now_ms: int,
+    fx: Effects,
+) -> None:
     """Retries ran out: say on the ticket and in the channel what failed, who acts, and
-    what brings the ticket back. One report per exhaustion (`exhaustion_reported`)."""
+    what brings the ticket back. One report per exhaustion (`exhaustion_reported_at`). With
+    triage on, the failure goes to its investigation, which then is who acts."""
     failures = entry.get("failures") or cfg.max_failed_attempts
     cause = (entry.get("failure_summary") or "no failure summary was recorded").strip()[:300]
+    call_id = entry.get("last_call_id")
+    investigation = triage.record(kv, tracker, cfg, issue, entry, cause,
+                                  fx.failure_evidence(call_id) if call_id else {}, fx, now_ms)
+    who = (f"an agent, in {investigation}, finds the cause; a Symphony operator if it cannot fix it"
+           if investigation else
+           "a Symphony operator: retrying did not clear it, so the cause is likely outside this ticket")
     queue_again = (f"run `symphony reevaluate {issue.identifier}`, or edit the ticket (a comment "
                    "is enough) to queue a new attempt")
     fx.report_to_ticket(
         issue.id,
         f"**Symphony stopped retrying this ticket** — {failures} attempts in a row ended without "
-        f"finishing.\n\n- **What failed:** {cause}\n- **Who acts:** a Symphony operator: retrying did "
-        f"not clear it, so the cause is likely outside this ticket.\n- **Next step:** fix the "
-        f"cause, then {queue_again}. The branch and this Workpad are kept.\n\n_Reported by the "
-        f"orchestrator, not the agent._",
+        f"finishing.\n\n- **What failed:** {triage.redact(cause)}\n- **Who acts:** {who}.\n"
+        f"- **Next step:** once the cause is fixed, {queue_again}. The branch and this Workpad are "
+        f"kept.\n\n_Reported by the orchestrator, not the agent._",
     )
     fx.notify(
         "retries_exhausted",
         f"{issue.identifier} stopped after {failures} failed attempts in a row.\n"
-        f"What failed: {cause}\nWho acts: a Symphony operator.\nNext: fix the cause, then {queue_again}.",
+        f"What failed: {triage.redact(cause)}\nWho acts: {who}.\n"
+        f"Next: once the cause is fixed, {queue_again}.",
         link=issue.url,
     )
 
