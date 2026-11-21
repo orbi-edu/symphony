@@ -169,7 +169,7 @@ SANDBOX_INSTRUCTIONS = (
 
 def instructions(role: str, *, transport: str, is_dm: bool, repos: list[str],
                  soul: Soul | None = None, has_sandbox: bool = False,
-                 mcp_guidance: str = "") -> str:
+                 mcp_guidance: str = "", openable: list[str] | None = None) -> str:
     """The session's instructions: the built-in role and safety rules, then the soul."""
     where = f"a {transport.capitalize()} {'direct message' if is_dm else 'thread'}"
     lines = [
@@ -186,6 +186,11 @@ def instructions(role: str, *, transport: str, is_dm: bool, repos: list[str],
         lines.append("The repositories are checked out read-only at their base branch in your working "
                      "directory: " + ", ".join(f"./{r}" for r in repos) + ".")
         lines.append("Cite code as owner/repo:path:line (for example acme/app:src/main.py:12).")
+    if openable:
+        lines.append("You can also open these repositories with open_repository; they are not "
+                     "checked out yet: " + ", ".join(openable) + ". When the person names one "
+                     "of them, open it and read it — never answer that you cannot see a "
+                     "repository on this list.")
     if mcp_guidance:
         lines.append(mcp_guidance)
     if soul is not None and soul.instructions():
@@ -303,6 +308,7 @@ class Engine:
         sandbox_tool: Callable[[str, object], HostTool | None] | None = None,
         on_session_end: Callable[[str], None] | None = None,
         server_url: str = "https://github.com",
+        reachable: Callable[[], list[str]] | None = None,
         clock: Callable[[], float] = time.monotonic,
         idle_s: float = IDLE_S,
         stream_interval_s: float = STREAM_INTERVAL_S,
@@ -315,6 +321,8 @@ class Engine:
     ) -> None:
         self.outbounds = outbounds
         self.agents = agents
+        # Every repository the agents may open (`open_repository`), checked out or not.
+        self.reachable = reachable
         self.policy = policy  # () -> Config, read at each message
         self.confirmer = confirmer
         self.memory = memory
@@ -554,9 +562,10 @@ class Engine:
             repos = sorted(self.agents.commits())  # after open: it refreshes the checkouts
             soul = self.souls.read() if self.souls is not None else None
             guidance = self.mcp_guidance_fn(turn.role) if self.mcp_guidance_fn else ""
+            openable = [r for r in (self.reachable() if self.reachable else []) if r not in repos]
             parts += [instructions(turn.role, transport=th.transport, is_dm=th.is_dm, repos=repos,
                                    soul=soul, has_sandbox=has_sandbox,
-                                   mcp_guidance=guidance), context]
+                                   mcp_guidance=guidance, openable=openable), context]
         parts.append(self._memory(th, cfg, turn))
         prompt = "\n\n".join(p for p in (*parts, prompt) if p)
         fmt = self._formatter(th.transport)

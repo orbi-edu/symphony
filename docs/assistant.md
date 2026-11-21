@@ -70,7 +70,7 @@ It cannot:
 
 The agent's environment holds no chat, tracker or GitHub App credential. A code citation `owner/repo:path:line` links to GitHub at the commit of the checkout.
 
-Without `assistant.repositories`, it reads the default repository, the merger repositories and the repositories of tracked tickets.
+Without `assistant.repositories`, it can read every repository Symphony reaches: the default repository, the merger repositories, the repositories of tracked tickets, and every repository the GitHub App reaches that is not archived (the daemon's [discovery](configuration.md#repository-discovery)). The first three are always checked out. The others appear in the instructions as openable: the agent checks one out with `open_repository(repo)` when the person names it, and it stays checked out for a day after its last use. The sandbox accepts the same set.
 
 ### Untrusted content
 

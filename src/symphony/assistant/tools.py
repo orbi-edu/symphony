@@ -122,6 +122,36 @@ def search_tool(search: Callable[[str, int], list[dict]]) -> HostTool:
     )
 
 
+def open_repository_tool(reachable: Callable[[], list[str]],
+                         open_repo: Callable[[str], str]) -> HostTool:
+    """Check one more repository out, read-only, beside the ones already in the working dir."""
+    def find(repo: str) -> str | None:
+        wanted = repo.strip().lower()
+        return next((r for r in reachable() if r.lower() == wanted), None)
+
+    def check(args: dict) -> str | None:
+        if find(args["repo"]) is None:
+            return (f"{args['repo']!r} is not reachable: the GitHub App is not installed on it or "
+                    "it is archived. Reachable: " + ", ".join(reachable()[:60]))
+        return None
+
+    def answer(args: dict) -> dict:
+        repo = find(args["repo"])
+        return {"path": f"./{repo}", "commit": open_repo(repo)}
+
+    return HostTool(
+        "open_repository",
+        "Check out one repository read-only at its base branch, so read, grep and glob can see "
+        "it under ./owner/name in your working directory. Use it whenever the person names a "
+        "repository that is not checked out yet, before you say you cannot see it. `repo` is "
+        "owner/name from the reachable list in your instructions. Returns {path, commit}; an "
+        "unknown repository fails with the list of reachable ones.",
+        _obj(["repo"], {"repo": _S}),
+        check=check,
+        answer=_safe(answer),
+    )
+
+
 def propose_tool(repositories: Iterable[str]) -> HostTool:
     allowed = tuple(repositories)
     ticket = _obj(["key", "title", "body"], {

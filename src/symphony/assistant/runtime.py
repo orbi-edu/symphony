@@ -12,7 +12,8 @@ until the engine ends the session (30 min idle).
   tools. No `bash`, `edit` or `write`.
 - **Working dir:** a worktree of each `assistant.repositories` repository at its default branch
   (`<root>/work/<owner>/<name>`), fetched at most every 5 minutes from a mirror with a
-  read-only GitHub App token.
+  read-only GitHub App token. Any other reachable repository is checked out on demand
+  (`open_repository`) and kept while it is used.
 - **Environment:** the pod's, without the chat, tracker and GitHub App credentials.
 """
 
@@ -38,6 +39,8 @@ from .engine import TurnResult
 # a Bedrock-only session omp exits 2; `glob` finds files by name.
 TOOLS = ("read", "grep", "glob", "web_search")
 MIRROR_REFRESH_S = 300.0
+# A repository opened on demand stays checked out this long after its last use.
+OPENED_IDLE_S = 86_400.0
 ABORT_GRACE_S = 30.0
 # Host credentials no agent process needs. The model credential (AWS_*, provider keys) stays.
 _HOST_ONLY_PREFIXES = ("SLACK_", "DISCORD_", "GITHUB_APP_", "LINEAR_", "SYMPHONY_ADMIN_",
@@ -69,6 +72,23 @@ def default_repositories(client, namespace: str, cfg) -> list[str]:
         repo = entry.get("target_repo") if isinstance(entry, dict) else None
         if isinstance(repo, str) and repo.count("/") == 1:
             repos.add(repo.lower())
+    return sorted(repos)
+
+
+def reachable_repositories(client, namespace: str, cfg) -> list[str]:
+    """What the assistant may open: the repositories Symphony routes work to, plus every
+    repository the GitHub App reaches that is not archived (the daemon's discovery)."""
+    from ..discovery import DISCOVERY_KEY
+
+    repos = set(default_repositories(client, namespace, cfg))
+    try:
+        doc = json.loads(client.get(DISCOVERY_KEY) or "{}")
+    except ValueError:
+        doc = {}
+    for item in doc.get("items") or []:
+        name = item.get("name") if isinstance(item, dict) else None
+        if isinstance(name, str) and name.count("/") == 1 and not item.get("archived"):
+            repos.add(name.lower())
     return sorted(repos)
 
 
@@ -104,6 +124,16 @@ class ReadOnlyRepos:
         self._shas: dict[str, str] = {}
         self._at: float | None = None
         self._lock = threading.Lock()
+        self._opened: dict[str, float] = {}  # repository opened on demand → last use
+
+    def open(self, repo: str) -> str:
+        """Check `repo` out now and keep it through later refreshes; returns its commit."""
+        repo = repo.lower()
+        with self._lock:
+            if repo not in self._shas:
+                self._sync(repo)  # raises when it cannot be fetched: then it is not kept
+            self._opened[repo] = self.clock()
+            return self._shas[repo]
 
     def commits(self) -> dict[str, str]:
         """repository → the commit its worktree is at."""
@@ -136,7 +166,10 @@ class ReadOnlyRepos:
             if force or warm or self._at is None or now - self._at >= self.refresh_s:
                 if not warm:
                     self._at = now
-                wanted = [r.lower() for r in self.repos()]
+                for repo, used in list(self._opened.items()):
+                    if now - used >= OPENED_IDLE_S:
+                        del self._opened[repo]
+                wanted = list(dict.fromkeys([*(r.lower() for r in self.repos()), *self._opened]))
                 for repo in wanted:
                     try:
                         self._sync(repo)
