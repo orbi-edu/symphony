@@ -22,7 +22,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
-from . import endpoints, metrics, prwatch, state
+from . import discovery, endpoints, metrics, prwatch, state
 from .config import Config, bind_role_model, resolve_workspace
 from .hosttools import HostToolBroker, tool_definitions
 from .omp_rpc import CommandFailed, OmpClient, OmpError, ReadTimeout, RunWatcher, SilenceTimeout
@@ -487,6 +487,8 @@ def _run_owned_attempt(env, issue_id, attempt, seq, bridge_token):
     # changed. A designation edited mid-attempt takes effect on the next dispatch —
     # switching now would orphan a clone, a branch and possibly a pull request.
     entry = kv.get(state.issue_key(issue_id)) or entry
+    # The same view the daemon dispatched with: discoveries fill what WORKFLOW.md leaves unset.
+    cfg = discovery.effective(cfg, kv.get(discovery.DISCOVERY_KEY))
     runtime, component, component_path = resolve_workspace(cfg, issue)
     entry.update(
         target_repo=issue.target_repo,

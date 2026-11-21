@@ -23,6 +23,8 @@ from itertools import islice
 from typing import Any
 
 from . import endpoints, state
+from .discovery import DISCOVERY_KEY
+from .discovery import REFRESH_EVERY_MS as DISCOVERY_EVERY_MS
 from .repos import parse_designation
 from .telemetry import MAX_MODELS, OTHER
 
@@ -308,6 +310,7 @@ class AdminProjection:
             result["runs"],
             result["learning"],
             values,
+            self._discovered(result),
             state_available=result["sources"]["state"]["status"] != "unavailable",
         )
         return result
@@ -318,18 +321,42 @@ class AdminProjection:
         self._state(result, now_ms, observed_at)
         values = self._workflow_values(result, observed_at)
         self._learning_records(result, observed_at)
+        discovered = self._discovered(result)
         repositories = self._repositories(
             result["runs"],
             result["learning"],
             values,
+            discovered,
             state_available=result["sources"]["state"]["status"] != "unavailable",
         )
         return {
             "observedAt": observed_at,
             "items": repositories,
-            "sources": {k: result["sources"][k] for k in ("state", "workflow", "learning")},
+            "sources": {k: result["sources"][k] for k in ("state", "workflow", "learning", "github")},
             "limits": result["limits"],
         }
+
+    def _discovered(self, result: dict) -> list[dict]:
+        """The daemon's last repository discovery (`discovery.DISCOVERY_KEY`)."""
+        try:
+            doc = self._get(DISCOVERY_KEY) or {}
+        except Exception:  # noqa: BLE001
+            doc = {}
+        at = doc.get("observed_at_ms")
+        when = _iso(dt.datetime.fromtimestamp(at / 1000, dt.UTC)) if at else None
+        if not doc.get("items"):
+            result["sources"]["github"] = _source(
+                "unavailable", when, "No repository discovery yet: the daemon runs one every "
+                "15 minutes when the GitHub App is configured.")
+            return []
+        stale = bool(doc.get("error")) or (int(dt.datetime.now(dt.UTC).timestamp() * 1000) - at
+                                           > 2 * DISCOVERY_EVERY_MS)
+        result["sources"]["github"] = _source(
+            "stale" if stale else "fresh", when,
+            "Repositories the GitHub App is installed on, with the runtime and components "
+            "detected from each default branch." + (f" Last pass failed: {doc['error']}."
+                                                    if doc.get("error") else ""))
+        return [i for i in doc["items"] if isinstance(i, dict) and _repo(i.get("name"))]
 
     def infra(self) -> dict:
         result, _, now_ms, observed_at = self._skeleton()
@@ -680,7 +707,8 @@ class AdminProjection:
 
     @staticmethod
     def _repositories(
-        runs: list[dict], learning: list[dict], values: dict, *, state_available: bool
+        runs: list[dict], learning: list[dict], values: dict, discovered: list[dict], *,
+        state_available: bool,
     ) -> list[dict]:
         grouped: dict[str, list[dict]] = defaultdict(list)
         routes: dict[str, set[str]] = defaultdict(set)
@@ -694,24 +722,46 @@ class AdminProjection:
         default = _repo(values.get("kubernetes.default_repo"))
         if default:
             routes[default].add("default")
-        # base_branches: repo → branch override from WORKFLOW.
-        raw_bb = values.get("kubernetes.base_branches") or "{}"
-        try:
-            bb = json.loads(raw_bb) if isinstance(raw_bb, str) else (raw_bb or {})
-        except (ValueError, TypeError):
-            bb = {}
+        found = {}
+        for item in discovered:
+            name = _repo(item["name"])
+            found[name] = item
+            routes[name].add("installation")
+
+        def mapping(key: str) -> dict:
+            raw = values.get(key) or "{}"
+            try:
+                parsed = json.loads(raw) if isinstance(raw, str) else (raw or {})
+            except (ValueError, TypeError):
+                return {}
+            return {str(k).lower(): v for k, v in parsed.items()} if isinstance(parsed, dict) else {}
+
+        bb = mapping("kubernetes.base_branches")
+        configured_runtimes = mapping("kubernetes.repo_runtimes")
+        configured_components = mapping("kubernetes.components")
         repositories = []
         for repo in sorted(routes):
             observed = grouped[repo]
             runtimes = {run["runtime"] for run in observed}
-            runtime = next(iter(runtimes)) if len(runtimes) == 1 else None
+            item = found.get(repo) or {}
+            detected_components = item.get("components") or {}
+            components = configured_components.get(repo) or detected_components
             repositories.append(
                 {
                     "name": repo,
-                    "runtime": runtime,
+                    "runtime": next(iter(runtimes)) if len(runtimes) == 1 else None,
                     "routes": sorted(routes[repo]),
                     "issues": len(observed) if state_available else None,
                     "base_branch": bb.get(repo),
+                    # What dispatch uses: the workflow's setting, else the discovered one.
+                    "configured_runtime": configured_runtimes.get(repo),
+                    "detected_runtime": item.get("runtime"),
+                    "components": components,
+                    "components_source": ("configured" if configured_components.get(repo)
+                                          else "detected" if detected_components else None),
+                    "default_branch": item.get("default_branch"),
+                    "archived": item.get("archived") if item else None,
+                    "merger_policy": item.get("merger_policy") if item else None,
                 }
             )
         return repositories

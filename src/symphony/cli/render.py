@@ -599,15 +599,33 @@ def _with_sources(doc: dict, body: str) -> str:
     return "\n".join([body, "", *notes]) if notes else body
 
 
-_ROUTE_LABEL = {"issue": "ticket", "retrospective": "retrospective", "default": "workflow default"}
+_ROUTE_LABEL = {"issue": "ticket", "retrospective": "retrospective", "default": "workflow default",
+                "installation": "GitHub App"}
+
+
+def _repo_runtime(r: dict) -> str:
+    """What a new ticket gets: the workflow's runtime, else the detected one (marked)."""
+    if r.get("configured_runtime"):
+        return str(r["configured_runtime"])
+    if r.get("detected_runtime"):
+        return f"{r['detected_runtime']} (detected)"
+    return str(r.get("runtime") or "—")
+
+
+def _repo_components(r: dict) -> str:
+    names = sorted((r.get("components") or {}).keys())
+    if not names:
+        return "—"
+    return ", ".join(names) + (" (detected)" if r.get("components_source") == "detected" else "")
 
 
 def repos(doc: dict) -> str:
-    rows = [[str(r.get("name") or "—"), str(r.get("runtime") or "—"),
+    rows = [[str(r.get("name") or "—") + (" (archived)" if r.get("archived") else ""),
+             _repo_runtime(r), _repo_components(r),
              ", ".join(_label(_ROUTE_LABEL, c) for c in r.get("routes") or []) or "—",
              "?" if r.get("issues") is None else str(r["issues"])] for r in doc.get("items") or []]
-    return _with_sources(doc, table(["REPOSITORY", "RUNTIME", "SOURCE", "TICKETS"], rows,
-                                    empty="No known repositories."))
+    return _with_sources(doc, table(["REPOSITORY", "RUNTIME", "COMPONENTS", "SOURCE", "TICKETS"],
+                                    rows, empty="No known repositories."))
 
 
 _HEALTH_LABEL = {"healthy": "healthy", "degraded": "degraded", "unknown": "unknown"}
