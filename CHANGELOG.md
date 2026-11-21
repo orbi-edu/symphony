@@ -7,6 +7,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.11] - 2026-11-21
+
 ### Added
 
 - The assistant reaches every repository the GitHub App reaches. The repositories Symphony
