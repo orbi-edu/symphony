@@ -7,6 +7,16 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Repository discovery. Every 15 minutes the daemon lists the repositories the GitHub App
+  reaches and detects, from each default branch, the runtime (`node`, `dotnet<N>` from
+  `global.json` or the target framework, `polyglot`) and, for a monorepo, one component per
+  top-level project directory. It also records the default branch, the archived flag and
+  whether the repository has a merger policy. Dispatch uses a detection only where
+  WORKFLOW.md configures nothing for that repository. `/v1/repos`, `symphony repos` and
+  Tern's Repositories page list every reachable repository, with detected values marked.
+
 ## [0.2.8] - 2026-11-21
 
 ### Added

@@ -98,7 +98,7 @@ local function code(map: { [string]: { string } }, v: any): Spans
 	return { ui.span(if v == nil then "—" else tostring(v), "muted") }
 end
 
-local ROUTE = { issue = "tickets", retrospective = "retrospective", default = "default repository" }
+local ROUTE = { issue = "tickets", retrospective = "retrospective", default = "default repository", installation = "GitHub App" }
 
 local ROLE = {
 	redis = { "Redis" }, daemon = { "daemon" }, api = { "API" }, gateway = { "gateway" },
@@ -149,20 +149,36 @@ function P.repos(state: any): Node
 			end
 			table.sort(comp_parts)
 		end
+		-- What a new ticket gets: the workflow's runtime, else the one detected on GitHub.
+		local runtime, runtime_tone = r.configured_runtime, "mono"
+		if runtime == nil and r.detected_runtime ~= nil then
+			runtime, runtime_tone = tostring(r.detected_runtime) .. " (detected)", "muted"
+		elseif runtime == nil then
+			runtime, runtime_tone = r.runtime or "—", "muted"
+		end
+		local comp_text = if #comp_parts > 0 then table.concat(comp_parts, ", ") else "—"
+		if #comp_parts > 0 and r.components_source == "detected" then
+			comp_text ..= " (detected)"
+		end
+		local base_text, base_tone = r.base_branch, "mono"
+		if base_text == nil then
+			base_text, base_tone = r.default_branch or "default", "muted"
+		end
 		table.insert(rows, {
 			id = tostring(r.name),
 			cells = {
-				name = { ui.span(tostring(r.name), "strong mono") },
-				base = { ui.span(tostring(r.base_branch or "default"), if r.base_branch then "mono" else "muted") },
-				runtime = { ui.span(tostring(r.runtime or "—"), "muted") },
-				components = { ui.span(if #comp_parts > 0 then table.concat(comp_parts, ", ") else "—", if #comp_parts > 0 then "mono" else "muted") },
+				name = { ui.span(tostring(r.name) .. (if r.archived then " (archived)" else ""), if r.archived then "muted mono" else "strong mono") },
+				base = { ui.span(tostring(base_text), base_tone) },
+				runtime = { ui.span(tostring(runtime), runtime_tone) },
+				components = { ui.span(comp_text, if #comp_parts > 0 then "mono" else "muted") },
+				merger = { ui.span(if r.merger_policy then "policy" elseif r.merger_policy == false then "—" else "?", "muted") },
 				route = { ui.span(if #routes > 0 then table.concat(routes, " · ") else "—", "muted") },
 				issues = { ui.span(if r.issues == nil then "?" else tostring(r.issues), "mono") },
 			},
 		})
 	end
 	return page("repositories", {
-		head("Repositories Symphony dispatches tickets to", doc),
+		head("Repositories Symphony reaches and dispatches tickets to", doc),
 		h.data_table({
 			key = "t",
 			cols = {
@@ -170,6 +186,7 @@ function P.repos(state: any): Node
 				{ id = "base", head = "Base branch", mono = true, priority = 6 },
 				{ id = "runtime", head = "Runtime", mono = true, priority = 5 },
 				{ id = "components", head = "Components", mono = true, priority = 4 },
+				{ id = "merger", head = "Merger", priority = 3 },
 				{ id = "route", head = "Arrives by", priority = 5 },
 				{ id = "issues", head = "Tickets", align = "end", mono = true, priority = 7 },
 			},

@@ -176,3 +176,30 @@ def test_issue_reason_is_a_code_not_prose(api, redis_client):
     reasons = {item["identifier"]: item["reason"] for item in items}
     assert reasons == {"ENG-1": "no_repo_designation", "ENG-2": None,
                        "ENG-3": "mixed_owner_repo_designation"}
+
+
+def test_repos_lists_what_the_github_app_reaches_with_detected_and_configured_runtimes(
+        api, redis_client):
+    _, client, tokens = api
+    fresh_daemon(redis_client)
+    redis_client.set("repos:discovery", json.dumps({"observed_at_ms": now_ms(), "items": [
+        {"name": "acme/web", "default_branch": "main", "archived": False, "merger_policy": True,
+         "runtime": "node", "components": {}},
+        {"name": "acme/mono", "default_branch": "trunk", "archived": False,
+         "merger_policy": False, "runtime": "polyglot",
+         "components": {"api": {"path": "api", "runtime": "dotnet10"}}},
+    ]}))
+    doc = client.get("/v1/repos", headers=bearer(tokens["viewer"])).json()
+    by_name = {r["name"]: r for r in doc["items"]}
+    web, mono = by_name["acme/web"], by_name["acme/mono"]
+    assert web["routes"] == ["installation"] and web["detected_runtime"] == "node"
+    assert web["configured_runtime"] is None and web["merger_policy"] is True
+    assert mono["default_branch"] == "trunk" and mono["components_source"] == "detected"
+    assert mono["components"] == {"api": {"path": "api", "runtime": "dotnet10"}}
+    assert doc["sources"]["github"]["status"] == "fresh"
+
+
+def test_repos_says_when_no_discovery_has_run(api, redis_client):
+    _, client, tokens = api
+    doc = client.get("/v1/repos", headers=bearer(tokens["viewer"])).json()
+    assert doc["sources"]["github"]["status"] == "unavailable"

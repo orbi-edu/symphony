@@ -27,7 +27,7 @@ import uuid
 from collections.abc import Callable
 from contextlib import contextmanager
 
-from .. import kube, metrics, orchestrator, state, wake
+from .. import discovery, ghapp, kube, metrics, orchestrator, state, wake
 from ..admin_auth import authorize_command
 from ..admin_commands import AdminStore, process_commands
 from ..admin_workflow import WorkflowRepository
@@ -272,6 +272,9 @@ def _run(kv, stop: threading.Event, owner: str, store_ns: str, events: list) -> 
     workflow = WorkflowRepository(
         core, ns, name=os.environ.get("SYMPHONY_WORKFLOW_CONFIGMAP", f"{cfg.app_name}-workflow")
     )
+    credential = ghapp.InstallationCredential.from_env(os.environ, now_ms, permissions=ghapp.READ_ONLY)
+    refresher = discovery.Refresher(
+        kv, lambda: credential.token() if os.environ.get("GITHUB_APP_ID") else None, now_ms)
     swept = False
 
     def step(reasons: list[str]) -> bool:
@@ -319,6 +322,7 @@ def _run(kv, stop: threading.Event, owner: str, store_ns: str, events: list) -> 
                         admission_open=lambda: bool(authoritative() and not store.paused()),
                         wake_reasons=reasons,
                     )
+                    refresher.start(cfg)
                     log.info("tick", wakes=len(reasons), **result)
         except Exception as exc:  # noqa: BLE001 — a tick never brings the daemon down
             log.error("tick_failed", error=str(exc))

@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from typing import Protocol
 
-from . import intake, prwatch, state, telemetry, triage
+from . import discovery, intake, prwatch, state, telemetry, triage
 from .config import Config, known_runtimes, resolve_workspace
 from .repos import validate_runtime_component
 from .trackers.base import Issue, TrackerAdapter, TrackerUnavailable
@@ -279,6 +279,8 @@ def tick(
     it (empty for a safety poll); a GitHub comment wake makes the named pull request's
     review watch due now instead of at its throttle."""
     state.heartbeat(kv, now_ms)
+    # Repositories the workflow leaves unconfigured get their discovered runtime/components.
+    cfg = discovery.effective(cfg, kv.get(discovery.DISCOVERY_KEY))
     woken = prwatch.parse_comment_wakes(wake_reasons)
 
     refresh = bool(kv.get(state.REFRESH_KEY))

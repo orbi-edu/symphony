@@ -204,8 +204,8 @@ On Kubernetes, these keys control the workspaces and the Jobs. Local mode ignore
 | `kubernetes.image_pull_secrets` | list of strings | `[]` | The pull Secrets of the workspace pods. |
 | `kubernetes.default_repo` | string | `null` | The repository (`owner/name`) of tickets that have no `repo:` label. A ticket's own label always wins. The merger also uses it when `SYMPHONY_MERGER_REPO` is empty. |
 | `kubernetes.base_branches` | map of repo to branch | `{}` | Per-repository base branch override (`owner/name` → branch). When set, the merger, assistant, reflector and workspace treat this branch as the repository's main branch instead of the auto-detected remote default. |
-| `kubernetes.repo_runtimes` | map of repo to runtime | `{}` | Per-repository runtime override (`owner/name` → runtime). When a ticket targets this repository and carries no `runtime:` label, the workspace uses this runtime instead of `agent_runtime`. The runtime must be a key of `agent_images` or a built-in (`node`, `dotnet9`, `dotnet10`, `polyglot`). |
-| `kubernetes.components` | map of repo to components | `{}` | Repository components for monorepo dispatch. Each component (`owner/name` → `{name: {path, runtime?}}`) names a path in the repository and optionally a runtime. A ticket with `component:api` scopes the agent to the component's path and selects its runtime. Component names must match `[a-z0-9][a-z0-9-]*`; paths are relative without `..`. See [concepts.md](concepts.md#monorepos-and-components). |
+| `kubernetes.repo_runtimes` | map of repo to runtime | `{}` | Per-repository runtime override (`owner/name` → runtime). When a ticket targets this repository and carries no `runtime:` label, the workspace uses this runtime instead of `agent_runtime`. The runtime must be a key of `agent_images` or a built-in (`node`, `dotnet9`, `dotnet10`, `polyglot`). A repository with no entry uses its discovered runtime (see below). |
+| `kubernetes.components` | map of repo to components | `{}` | Repository components for monorepo dispatch. Each component (`owner/name` → `{name: {path, runtime?}}`) names a path in the repository and optionally a runtime. A ticket with `component:api` scopes the agent to the component's path and selects its runtime. Component names must match `[a-z0-9][a-z0-9-]*`; paths are relative without `..`. A repository with no entry uses its discovered components (see below). See [concepts.md](concepts.md#monorepos-and-components). |
 | `kubernetes.egress_allowlist` | list of strings | `[]` | Symphony parses this key. The current code does not enforce it. A plain NetworkPolicy filters by IP address, not by domain name. |
 | `kubernetes.redispatch_cooldown_s` | integer | `900` | The cooldown of a continuation when the ticket did not change. See [concepts.md](concepts.md#cooldown). |
 | `kubernetes.sandbox.cpu` | number | `2` | The CPU request and limit of a workspace pod. |
@@ -219,6 +219,26 @@ On Kubernetes, these keys control the workspaces and the Jobs. Local mode ignore
 | `kubernetes.learning.agents_md_budget_lines` | integer | `100` | The line budget of the curated `AGENTS.md`. |
 | `kubernetes.learning.learnings_label` | string | `symphony-learnings` | The label of learnings pull requests. |
 | `kubernetes.learning.decay_after_incorporations` | integer | `10` | A lesson that no retrospective used in this number of changes decays. |
+
+### Repository discovery
+
+When the GitHub App is configured, the daemon reads every repository the installation reaches
+every 15 minutes (up to 200), from the file tree of each default branch:
+
+- **Runtime.** `package.json` means `node`. `global.json` or a .NET project means `dotnet<N>`:
+  the SDK pinned in `global.json`, or else the project's target framework. Python, other
+  stacks, or more than one stack mean `polyglot`.
+- **Components.** Two or more top-level directories with a project each make a monorepo. Each
+  of those directories becomes a component with its own runtime, and the repository gets
+  `polyglot` when their runtimes differ. `docs`, `scripts`, `tools`, `tests`, `infra`,
+  `deploy` and similar directories are not components.
+- Also recorded: the default branch, whether the repository is archived, and whether it
+  carries `.symphony/merger.md`.
+
+The workflow always wins. Dispatch uses a detection only for a repository with no
+`repo_runtimes` entry (runtime) or no `components` entry (components), and never for an
+archived one. `/v1/repos`, `symphony repos` and Tern's Repositories page list both values,
+marking the detected ones.
 
 ### Docker in the workspace
 
