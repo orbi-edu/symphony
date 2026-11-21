@@ -7,6 +7,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-11-21
+
 ### Added
 
 - Retry budget (`agent.max_failed_attempts`, default 8): after that many failed attempts in
