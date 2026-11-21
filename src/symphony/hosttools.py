@@ -93,6 +93,14 @@ _VERB_NOUN_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+# A direct question for a secret's value ("What is the database password?", "Qual é a senha
+# do banco?"). A question about the secret's handling ("the password hash") is not one.
+_VALUE_QUESTION_RE = re.compile(
+    rf"\b(?:what(?:'s|\s+is|\s+are)|qual\s+(?:é|e)|quais\s+são)\s+(?:\w+\s+){{0,4}}?{_NOUN_PATTERN}"
+    r"(?!\s+(?:hash\w*|polic\w*|format\w*|length|rules?|rotation|expir\w*|reset|fields?|columns?))",
+    re.IGNORECASE,
+)
+
 _SECRET_REFUSAL = (
     "Refused: never ask for credentials, keys or tokens in chat. Instead, ask a person to "
     "run the exact command in an environment authorized for it and post only the output to "
@@ -114,10 +122,8 @@ def _is_secret_request(text: str) -> bool:
         after_ok = end == len(text) or not text[end].isalpha()
         if before_ok and after_ok and len(token) >= 6:
             return True
-    # (b) Request verb near a secret noun.
-    if _VERB_NOUN_RE.search(text):
-        return True
-    return False
+    # (b) Request verb near a secret noun, or a direct question for the value.
+    return bool(_VERB_NOUN_RE.search(text) or _VALUE_QUESTION_RE.search(text))
 
 CREATE_ISSUES_TOOL = "symphony_create_issues"
 CREATE_ISSUES_DEFINITION = {
@@ -509,11 +515,11 @@ class HostToolBroker:
         if not question:
             self._respond(call_id, "symphony_ask needs a non-empty question", is_error=True)
             return
-        if _is_secret_request(question):
-            self._respond(call_id, _SECRET_REFUSAL, is_error=True)
-            return
         raw_options = args.get("options")
         options = [str(o) for o in raw_options] if isinstance(raw_options, list) else []
+        if any(_is_secret_request(text) for text in (question, *options)):
+            self._respond(call_id, _SECRET_REFUSAL, is_error=True)
+            return
         pending = _Ask()
         with self._lock:
             if self._closed:

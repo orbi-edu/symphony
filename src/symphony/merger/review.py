@@ -347,7 +347,7 @@ def ci_now(m: Merger, policy: Policy, n: int, head_sha: str, branch: str, revive
     """One look at CI on the head: passed, failed, pending, or moved (the author pushed; the
     remote decides, as GitHub's API can lag a push)."""
     pr = m.gh.pr(n)
-    at = {"open": pr["state"] == "open", "draft": pr["draft"]}
+    at = {"open": pr["state"] == "open", "merged": pr["state"] == "merged", "draft": pr["draft"]}
     if pr["head_sha"] != head_sha:
         remote = m.git.ls_remote(branch)
         return {"state": "pending" if remote == head_sha else "moved", "failed": [], **at}
@@ -472,15 +472,10 @@ def settle_parked(m: Merger, policy: Policy, owner: str) -> None:
                 continue
             ci = ci_now(m, policy, n, rec["head_sha"], rec["branch"], revive=True)
             if not ci["open"]:
-                # Check if the PR was merged outside the train.
-                try:
-                    pr_state = m.gh.pr(n)["state"]
-                except Exception:  # noqa: BLE001
-                    pr_state = "closed"
-                if pr_state == "merged":
+                if ci["merged"]:  # merged on GitHub outside the merge train
                     m.move_ticket(rec.get("issue"), "done",
                                   f"PR #{n} was merged on GitHub outside the merge train.")
-                unpark(m, rec, "the PR is closed" if pr_state != "merged" else "the PR was merged outside the train")
+                unpark(m, rec, "the PR was merged outside the train" if ci["merged"] else "the PR is closed")
             elif ci["state"] == "moved":
                 unpark(m, rec, "its author pushed")
             elif rec["kind"] == "clean" and ci["draft"]:

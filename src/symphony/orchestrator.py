@@ -129,9 +129,19 @@ def retry_after_failure(entry: dict, cfg: Config, now_ms: int, failure_summary: 
     }
     if cfg.max_failed_attempts and failures >= cfg.max_failed_attempts:
         return {**fields, "status": "blocked", "retry_at": None, "blocked_reason": RETRIES_EXHAUSTED,
-                "exhaustion_reported": False}
+                "exhaustion_reported_at": None}
     return {**fields, "status": "retry_queued",
             "retry_at": now_ms + compute_backoff_ms(failed, cfg.max_retry_backoff_ms)}
+
+
+# The report's own comment moves the ticket's `updated_at` a moment after it is sent; an
+# update later than this counts as a person touching the ticket.
+REPORT_ECHO_MS = 60_000
+
+
+def _touched_after_report(issue: Issue, entry: dict) -> bool:
+    reported_at = entry.get("exhaustion_reported_at")
+    return bool(reported_at) and intake.changed_since(issue, reported_at + REPORT_ECHO_MS)
 
 
 def mark_retry_after_failure(
@@ -361,19 +371,18 @@ def tick(
                     kv.put(state.issue_key(issue_id), entry)
                     fx.emit("orphan_claim_reopened", issue_id=issue_id, attempt=entry["attempt"])
             elif entry.get("status") == "blocked":
-                if entry.get("blocked_reason") == RETRIES_EXHAUSTED and not entry.get("exhaustion_reported"):
+                exhausted = entry.get("blocked_reason") == RETRIES_EXHAUSTED
+                revoked = entry.get("admin_authorization_revoked")
+                if exhausted and not refresh and not entry.get("exhaustion_reported_at"):
                     _report_exhausted(issue, entry, cfg, fx)
-                    # The report is a comment, and a comment moves the ticket's `updated_at`:
-                    # it must not count as the human touch that reopens the ticket, so the
-                    # baseline is taken on the next tick, after the report.
-                    entry.update(exhaustion_reported=True, exhaustion_baseline_pending=True, updated_at=now_ms)
+                    entry.update(exhaustion_reported_at=now_ms, updated_at=now_ms)
                     kv.put(state.issue_key(issue_id), entry)
-                elif entry.get("exhaustion_baseline_pending"):
-                    entry.update(exhaustion_baseline_pending=False, last_issue_updated_at=issue.updated_at)
-                    kv.put(state.issue_key(issue_id), entry)
-                elif (refresh or issue.updated_at != entry.get("last_issue_updated_at")) and not entry.get("admin_authorization_revoked"):
+                elif not revoked and (refresh or (
+                    _touched_after_report(issue, entry) if exhausted
+                    else issue.updated_at != entry.get("last_issue_updated_at")
+                )):
                     entry.update(status="retry_queued", retry_at=now_ms, updated_at=now_ms, failures=0,
-                                 blocked_reason=None, exhaustion_reported=None)
+                                 blocked_reason=None, exhaustion_reported_at=None)
                     kv.put(state.issue_key(issue_id), entry)
                     fx.emit("blocked_reopened", issue_id=issue_id)
 

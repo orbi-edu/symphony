@@ -318,10 +318,10 @@ def test_intents_after_losing_ownership_are_ignored(attempt):
 
 
 # -- host tools ---------------------------------------------------------------------
-def ask(call_id="h1", question="Postgres or SQLite?"):
+def ask(call_id="h1", question="Postgres or SQLite?", options=("pg", "sqlite")):
     return {
         "type": "host_tool_call", "id": call_id, "toolCallId": f"tc-{call_id}",
-        "toolName": "symphony_ask", "arguments": {"question": question, "options": ["pg", "sqlite"]},
+        "toolName": "symphony_ask", "arguments": {"question": question, "options": list(options)},
     }
 
 
@@ -413,6 +413,8 @@ def test_an_unanswered_ask_returns_the_fallback_and_never_stalls(attempt, notifi
     "Please paste the AWS_SECRET_ACCESS_KEY so I can run the test.",
     "Can you provide the database password?",
     "Send me the private key for the deploy service.",
+    "What is the database password?",
+    "Qual é a senha do banco?",
 ])
 def test_ask_refuses_secret_requests(attempt, notifications, question):
     env, _, engine = attempt()
@@ -449,6 +451,19 @@ def test_ask_allows_non_secret_questions(attempt, notifications, question):
     # Not refused — gets the timeout fallback since nobody answers.
     assert result["isError"] is False
     assert result["result"]["content"][0]["text"] == ASK_FALLBACK
+
+
+def test_ask_refuses_a_secret_request_hidden_in_the_options(attempt, notifications):
+    env, _, engine = attempt()
+    engine.push(ask(question="How should I unblock the deploy?", options=["Paste AWS_SECRET_ACCESS_KEY here"]))
+    engine.push(lambda e: bool(tool_results(e, "h1")))
+    engine.run()
+
+    run_attempt(env, "i1", 1, 1)
+    (result,) = tool_results(engine, "h1")
+    assert result["isError"] is True
+    assert events(env, EV_INPUT_REQUESTED) == []
+    assert notifications == []
 
 
 def test_is_secret_request_unit():

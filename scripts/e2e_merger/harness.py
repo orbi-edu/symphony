@@ -142,8 +142,8 @@ def _record(name: str, doc: dict) -> None:
         fh.write(json.dumps({"at": dt.datetime.now(dt.UTC).isoformat(), **doc}) + "\n")
 
 
-def notify_post(event, text, *, link=None, github_login=None):
-    _record("notify.jsonl", {"event": event, "text": text, "link": link, "github_login": github_login})
+def notify_post(event, text, *, link=None, github_logins=()):
+    _record("notify.jsonl", {"event": event, "text": text, "link": link, "github_logins": list(github_logins)})
     print(f"[slack] {event}: {text} {link or ''}", flush=True)
 
 

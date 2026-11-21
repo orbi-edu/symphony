@@ -104,8 +104,9 @@ def _approval_reviewers_and_logins(m: Merger, n: int, pr: dict) -> tuple[list[st
     users = (_notify._configured_users  # noqa: SLF001
              if _notify._configured_users is not None  # noqa: SLF001
              else _notify._users_from_workflow())  # noqa: SLF001
-    slack_map = users.get("slack", {})
-    mapped = [lg for lg in logins if slack_map.get(lg.casefold())]
+    # A login mapped on any channel is mentioned; each channel resolves its own id.
+    mapped = [lg for lg in logins
+              if any(section.get(lg.casefold()) for section in users.values())]
     return logins, mapped
 
 
@@ -129,7 +130,8 @@ def _notify_needs_approval(m: Merger, n: int, rec: dict) -> None:
         m.store.client.set(key, "reminded", xx=True, keepttl=True)
         is_reminder = True
     else:
-        if not m.store.client.set(key, str(time.time()), nx=True, ex=86400 * 2):
+        # Kept for as long as a head can plausibly wait; a new head gets its own key.
+        if not m.store.client.set(key, str(time.time()), nx=True, ex=30 * 86400):
             return  # another pass sent it first
         is_reminder = False
 

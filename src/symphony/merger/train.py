@@ -17,6 +17,7 @@ from __future__ import annotations
 import math
 import re
 
+from ..reflector import LEARNINGS_BRANCH_PREFIX
 from . import comments as cm
 from .ci import cancel_ci, ci_state, latest_run, restart_ci
 from .context import Merger, log
@@ -174,9 +175,11 @@ class Train:
             return self.finish(rec, merged_outcome() if merged_outcome else
                                {"end": "merged", "text": "CI passed; merged.", "done": []})
         if pr["state"] == "merged":
-            # Merged outside the merge train (e.g. a human merged it on GitHub).
-            self.m.move_ticket(rec.get("issue"), "done",
-                               f"PR #{n} was merged on GitHub outside the merge train.")
+            # Merged outside the merge train (e.g. a human merged it on GitHub). A record
+            # written before learnings PRs were excluded may still name a source ticket.
+            if not (rec.get("branch") or "").startswith(LEARNINGS_BRANCH_PREFIX):
+                self.m.move_ticket(rec.get("issue"), "done",
+                                   f"PR #{n} was merged on GitHub outside the merge train.")
             return self.finish(rec, {"end": "merged",
                                      "text": f"#{n} was merged on GitHub outside the merge train.",
                                      "done": []})

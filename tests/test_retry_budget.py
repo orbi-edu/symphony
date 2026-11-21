@@ -1,9 +1,15 @@
 """A ticket whose attempts keep failing stops being retried and reaches a human."""
 
+import datetime as dt
+
 from tests.test_dispatch import FakeEffects, cfg
 
 from symphony import state
 from symphony.orchestrator import mark_clean_continuation, mark_retry_after_failure, tick
+
+
+def iso(ms):
+    return dt.datetime.fromtimestamp(ms / 1000, tz=dt.UTC).isoformat().replace("+00:00", "Z")
 
 
 def _dispatched(kv, clock, tracker, c):
@@ -38,8 +44,8 @@ def test_retries_stop_at_the_budget_and_report_once(kv, clock, tracker):
     [(event, text, link)] = fx.notified
     assert event == "retries_exhausted" and "Who acts" in text and link == "https://t/ENG-1"
 
-    # The report itself moved the ticket's updated_at: that is not a human touch.
-    tracker.set_state("i1", "Todo", updated_at="2026-01-01T00:10:00Z")
+    # The report's own comment moves the ticket's updated_at a moment later: not a human touch.
+    tracker.set_state("i1", "Todo", updated_at=iso(clock.now_ms() + 2_000))
     for _ in range(3):
         fx = FakeEffects()
         clock.advance(60_000)
@@ -52,8 +58,8 @@ def test_a_human_touch_after_the_report_reopens_with_a_fresh_budget(kv, clock, t
     _dispatched(kv, clock, tracker, c)
     _fail(kv, clock, c, 2)
     tick(kv, tracker, c, clock.now_ms(), FakeEffects(), owner="d1")  # reports
-    tick(kv, tracker, c, clock.now_ms(), FakeEffects(), owner="d1")  # baseline
-    tracker.set_state("i1", "Todo", updated_at="2026-01-02T00:00:00Z")  # someone commented
+    clock.advance(300_000)
+    tracker.set_state("i1", "Todo", updated_at=iso(clock.now_ms()))  # someone commented
     fx = FakeEffects()
     tick(kv, tracker, c, clock.now_ms(), fx, owner="d1")
     assert fx.spawned == [("i1", 3)]
@@ -61,6 +67,17 @@ def test_a_human_touch_after_the_report_reopens_with_a_fresh_budget(kv, clock, t
     # one more failure is not the end: the budget started over
     _fail(kv, clock, c, 1)
     assert kv.get(state.issue_key("i1"))["status"] == "retry_queued"
+
+
+def test_a_refresh_reopens_an_exhausted_ticket(kv, clock, tracker):
+    c = cfg(max_failed_attempts=1)
+    _dispatched(kv, clock, tracker, c)
+    _fail(kv, clock, c, 1)
+    tick(kv, tracker, c, clock.now_ms(), FakeEffects(), owner="d1")  # reports
+    kv.put(state.REFRESH_KEY, {"commandId": "c1"})
+    fx = FakeEffects()
+    tick(kv, tracker, c, clock.now_ms(), fx, owner="d1")
+    assert fx.spawned == [("i1", 2)]
 
 
 def test_a_clean_exit_resets_the_count(kv, clock, tracker):

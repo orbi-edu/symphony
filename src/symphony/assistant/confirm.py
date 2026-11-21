@@ -200,7 +200,9 @@ class Confirmer:
         lines = [f"Created by {login}" + (" and started" if start else "") + ":"]
         lines += [f"- {m['identifier']}: {m['title']} {m['url']}".rstrip() for m in made]
         labels = ", ".join(f"`{label}`" for label in policy.required_labels)
-        if start:
+        # Without "start" the tickets get no required label and the waiting state: they are
+        # queued only when the board needs neither.
+        if start or (policy.ticket_state == policy.start_state and not policy.required_labels):
             lines.append("Queued: an agent starts each one at the next free slot; a ticket blocked by "
                          "another starts once that one is done.")
         else:

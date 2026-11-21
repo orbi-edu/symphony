@@ -819,8 +819,7 @@ def process_commands(store, kv, tracker, cfg, fx, owner, now_ms, *, publish_work
                             updated_at=_now(),
                             failures=0,
                             blocked_reason=None,
-                            exhaustion_reported=None,
-                            exhaustion_baseline_pending=None,
+                            exhaustion_reported_at=None,
                         )
                         pipe.set(state.issue_key(issue_id), _json(entry), ex=kv.ttl_s)
                         result = "Eligibility refreshed; admission, backoff and capacity still govern dispatch."
