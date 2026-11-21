@@ -418,6 +418,8 @@ class Store:
             parent = self.require("IssueLabel", parent_id)
             if not parent["isGroup"]:
                 raise invalid("the parent label must be a label group")
+            if parent["teamId"] != team_id:
+                raise invalid("Cannot add a label to a group from a different team.")
         clash = [lb for lb in self.rows("IssueLabel")
                  if lb["name"].lower() == name.lower() and lb["teamId"] in (team_id, None)]
         if clash:

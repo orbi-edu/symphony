@@ -7,6 +7,14 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Provisioning creates a prefixed label inside the label group its prefix names, so
+  `repo:acme/app` joins an existing `repo` group (a workspace group keeps its children on
+  the workspace). Before, every new label landed on the team, outside the group, and a
+  single-select `repo` group stopped covering the new repositories. A prefix with no group
+  still creates a team label.
+
 ## [0.2.11] - 2026-11-21
 
 ### Added
