@@ -46,6 +46,7 @@ class MemoryTracker:
         self.comments: dict[str, list[dict]] = {}  # issue id -> [{id, body}]
         self.relations: list[tuple[str, str]] = []  # (blocker id, blocked id)
         self.evidence: dict[str, list[dict]] = {}  # issue id -> [{title, url, kind}]
+        self.labels: set[str] = set()  # labels the board has, beyond those on issues
         self.parents: dict[str, str] = {}  # child id -> parent id
         self._seq = itertools.count(1)
 
@@ -216,6 +217,10 @@ class MemoryTracker:
     ) -> dict:
         issue = self._new_issue(title, body, labels, state or self.active_states[0])
         return {"identifier": issue.identifier, "url": self._url(issue)}
+
+    def ensure_labels(self, names: Sequence[str]) -> None:
+        known = {label.casefold() for label in self.labels}
+        self.labels.update(n for n in names if n.strip() and n.casefold() not in known)
 
     def state_of(self, identifier: str) -> dict | None:
         found = self._find(identifier)

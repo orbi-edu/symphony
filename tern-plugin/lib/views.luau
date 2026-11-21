@@ -1817,7 +1817,7 @@ local LEGENDS = {
 	sessions = { { "tab", "tabs" }, { "[ ]", "filter" }, { "↑↓", "session" }, { "enter", "chat" }, { "r", "refresh" } },
 	tickets = { { "tab", "tabs" }, { "r", "refresh" } },
 	merger = { { "tab", "tabs" }, { "↑↓", "PR" }, { "r", "refresh" } },
-	repositories = { { "tab", "tabs" }, { "r", "refresh" } },
+	repositories = { { "tab", "tabs" }, { "↑↓", "repository" }, { "r", "refresh" } },
 	infrastructure = { { "tab", "tabs" }, { "r", "refresh" } },
 	telemetry = { { "tab", "tabs" }, { "r", "refresh" } },
 	learnings = { { "tab", "tabs" }, { "r", "refresh" } },
@@ -1842,6 +1842,8 @@ local ADMIN_LEGENDS = {
 
 -- While the MCP card holds a form, every letter goes to its fields.
 local MCP_FORM_LEGEND = { { "tab", "field" }, { "←→", "choice" }, { "⌘V", "paste" }, { "enter", "save" }, { "esc", "cancel" } }
+local REPO_FORM_LEGEND = { { "tab", "field" }, { "←→", "runtime" }, { "⌘V", "paste" }, { "enter", "save" }, { "esc", "cancel" } }
+
 
 local function legend_for(state: any): { { string } }
 	if state.api.auth == "logged_out" then
@@ -1852,6 +1854,9 @@ local function legend_for(state: any): { { string } }
 	if state.view == "admin" and state.admin_tab == "mcp" and state.mcp_form then
 		return table.clone(MCP_FORM_LEGEND)
 	end
+	if state.view == "repositories" and state.repo_form then
+		return table.clone(REPO_FORM_LEGEND)
+	end
 	local out = table.clone(LEGENDS[state.view] or LEGENDS.dashboard)
 	local extra = nil
 	if state.view == "admin" then
@@ -1861,6 +1866,9 @@ local function legend_for(state: any): { { string } }
 	end
 	for _, e in extra or {} do
 		table.insert(out, e)
+	end
+	if state.view == "repositories" and apimod.can(state.api, "admin") then
+		table.insert(out, { "e", "configure" })
 	end
 	if (state.view == "dashboard" or state.view == "sessions") and apimod.can(state.api, "operator")
 		and #V.session_leases(V.find_session(state, state.sel[state.view])) > 0 then

@@ -739,6 +739,12 @@ class AdminProjection:
         bb = mapping("kubernetes.base_branches")
         configured_runtimes = mapping("kubernetes.repo_runtimes")
         configured_components = mapping("kubernetes.components")
+        # Every repository the workflow configures is listed, reachable or not: a client that
+        # rewrites these maps from the list must not drop an entry it cannot see.
+        for configured in (bb, configured_runtimes, configured_components):
+            for name in configured:
+                if _repo(name):
+                    routes[_repo(name)].add("workflow")
         repositories = []
         for repo in sorted(routes):
             observed = grouped[repo]
@@ -762,6 +768,9 @@ class AdminProjection:
                     "default_branch": item.get("default_branch"),
                     "archived": item.get("archived") if item else None,
                     "merger_policy": item.get("merger_policy") if item else None,
+                    # Provisioning (`provision.py`): the policy pull request and the last error.
+                    "policy_pr": (item.get("provisioning") or {}).get("policy_pr"),
+                    "provisioning_error": (item.get("provisioning") or {}).get("error"),
                 }
             )
         return repositories

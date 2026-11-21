@@ -33,6 +33,14 @@ def test_a_monorepo_gets_one_component_per_project_directory():
     assert found["runtime"] == "polyglot"
 
 
+def test_component_names_follow_the_naming_rule_and_paths_keep_the_directory():
+    paths, read = files({"Data_Science/pyproject.toml": "", "web.app/package.json": "{}"})
+    assert discovery.detect(paths, read, RUNTIMES)["components"] == {
+        "data-science": {"path": "Data_Science", "runtime": "polyglot"},
+        "web-app": {"path": "web.app", "runtime": "node"},
+    }
+
+
 def test_a_single_project_gets_a_runtime_and_no_components():
     paths, read = files({"package.json": "{}", "src/index.ts": ""})
     assert discovery.detect(paths, read, RUNTIMES) == {"runtime": "node", "components": {}}

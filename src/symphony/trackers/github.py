@@ -642,6 +642,12 @@ class GitHubTracker:
             found[name.casefold()] = name
         return {k: found[k] for k in wanted}
 
+    def ensure_labels(self, names: Sequence[str]) -> None:
+        """In the repository new issues go to (`kubernetes.default_repo`); without one there is
+        no single place for board labels, and they are created on first use instead."""
+        if self.default_repo:
+            self._labels(self.default_repo, names, create=True)
+
     def create_issue(
         self, title: str, body: str, *, labels: Sequence[str], state: str | None = None,
         repo: str | None = None,

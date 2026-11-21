@@ -600,7 +600,7 @@ def _with_sources(doc: dict, body: str) -> str:
 
 
 _ROUTE_LABEL = {"issue": "ticket", "retrospective": "retrospective", "default": "workflow default",
-                "installation": "GitHub App"}
+                "installation": "GitHub App", "workflow": "workflow"}
 
 
 def _repo_runtime(r: dict) -> str:

@@ -7,6 +7,22 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Repository provisioning, after each discovery and for every repository that is not
+  archived. It creates the missing tracker labels (`repo:<owner/name>`,
+  `component:<name>`) and the missing GitHub labels the merger and the agents use. It also
+  opens one pull request that adds a default `.symphony/merger.md` where none exists, and
+  never opens it again once that pull request exists, closed or not. `/v1/repos` shows the
+  policy pull request and the last error.
+- Tern: open a repository on the Repositories page to configure its runtime, base branch and
+  components, prefilled with what discovery detected.
+
+### Changed
+
+- Discovered component names follow the workflow's naming rule (`data_science` becomes
+  `data-science`; the path keeps the directory's spelling).
+
 ## [0.2.9] - 2026-11-21
 
 ### Added

@@ -3,7 +3,9 @@
 -- (`GET /v1/repos|infra|telemetry|learning|audit`; shapes in src/symphony/api/board.py), plus
 -- the Dashboard's provider rate limits. Every projection names its `sources`: one that is not
 -- `fresh` means "unknown", so the view says so instead of showing an empty list as "none".
+-- The Repositories view also lets admins configure per-repository settings.
 
+local apimod = require("./api")
 local fmt = require("./fmt")
 local h = require("./ui")
 
@@ -98,7 +100,7 @@ local function code(map: { [string]: { string } }, v: any): Spans
 	return { ui.span(if v == nil then "—" else tostring(v), "muted") }
 end
 
-local ROUTE = { issue = "tickets", retrospective = "retrospective", default = "default repository", installation = "GitHub App" }
+local ROUTE = { issue = "tickets", retrospective = "retrospective", default = "default repository", installation = "GitHub App", workflow = "workflow" }
 
 local ROLE = {
 	redis = { "Redis" }, daemon = { "daemon" }, api = { "API" }, gateway = { "gateway" },
@@ -130,12 +132,199 @@ end
 
 -- ── Repositories ──────────────────────────────────────────────────────────
 
+-- The runtimes the server knows: pulled from the API when available, else these defaults.
+P.KNOWN_RUNTIMES = { "node", "dotnet9", "dotnet10", "polyglot" }
+
+-- Find a repo item by name in the repos doc.
+function P.repo_items(state: any): { any }
+	local doc = state.data.repos
+	return (type(doc) == "table" and type(doc.items) == "table") and doc.items or {}
+end
+
+function P.find_repo(state: any, name: string?): any
+	for _, r in P.repo_items(state) do
+		if r.name == name then
+			return r
+		end
+	end
+	return nil
+end
+
+-- Whether a repo is read-only for configuration: non-admin, or archived.
+function P.repo_readonly(state: any, r: any): boolean
+	if not apimod.can(state.api, "admin") then
+		return true
+	end
+	return r.archived == true
+end
+
+-- The form fields, prefilled from the configured value, else the detected one.
+function P.repo_form_values(r: any): { [string]: string }
+	local runtime = r.configured_runtime or r.detected_runtime or ""
+	local base = r.base_branch or ""
+	-- Components: "name=path@runtime" rows, one per component.
+	local comp_text = ""
+	if type(r.components) == "table" then
+		local parts = {}
+		for cname, cdef in r.components do
+			local path = if type(cdef) == "table" then tostring(cdef.path or "") else ""
+			local crt = if type(cdef) == "table" and cdef.runtime then "@" .. tostring(cdef.runtime) else ""
+			table.insert(parts, tostring(cname) .. "=" .. path .. crt)
+		end
+		table.sort(parts)
+		comp_text = table.concat(parts, " ")
+	end
+	return { runtime = tostring(runtime), base_branch = tostring(base), components = comp_text }
+end
+
+-- The detail card for a selected repository. `form` is the edit form state (nil when not editing).
+local function repo_detail(state: any, r: any): Node
+	if not r then
+		return h.card("detail", { ui.span("No repository selected", "strong") }, {
+			h.muted("Pick a repository in the table to see its configuration."),
+		})
+	end
+	local readonly = P.repo_readonly(state, r)
+	local form = state.repo_form
+	local editing = form ~= nil and form.name == r.name
+
+	-- Facts always shown.
+	local routes = {}
+	for _, rt in (type(r.routes) == "table" and r.routes) or {} do
+		table.insert(routes, ROUTE[tostring(rt)] or tostring(rt))
+	end
+	local facts: { { Spans } } = {
+		{ "Routes", if #routes > 0 then table.concat(routes, " · ") else { ui.span("none", "muted") } },
+		{ "Tickets", { ui.span(if r.issues == nil then "?" else tostring(r.issues), "mono") } },
+		{ "Merger", { ui.span(if r.merger_policy then "policy" elseif r.merger_policy == false then "—" else "?", "muted") } },
+	}
+	if type(r.policy_pr) == "string" and r.policy_pr ~= "" then
+		local n = string.match(r.policy_pr, "/pull/(%d+)")
+		table.insert(facts, { "Policy PR", { ui.link(if n then "#" .. n else "PR", r.policy_pr) } })
+	end
+	if type(r.provisioning_error) == "string" and r.provisioning_error ~= "" then
+		table.insert(facts, { "Provisioning", { ui.span(r.provisioning_error, "error") } })
+	end
+	if r.default_branch then
+		table.insert(facts, { "Default branch", { ui.span(tostring(r.default_branch), "mono muted") } })
+	end
+	if r.detected_runtime then
+		table.insert(facts, { "Detected runtime", { ui.span(tostring(r.detected_runtime), "mono muted") } })
+	end
+	if not editing and r.base_branch then
+		table.insert(facts, { "Base branch", { ui.span(tostring(r.base_branch), "mono") } })
+	end
+	if not editing then
+		local runtime, runtime_tone = r.configured_runtime, "mono"
+		if runtime == nil and r.detected_runtime ~= nil then
+			runtime, runtime_tone = tostring(r.detected_runtime) .. " (detected)", "muted"
+		elseif runtime == nil then
+			runtime, runtime_tone = r.runtime or "—", "muted"
+		end
+		table.insert(facts, { "Runtime", { ui.span(tostring(runtime), runtime_tone) } })
+	end
+	if not editing and type(r.components) == "table" then
+		for cname, cdef in r.components do
+			local path = if type(cdef) == "table" then tostring(cdef.path or "") else ""
+			local crt = if type(cdef) == "table" and cdef.runtime then " (" .. tostring(cdef.runtime) .. ")" else ""
+			local source = if r.components_source == "detected" then "  detected" else ""
+			table.insert(facts, { "Component", { ui.span(tostring(cname) .. " → " .. path .. crt, "mono"), ui.span(source, "muted") } })
+		end
+	end
+
+	local body: { Node } = {}
+
+	if editing then
+		-- Edit form: runtime, base branch, components.
+		local busy = state.busy.repo_save
+		table.insert(body, ui.node("row", { key = "acts", gap = "sm", justify = "end", align = "center" }, {
+			h.action_key("Cancel", "repo_cancel", "esc", "muted"),
+			h.action_key(if busy then "Saving…" else "Save", "repo_save", "⏎", "accent"),
+		}))
+		if busy then
+			table.insert(body, ui.node("spinner", { key = "busy", text = "Saving repository configuration…" }))
+		end
+		if form.error then
+			table.insert(body, ui.text({ ui.span("Not saved", "strong error") }))
+			table.insert(body, h.with(ui.code(form.error), { key = "why" }))
+		end
+		-- Runtime field
+		local rt_head: Spans = { ui.span("Runtime", "strong") }
+		if form.focus == "runtime" then
+			table.insert(rt_head, ui.span("  ←→", "key"))
+		end
+		local rt_choices = {}
+		for _, known in P.KNOWN_RUNTIMES do
+			table.insert(rt_choices, { id = known, label = known })
+		end
+		local rt_val = form.values.runtime or ""
+		-- If the current value is not in known runtimes, add it.
+		local found_rt = false
+		for _, c in rt_choices do
+			if c.id == rt_val then found_rt = true end
+		end
+		if rt_val ~= "" and not found_rt then
+			table.insert(rt_choices, 1, { id = rt_val, label = rt_val })
+		end
+		table.insert(rt_choices, { id = "", label = "auto-detect" })
+		table.insert(body, h.col("runtime", {
+			ui.text(rt_head),
+			ui.node("tabs", { key = "seg", variant = "segmented", active = rt_val, items = rt_choices }),
+			h.muted("The runtime the agent workspace uses for this repository."),
+		}, { gap = "xs" }))
+		-- Base branch field
+		local bb_head: Spans = { ui.span("Base branch", "strong"), ui.span("  optional", "muted") }
+		table.insert(body, h.col("base_branch", {
+			ui.text(bb_head),
+			ui.node("input", {
+				key = "input",
+				text = form.values.base_branch or "",
+				cursor = if form.focus == "base_branch" then (utf8.len(form.values.base_branch or "") or 0) else nil,
+				placeholder = r.default_branch or "main",
+				mono = true,
+				actions = { click = "repo_focus=base_branch" },
+			}),
+			h.muted("The branch Symphony treats as main. Empty: auto-detect from the remote."),
+		}, { gap = "xs" }))
+		-- Components field
+		local comp_head: Spans = { ui.span("Components", "strong"), ui.span("  optional", "muted") }
+		table.insert(body, h.col("components", {
+			ui.text(comp_head),
+			ui.node("input", {
+				key = "input",
+				text = form.values.components or "",
+				cursor = if form.focus == "components" then (utf8.len(form.values.components or "") or 0) else nil,
+				placeholder = "name=path@runtime, space-separated",
+				mono = true,
+				actions = { click = "repo_focus=components" },
+			}),
+			h.muted("Monorepo components: name=path@runtime, separated by spaces."),
+		}, { gap = "xs" }))
+		table.insert(body, h.with(ui.kv(facts), { key = "facts" }))
+	else
+		-- Read-only view with edit action.
+		if not readonly then
+			table.insert(body, ui.node("row", { key = "acts", gap = "sm", justify = "end", align = "center" }, {
+				h.action_key("Configure", "repo_edit=" .. r.name, "e", "accent"),
+			}))
+		end
+		table.insert(body, h.with(ui.kv(facts), { key = "facts" }))
+	end
+
+	local head_spans: Spans = {
+		ui.span(tostring(r.name), "strong mono"),
+		ui.span(if r.archived then "  archived" else "", if r.archived then "muted" else ""),
+	}
+	return h.card("detail", head_spans, body)
+end
+
 function P.repos(state: any): Node
 	local g = guard(state, "repos", "the repositories")
 	if g then
 		return g
 	end
 	local doc = state.data.repos
+	local sel = state.sel.repositories
 	local rows = {}
 	for _, r in doc.items or {} do
 		local routes = {}
@@ -164,10 +353,11 @@ function P.repos(state: any): Node
 		if base_text == nil then
 			base_text, base_tone = r.default_branch or "default", "muted"
 		end
+		local picked = r.name == sel
 		table.insert(rows, {
 			id = tostring(r.name),
 			cells = {
-				name = { ui.span(tostring(r.name) .. (if r.archived then " (archived)" else ""), if r.archived then "muted mono" else "strong mono") },
+				name = { ui.span(if picked then "▸ " else "  ", "accent"), ui.span(tostring(r.name) .. (if r.archived then " (archived)" else ""), if r.archived then "muted mono" elseif picked then "strong accent" else "strong mono") },
 				base = { ui.span(tostring(base_text), base_tone) },
 				runtime = { ui.span(tostring(runtime), runtime_tone) },
 				components = { ui.span(comp_text, if #comp_parts > 0 then "mono" else "muted") },
@@ -175,25 +365,32 @@ function P.repos(state: any): Node
 				route = { ui.span(if #routes > 0 then table.concat(routes, " · ") else "—", "muted") },
 				issues = { ui.span(if r.issues == nil then "?" else tostring(r.issues), "mono") },
 			},
+			actions = { click = "repo_sel=" .. tostring(r.name) },
 		})
 	end
+	local tbl = h.data_table({
+		key = "t",
+		cols = {
+			{ id = "name", head = "Repository", grow = 1, mono = true, priority = 9 },
+			{ id = "base", head = "Base branch", mono = true, priority = 6 },
+			{ id = "runtime", head = "Runtime", mono = true, priority = 5 },
+			{ id = "components", head = "Components", mono = true, priority = 4 },
+			{ id = "merger", head = "Merger", priority = 3 },
+			{ id = "route", head = "Arrives by", priority = 5 },
+			{ id = "issues", head = "Tickets", align = "end", mono = true, priority = 7 },
+		},
+		rows = rows,
+		empty = if doc.sources and doc.sources.state and doc.sources.state.status ~= "fresh"
+			then "Repositories unknown: the daemon state is unavailable"
+			else "No repositories configured in WORKFLOW.md",
+	})
+	local detail = repo_detail(state, P.find_repo(state, sel))
+	h.with(detail, { min = { w = "44ch" }, max = { w = "56ch" }, basis = "content" })
 	return page("repositories", {
 		head("Repositories Symphony reaches and dispatches tickets to", doc),
-		h.data_table({
-			key = "t",
-			cols = {
-				{ id = "name", head = "Repository", grow = 1, mono = true, priority = 9 },
-				{ id = "base", head = "Base branch", mono = true, priority = 6 },
-				{ id = "runtime", head = "Runtime", mono = true, priority = 5 },
-				{ id = "components", head = "Components", mono = true, priority = 4 },
-				{ id = "merger", head = "Merger", priority = 3 },
-				{ id = "route", head = "Arrives by", priority = 5 },
-				{ id = "issues", head = "Tickets", align = "end", mono = true, priority = 7 },
-			},
-			rows = rows,
-			empty = if doc.sources and doc.sources.state and doc.sources.state.status ~= "fresh"
-				then "Repositories unknown: the daemon state is unavailable"
-				else "No repositories configured in WORKFLOW.md",
+		ui.node("row", { key = "md", gap = "lg", align = "start" }, {
+			ui.node("col", { key = "list", grow = 1, basis = 0 }, { tbl }),
+			detail,
 		}),
 		truncated(doc),
 		sources(doc),

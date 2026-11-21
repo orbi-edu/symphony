@@ -38,11 +38,13 @@ token and session documents, which keep Redis epoch milliseconds):
 - `GET /v1/repos` → `{observedAt, items:[{name ("owner/repo"), runtime|null, routes, issues|null,
   base_branch|null, configured_runtime|null, detected_runtime|null, components,
   components_source ("configured"|"detected"|null), default_branch|null, archived|null,
-  merger_policy|null}], sources:{state, workflow, learning, github}, limits:{runs, resources,
+  merger_policy|null, policy_pr|null, provisioning_error|null}], sources:{state, workflow,
+  learning, github}, limits:{runs, resources,
   truncated}}`; `routes` ⊆ `issue` (a tracked issue routes to it) | `retrospective` (a retained
   retrospective) | `default` (the workflow `default_repo`) | `installation` (the GitHub App
-  reaches it, from the daemon's discovery); `runtime` is what tracked runs used; `issues`
-  counts tracked runs only.
+  reaches it, from the daemon's discovery) | `workflow` (WORKFLOW.md configures its base
+  branch, runtime or components); `runtime` is what tracked runs used; `issues` counts
+  tracked runs only.
 - `GET /v1/infra` → `{observedAt, paused, heartbeatAt, services:[{name, role, status, detail}],
   resources:[{name, kind, status, component, detail, activePods|null, createdAt}],
   sources:{state, kubernetes}, limits:{resources, truncated}}`.

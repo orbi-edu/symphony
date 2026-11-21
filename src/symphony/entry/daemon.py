@@ -27,12 +27,12 @@ import uuid
 from collections.abc import Callable
 from contextlib import contextmanager
 
-from .. import discovery, ghapp, kube, metrics, orchestrator, state, wake
+from .. import discovery, ghapp, kube, metrics, orchestrator, provision, state, wake
 from ..admin_auth import authorize_command
 from ..admin_commands import AdminStore, process_commands
 from ..admin_workflow import WorkflowRepository
 from ..config import Config, ConfigHolder, bind_role_model
-from ..edge import SetupGate, load_config, log, now_ms, pod_namespace, usable_tracker
+from ..edge import SetupGate, load_config, log, make_tracker, now_ms, pod_namespace, usable_tracker
 from ..effects import K8sEffects
 from ..kv import LeaseKV, RedisKV
 from ..teamconfig import TeamConfig
@@ -272,9 +272,15 @@ def _run(kv, stop: threading.Event, owner: str, store_ns: str, events: list) -> 
     workflow = WorkflowRepository(
         core, ns, name=os.environ.get("SYMPHONY_WORKFLOW_CONFIGMAP", f"{cfg.app_name}-workflow")
     )
-    credential = ghapp.InstallationCredential.from_env(os.environ, now_ms, permissions=ghapp.READ_ONLY)
+    app_configured = bool(os.environ.get("GITHUB_APP_ID"))
+    reader = ghapp.InstallationCredential.from_env(os.environ, now_ms, permissions=ghapp.READ_ONLY)
+    # Provisioning writes labels and opens the policy pull request: its own, wider token.
+    writer = ghapp.InstallationCredential.from_env(os.environ, now_ms, permissions=provision.PERMISSIONS)
     refresher = discovery.Refresher(
-        kv, lambda: credential.token() if os.environ.get("GITHUB_APP_ID") else None, now_ms)
+        kv, lambda: reader.token() if app_configured else None, now_ms,
+        after=lambda items, bound: provision.run(
+            kv, make_tracker(bound), bound, items, writer.token(), refresher.http, now_ms),
+    )
     swept = False
 
     def step(reasons: list[str]) -> bool:
