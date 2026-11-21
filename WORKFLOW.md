@@ -187,6 +187,14 @@ telemetry:
   # none | summary | full — keep none: the other two put prompts and tool payloads in spans.
   capture_content: none
 
+# Failure triage (docs/configuration.md#triage). On, a failed run opens one investigation
+# ticket per failure signature for `repo`, in Todo, so an agent finds the cause and specifies
+# the fix as sub-issues.
+triage:
+  enabled: false
+  repo: ""                      # owner/name, e.g. this Symphony's own repository
+  max_per_day: 3
+
 # Review conversation watch. While the merger owns a ticket, nothing runs for it — so a
 # person's question on the pull request would go unanswered. This watches the pull requests
 # (GitHub comment webhooks make it immediate) and wakes the agent to ANSWER, without

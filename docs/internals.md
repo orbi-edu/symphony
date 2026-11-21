@@ -381,7 +381,7 @@ certification and the tests use it.
 - **Post:** `symphony.notify.post(event, text, *, link=None, github_logins=())`. The
   events are `input_requested`, `back_to_author`, `needs_maintainer`, `needs_approval`,
   `preview_ready`, `batch_split`, `main_red`, `main_green`, `run_error`,
-  `retries_exhausted` and `not_queued`. Each configured channel gets each event:
+  `retries_exhausted`, `not_queued` and `triage_opened`. Each configured channel gets each event:
   - Slack: `SLACK_BOT_TOKEN` and `SLACK_CHANNEL`, or `SLACK_WEBHOOK_URL`.
   - Discord: `DISCORD_BOT_TOKEN` and `DISCORD_CHANNEL_ID`, or `DISCORD_WEBHOOK_URL`.
 - **Mentions:** `notify.users` in `WORKFLOW.md` has one map per channel:

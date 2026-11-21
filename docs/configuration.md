@@ -23,6 +23,7 @@ This document is the reference for all three. [providers.md](providers.md) expla
 - [`kubernetes`](#kubernetes)
 - [`telemetry`](#telemetry)
 - [`review_watch`](#review_watch)
+- [`triage`](#triage)
 - [`notify`](#notify)
 - [`assistant`](#assistant)
 - [`retention`](#retention)
@@ -255,6 +256,32 @@ The engine sends OpenTelemetry spans. By default it sends them to the gateway. T
 | `review_watch.states` | list of strings | `[]` | The parked states to watch. Empty means all parked states. |
 | `review_watch.answer_max_turns` | integer | `3` | The turn cap of an answer run. It must be positive when the watch is on. |
 | `review_watch.answer_prompt` | string | `""` | The Liquid prompt of an answer run. It is required when the watch is on. |
+
+## `triage`
+
+Failure triage turns a failed run into an investigation. It is off by default because the
+investigations are tickets that agents start on.
+
+When a runner dies or stalls, or a ticket uses up `agent.max_failed_attempts`, the daemon
+reads what the cluster knows about the run: the Job's failure condition, how the runner
+container ended, the last error it logged and its last log lines, with credentials redacted.
+From the error it derives a signature, with ids, hashes and numbers masked. The first failure
+with a new signature opens an `investigation` ticket for `triage.repo` in the first active
+state, with the labels `tracker.required_labels`, the investigation label, `triage` and
+`repo:<triage.repo>`, and posts `triage_opened` to the channel. The investigation finds the
+root cause, writes the report, and turns a fix into sub-issues. Each sub-issue carries its
+spec: the behavior to change, the acceptance criteria and the test that fails today.
+
+The same signature again only adds an occurrence to the open investigation (a comment at most
+once an hour). It opens a new one once the old investigation is closed. A ticket labeled
+`triage` is never triaged, so a failing investigation cannot feed itself. A runner Job that
+ended without recording an outcome is requeued on the next tick, not after the stall windows.
+
+| Key | Type | Default | Effect |
+|---|---|---|---|
+| `triage.enabled` | boolean | `false` | Open investigations for failed runs. |
+| `triage.repo` | string | — | `owner/name` the investigations work on, usually Symphony's own repository. Required when enabled. |
+| `triage.max_per_day` | integer | `3` | New investigations per UTC day. Later new signatures are only logged (`triage_capped`). |
 
 ## `notify`
 

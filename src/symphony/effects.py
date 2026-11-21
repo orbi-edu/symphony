@@ -13,6 +13,7 @@ Port of the Modal edge's ModalEffects, primitive by primitive:
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import time
 
@@ -21,6 +22,9 @@ from .edge import log, make_tracker, now_ms
 from .kube import PodSandbox
 from .trackers.base import Issue
 from .workspace import kill_agent_processes, run_hook, sandbox_name
+
+# structlog's key=value rendering of an `error=` field
+_LOGGED_ERROR = re.compile(r"\berror='((?:[^'\\]|\\.)*)'")
 
 
 def _generation_stop_script(issue_id: str, seq: int) -> str:
@@ -152,6 +156,42 @@ class K8sEffects:
 
     def is_call_running(self, call_id: str) -> bool:
         return kube.job_status(self._batch, self._ns, call_id) == "running"
+
+    def failure_evidence(self, call_id: str) -> dict:
+        """What the cluster knows about a failed runner Job: its failure condition, how the
+        runner container ended, the last error it logged and its last log lines (the agent's
+        own output excluded). Best effort: each part that cannot be read is left out."""
+        out: dict = {"job": call_id}
+        try:
+            job = self._batch.read_namespaced_job(call_id, self._ns, _request_timeout=10)
+            for c in (job.status and job.status.conditions) or []:
+                if c.type == "Failed" and c.status == "True":
+                    out["reason"] = f"{c.reason}: {c.message}"
+            pods = self._core.list_namespaced_pod(
+                self._ns, label_selector=f"job-name={call_id}", _request_timeout=10).items
+        except Exception as exc:  # noqa: BLE001 — evidence is a courtesy
+            log.warning("failure_evidence_unavailable", job=call_id, error=str(exc)[:200])
+            return out
+        if not pods:
+            return out
+        pod = max(pods, key=lambda p: p.metadata.creation_timestamp)
+        for status in pod.status.container_statuses or []:
+            ended = status.state and status.state.terminated
+            if status.name == "runner" and ended:
+                out["container"] = f"{ended.reason} (exit {ended.exit_code})"
+        try:
+            text = self._core.read_namespaced_pod_log(
+                pod.metadata.name, self._ns, container="runner", tail_lines=300, _request_timeout=10)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("failure_evidence_log_unavailable", job=call_id, error=str(exc)[:200])
+            return out
+        lines = [line for line in (text or "").splitlines()
+                 if line.strip() and "event='engine_stdout'" not in line]
+        errors = [m.group(1) for line in lines for m in [_LOGGED_ERROR.search(line)] if m]
+        if errors:
+            out["error"] = errors[-1]
+        out["lines"] = lines[-40:]
+        return out
 
     def kill_agent_process(
         self, sandbox_name_: str | None, *, issue_id: str | None = None, seq: int | None = None

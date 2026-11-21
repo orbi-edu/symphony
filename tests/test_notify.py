@@ -111,7 +111,7 @@ def test_every_contract_event_has_its_own_emoji_and_title():
     contract = {
         "input_requested", "back_to_author", "needs_maintainer", "batch_split",
         "main_red", "main_green", "run_error", "needs_approval", "preview_ready",
-        "retries_exhausted", "not_queued",
+        "retries_exhausted", "not_queued", "triage_opened",
     }
     assert set(notify.EVENTS) == contract
     assert len({emoji for emoji, _ in notify.EVENTS.values()}) == len(contract)

@@ -130,6 +130,15 @@ real `omp` binary skip unless `SYMPHONY_REAL_OMP=1`.
 - If Symphony needs a vendor behavior that a mock does not have, add it to the mock from the
   vendor documentation. Do not change Symphony to fit a wrong mock.
 
+### 4.7 This repository is public
+
+- Write everything here — code, tests, docs, commit messages, pull request text — in generic
+  terms. Never copy from a ticket, a log or a deployment the names of companies, people,
+  products, accounts, hostnames, ticket identifiers or account numbers.
+- Examples use neutral values: `acme/app`, `ENG-12`, `alice`, `example.com`.
+- A ticket that sent you here (an investigation of a failed run, say) is private; describe the
+  problem it shows, not the deployment it came from.
+
 ## 5. Commits and pull requests
 
 - One commit has one purpose. Write the subject in the imperative mood, 72 characters or less,

@@ -21,6 +21,7 @@ from typing import Any
 import yaml
 
 from . import retention, teamconfig
+from .repos import parse_designation
 
 
 class ConfigError(Exception):
@@ -158,6 +159,11 @@ class Config:
     review_watch_states: tuple[str, ...] = ()  # empty ⇒ any parked (non-active, non-terminal)
     answer_max_turns: int = 3
     answer_prompt: str = ""
+    # Failure triage (`triage.py`). Off by default: it creates tickets that dispatch agents.
+    # A failed run opens one investigation per failure signature, aimed at `triage_repo`.
+    triage_enabled: bool = False
+    triage_repo: str | None = None
+    triage_max_per_day: int = 3
     # `slack` and `discord`: GitHub login (casefolded) → that service's user id, for mentions
     # in notifications (internals §8).
     notify_users: dict = field(default_factory=lambda: {"slack": {}, "discord": {}})
@@ -698,6 +704,7 @@ def parse_workflow(text: str, env: Mapping[str, str] | None = None) -> Config:
     review_watch = data.get("review_watch") or {}
     if not isinstance(review_watch, dict):
         raise ConfigError("section 'review_watch' must be a mapping")
+    triage = _section(data, "triage", {"enabled", "repo", "max_per_day"})
     for name, blk in (
         ("polling", polling),
         ("hooks", hooks),
@@ -909,6 +916,9 @@ def parse_workflow(text: str, env: Mapping[str, str] | None = None) -> Config:
         telemetry_capture_content=_typed(
             telemetry, "capture_content", str, defaults.telemetry_capture_content
         ),
+        triage_enabled=_typed(triage, "enabled", bool, defaults.triage_enabled),
+        triage_repo=(_typed(triage, "repo", str, "") or "").strip().lower() or None,
+        triage_max_per_day=_typed(triage, "max_per_day", int, defaults.triage_max_per_day),
         review_watch_enabled=_typed(review_watch, "enabled", bool, defaults.review_watch_enabled),
         review_watch_interval_s=_typed(
             review_watch, "interval_s", int, defaults.review_watch_interval_s
@@ -951,6 +961,11 @@ def parse_workflow(text: str, env: Mapping[str, str] | None = None) -> Config:
             f"assistant.ticket_labels must not hold the required label {started[0]!r}: "
             "only \"Create and start\" adds it"
         )
+    if cfg.triage_enabled:
+        if not cfg.triage_repo or parse_designation(f"repo:{cfg.triage_repo}") is None:
+            raise ConfigError("triage.repo must be owner/name when triage.enabled is true")
+        if cfg.triage_max_per_day <= 0:
+            raise ConfigError("triage.max_per_day must be positive")
     if cfg.review_watch_enabled:
         if cfg.answer_max_turns <= 0:
             raise ConfigError("review_watch.answer_max_turns must be positive")
