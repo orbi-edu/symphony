@@ -18,6 +18,7 @@ import base64
 import json
 import mimetypes
 import os
+import re
 import shlex
 import threading
 from collections.abc import Callable
