@@ -148,7 +148,8 @@ def _labels(http: httpx.Client, api: str, headers: dict, repo: str, wanted: list
 
 
 def _policy_pr(http: httpx.Client, api: str, headers: dict, repo: str, base: str) -> str | None:
-    """The URL of the pull request that adds the policy, opened now or before."""
+    """The URL of the pull request that adds the policy, opened now or before; None for an
+    empty repository, which has no branch to propose against until its first push."""
     owner = repo.split("/", 1)[0]
     response = http.get(f"{api}/repos/{repo}/pulls", headers=headers, timeout=TIMEOUT_S,
                         params={"head": f"{owner}:{POLICY_BRANCH}", "state": "all"})
@@ -156,6 +157,8 @@ def _policy_pr(http: httpx.Client, api: str, headers: dict, repo: str, base: str
     if response.json():
         return response.json()[0].get("html_url")
     ref = http.get(f"{api}/repos/{repo}/git/ref/heads/{base}", headers=headers, timeout=TIMEOUT_S)
+    if ref.status_code == 409:  # "Git Repository is empty."; the daily recheck tries again
+        return None
     ref.raise_for_status()
     made = http.post(f"{api}/repos/{repo}/git/refs", headers=headers, timeout=TIMEOUT_S,
                      json={"ref": f"refs/heads/{POLICY_BRANCH}", "sha": ref.json()["object"]["sha"]})

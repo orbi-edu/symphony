@@ -78,6 +78,21 @@ def test_linear_blocked_by_is_a_blocks_relation(linear):
     assert [r["identifier"] for r in issue.blocked_by] == [a] and not issue.dispatchable
 
 
+def test_linear_prefixed_labels_join_their_workspace_group(linear):
+    """`repo:x` lands in a workspace `repo` group (single-select keeps one repo per ticket);
+    a prefix with no group stays a team label, and an existing label is never recreated."""
+    from symphony.trackers.linear import LABEL_CREATE_MUTATION
+    linear._post(LABEL_CREATE_MUTATION, {"input": {"name": "repo", "isGroup": True}})
+    linear.ensure_labels(["repo:acme/app", "component:api"])
+    linear.ensure_labels(["repo:acme/app"])
+    nodes = linear._post(
+        'query { issueLabels(filter: {name: {in: ["repo:acme/app", "component:api"]}}) '
+        "{ nodes { name parent { name } team { key } } } }", {})["issueLabels"]["nodes"]
+    shape = sorted((n["name"], (n["parent"] or {}).get("name"), (n["team"] or {}).get("key"))
+                   for n in nodes)
+    assert shape == [("component:api", None, "ENG"), ("repo:acme/app", "repo", None)]
+
+
 # -- GitHub -----------------------------------------------------------------------------------
 @pytest.fixture(scope="module")
 def github(tmp_path_factory):

@@ -145,7 +145,7 @@ mutation SymphonyCommentUpdate($id: String!, $input: CommentUpdateInput!) {
 """
 LABELS_QUERY = """
 query SymphonyLabels($names: [String!]!) {
-  issueLabels(filter: {name: {in: $names}}, first: 100) { nodes { id name team { id } } }
+  issueLabels(filter: {name: {in: $names}}, first: 100) { nodes { id name isGroup team { id } } }
 }
 """
 LABEL_CREATE_MUTATION = """
@@ -511,22 +511,31 @@ class LinearTracker:
 
     def _label_ids(self, team_id: str, names: Sequence[str], *, create: bool) -> dict[str, str]:
         """Label names (case-insensitive) → ids usable on the team, a team label winning over
-        a workspace one. A missing label is created on the team when `create`, else refused."""
+        a workspace one. A missing label is created when `create`, else refused: inside the
+        group its prefix names (`repo:x` → group `repo`) when one exists, else on the team."""
         if not names:
             return {}
-        nodes = (self._post(LABELS_QUERY, {"names": sorted(set(names))}).get("issueLabels")
-                 or {}).get("nodes") or []
+        prefixes = {n.split(":", 1)[0] for n in names if ":" in n}
+        nodes = (self._post(LABELS_QUERY, {"names": sorted({*names, *prefixes})})
+                 .get("issueLabels") or {}).get("nodes") or []
         found: dict[str, str] = {}
+        groups: dict[str, dict] = {}
         for node in nodes:
             owner = (node.get("team") or {}).get("id")
             folded = node["name"].casefold()
-            if owner == team_id or (owner is None and folded not in found):
+            if node.get("isGroup"):
+                # Linear keeps a group's children on the group's team, or on the workspace.
+                if owner == team_id or (owner is None and folded not in groups):
+                    groups[folded] = {"parentId": node["id"], **({"teamId": owner} if owner else {})}
+            elif owner == team_id or (owner is None and folded not in found):
                 found[folded] = node["id"]
         missing = sorted({n for n in names if n.casefold() not in found})
         if missing and not create:
             raise TrackerInputError(f"unknown labels: {', '.join(missing)}")
         for name in missing:
-            out = self._post(LABEL_CREATE_MUTATION, {"input": {"name": name, "teamId": team_id}})
+            group = groups.get(name.split(":", 1)[0].casefold()) if ":" in name else None
+            data = {"name": name, **(group if group is not None else {"teamId": team_id})}
+            out = self._post(LABEL_CREATE_MUTATION, {"input": data})
             payload = out.get("issueLabelCreate") or {}
             if not payload.get("success"):
                 raise RuntimeError(f"Linear did not create the label {name!r}")
@@ -549,7 +558,8 @@ class LinearTracker:
         return teams[0], None
 
     def ensure_labels(self, names: Sequence[str]) -> None:
-        """Missing labels are created on the board's team, in batches the label query allows."""
+        """Missing labels are created (see `_label_ids` for where), in batches the label query
+        allows."""
         team, _ = self._board_team()
         wanted = sorted({n for n in names if n.strip()})
         for start in range(0, len(wanted), 50):
