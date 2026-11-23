@@ -217,7 +217,7 @@ A failed attempt has a failure summary. The next attempt's prompt includes it. R
 | `tracker unavailable during attempt: ...` | The tracker (Linear or GitHub) did not answer. | Wait. The next attempt retries. |
 | A model error, for example `overloaded` or `throttled` | The provider refused the call. | `symphony status` shows the rate limits. Lower the concurrency or change the model. |
 | `Interrupted by an authorized operator.` | An operator used the `interrupt` command. | None. The retry follows the normal backoff. |
-| `runner died mid-attempt` | The runner Job stopped without a result. | Read the Job's log and events (`kubectl describe job`). |
+| `runner died mid-attempt` | The runner Job stopped without a result. A `Runner pod` line on the triage ticket means that the cluster removed the pod (node drain, node loss, preemption, eviction or a manual delete) while the runner ran. | Read the Job's log and events (`kubectl describe job`). For a `Runner pod` line, check the events of the named node (`kubectl describe node`). |
 
 > **Note:** If git shows `Repository not found` for a repository that exists, the GitHub token covers other repositories. The runner rebuilds a workspace whose clone does not match the ticket's primary repository (`workspace_repo_mismatch_recreating`). If the error stays, check the `repo:` labels and the App installation.
 

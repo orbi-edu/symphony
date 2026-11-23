@@ -128,3 +128,31 @@ def test_the_signature_ignores_ids_and_numbers():
     b = triage.signature("runner died mid-attempt: job sym-run-eng-22-def7654321 exit 137", {})
     assert a == b
     assert a != triage.signature("stall detected", {})
+
+
+def test_each_external_cause_has_its_own_signature():
+    summary = "runner died mid-attempt: job sym-run-eng-1-abc1234567"
+    base = {"reason": "BackoffLimitExceeded: Job has reached the specified backoff limit"}
+    sigs = [triage.signature(summary, {**base, **extra}) for extra in (
+        {"disruption": "EvictionByEvictionAPI", "container": "running"},
+        {"disruption": "DeletionByTaintManager", "container": "running"},
+        {"disruption": "missing"},
+        {"container": "Error (exit 1)"},
+    )]
+    assert len(set(sigs)) == len(sigs)
+    # a crash without a disruption keeps the signature it had before
+    assert sigs[3] == triage.signature(summary, base)
+
+
+def test_the_ticket_shows_the_runner_pod(kv, clock, tracker):
+    c = board()
+    tracker.add_issue("i1", "ENG-1", labels=("symphony",))
+    evidence = {"job": "job-ENG-1", "container": "running", "disruption": "DeletionByTaintManager",
+                "pod": "deleted while running; DisruptionTarget: DeletionByTaintManager: "
+                       "Taint manager: deleting due to NoExecute taint; node worker-a"}
+    triage.record(kv, tracker, c, tracker._find("ENG-1"), {"attempt": 1}, "runner died mid-attempt",
+                  evidence, FakeEffects(), clock.now_ms())
+    [inv] = investigations(tracker)
+    assert "- **Runner container:** running" in inv.description
+    assert ("- **Runner pod:** deleted while running; DisruptionTarget: DeletionByTaintManager: "
+            "Taint manager: deleting due to NoExecute taint; node worker-a") in inv.description
