@@ -7,6 +7,14 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- A runner whose workspace pod died during the attempt (deadline, eviction, node loss) or
+  was deleted no longer crashes at teardown with "Agent generation termination could not be
+  confirmed". A pod that is gone or has ended (`Failed`, `Succeeded`) runs no process, so the
+  stop is confirmed and the attempt records its real failure reason. A live pod whose exec
+  fails still fails closed. The runner and the daemon share this one rule.
+
 ## [0.2.12] - 2026-11-21
 
 ### Fixed

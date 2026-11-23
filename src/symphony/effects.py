@@ -70,11 +70,23 @@ pids=$(generation_pids) || exit 1
     )
 
 
-
 def kill_agent_generation(sandbox, issue_id: str, seq: int) -> None:
     code, _ = sandbox.exec_script(_generation_stop_script(issue_id, seq), timeout_s=15)
     if code != 0:
         raise RuntimeError("Agent generation termination could not be confirmed")
+
+
+def stop_workspace_generation(core, ns: str, sandbox: PodSandbox, issue_id: str, seq: int) -> None:
+    """Stops one dispatch's generation in its workspace pod. When the stop script cannot
+    confirm it — a pod that died or was deleted cannot open an exec stream — the pod
+    decides: one that is gone or has ended runs nothing; a live one fails closed."""
+    try:
+        kill_agent_generation(sandbox, issue_id, seq)
+    except RuntimeError:
+        if not kube.workspace_stopped(kube.get_workspace(core, ns, sandbox.name)):
+            raise
+        log.warning("agent_generation_stop_confirmed_by_pod", pod=sandbox.name)
+
 
 class K8sEffects:
     def __init__(self, cfg, core, batch, namespace: str) -> None:
@@ -198,15 +210,15 @@ class K8sEffects:
     ) -> None:
         pod = kube.get_workspace(self._core, self._ns, sandbox_name_) if sandbox_name_ else None
         self._require_lease()
-        if pod is not None and pod.status.phase not in {"Failed", "Succeeded"}:
-            sandbox = PodSandbox(self._core, self._ns, sandbox_name_)
-            if issue_id is not None and seq is not None:
-                kill_agent_generation(sandbox, issue_id, seq)
-                stopped = True
-            else:
-                stopped = kill_agent_processes(sandbox)
-            if not stopped:
-                raise RuntimeError("Agent process termination could not be confirmed")
+        if kube.workspace_stopped(pod):
+            return
+        sandbox = PodSandbox(self._core, self._ns, sandbox_name_)
+        if issue_id is not None and seq is not None:
+            stop_workspace_generation(self._core, self._ns, sandbox, issue_id, seq)
+        elif not kill_agent_processes(sandbox) and not kube.workspace_stopped(
+            kube.get_workspace(self._core, self._ns, sandbox_name_)
+        ):
+            raise RuntimeError("Agent process termination could not be confirmed")
 
     def cleanup_workspace(self, issue_id: str, entry: dict) -> None:
         name = entry.get("sandbox_name") or (
@@ -214,7 +226,7 @@ class K8sEffects:
         )
         pod = kube.get_workspace(self._core, self._ns, name) if name else None
         if pod is not None:
-            if pod.status.phase not in {"Failed", "Succeeded"}:
+            if not kube.workspace_stopped(pod):
                 sandbox = PodSandbox(self._core, self._ns, name)
                 try:
                     # A hook failure must never block cleanup (FR-015).

@@ -427,6 +427,12 @@ def get_workspace(core, ns: str, name: str):
         raise
 
 
+def workspace_stopped(pod) -> bool:
+    """A workspace pod that no longer exists (`None`) or has ended runs no process, so
+    every stop of what ran in it is confirmed. A live or `Unknown` pod is no proof."""
+    return pod is None or ((pod.status and pod.status.phase) or "") in ("Failed", "Succeeded")
+
+
 def create_workspace(core, ns: str, cfg, name: str, runtime: str | None = None) -> bool:
     """Create the workspace pod (and its session PVC) and wait for it to run.
 
