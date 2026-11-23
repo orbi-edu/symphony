@@ -42,7 +42,8 @@ TABLES = ("Organization", "User", "Team", "WorkflowState", "IssueLabel", "Projec
           "Comment", "IssueRelation", "Attachment", "Document")
 WEBHOOK_TYPES = ("Issue", "Comment", "Attachment", "Document")
 IDENTIFIER = re.compile(r"([A-Z][A-Z0-9]{0,9})-(\d+)")
-UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+# Linear's create inputs take "The identifier in UUID v4 format": version nibble 4, variant 8-b.
+UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}")
 
 
 class LinearError(Exception):

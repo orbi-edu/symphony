@@ -8,6 +8,7 @@ cache.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import uuid
 from collections.abc import Sequence
@@ -189,8 +190,10 @@ query SymphonyAttachments($id: String!) {
 
 def _stable_id(*parts: str) -> str:
     """A deterministic UUID for a Linear entity: a create replayed after a crash between
-    Linear's commit and our record finds the entity instead of making a second one."""
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, "symphony:" + ":".join(parts)))
+    Linear's commit and our record finds the entity instead of making a second one. Linear
+    accepts only version 4 UUIDs, so the hash goes into the version 4 layout."""
+    digest = hashlib.sha256(("symphony:" + ":".join(parts)).encode()).digest()
+    return str(uuid.UUID(bytes=digest[:16], version=4))
 
 
 def _already_exists(exc: Exception) -> bool:
