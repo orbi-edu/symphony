@@ -227,6 +227,49 @@ def test_runner_jobs_get_the_host_secrets_and_notifiers(monkeypatch):
     } <= set(template)
 
 
+def _spawned_runner(monkeypatch, workflow: str) -> dict:
+    monkeypatch.setenv("SYMPHONY_ORCHESTRATOR_IMAGE", "symphony-orchestrator:test")
+    captured = {}
+
+    class Batch:
+        def create_namespaced_job(self, ns, manifest):
+            captured["manifest"] = manifest
+
+    kube.spawn_runner_job(Batch(), "symphony", parse_workflow(workflow), "issue-1", "ENG-1", 1, 1)
+    return captured["manifest"]["spec"]["template"]
+
+
+def _quantity(value: str) -> float:
+    units = {"Ki": 2**10, "Mi": 2**20, "Gi": 2**30, "m": 1e-3}
+    for suffix, factor in units.items():
+        if value.endswith(suffix):
+            return float(value[: -len(suffix)]) * factor
+    return float(value)
+
+
+def test_runner_pods_are_not_best_effort_and_not_safe_to_evict(monkeypatch):
+    """A BestEffort runner is the kubelet's first eviction under node pressure, and the
+    autoscaler removes its node freely: either kills the attempt in flight."""
+    template = _spawned_runner(monkeypatch, "---\ntracker: {kind: memory}\n---\nx")
+    [container] = template["spec"]["containers"]
+    assert container["name"] == "runner"
+    requests, limits = container["resources"]["requests"], container["resources"].get("limits", {})
+    assert _quantity(requests["cpu"]) > 0
+    assert _quantity(requests["memory"]) >= 256 * 2**20
+    assert _quantity(limits["memory"]) >= _quantity(requests["memory"])
+    assert template["metadata"]["annotations"]["cluster-autoscaler.kubernetes.io/safe-to-evict"] == "false"
+
+
+def test_runner_pod_sizes_come_from_the_workflow(monkeypatch):
+    template = _spawned_runner(
+        monkeypatch,
+        "---\ntracker: {kind: memory}\nkubernetes:\n  runner: {cpu: 0.5, memory_mib: 1024}\n---\nx",
+    )
+    [container] = template["spec"]["containers"]
+    assert container["resources"]["requests"] == {"cpu": "0.5", "memory": "1024Mi"}
+    assert container["resources"]["limits"]["memory"] == "1024Mi"
+
+
 # --------------------------------------------------------------------------- ports
 
 

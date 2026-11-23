@@ -28,6 +28,8 @@ from .omp_rpc import split_frames
 from .workspace import dns_name, workspace_key
 
 IDLE_ANNOTATION = "symphony.dev/idle-since"
+# The cluster autoscaler does not remove a node that runs a pod with this set to "false".
+SAFE_TO_EVICT_ANNOTATION = "cluster-autoscaler.kubernetes.io/safe-to-evict"
 
 # Secret/ConfigMap names, overridable so several installs can share a namespace.
 SECRET_TRACKER = os.environ.get("SYMPHONY_SECRET_TRACKER", "linear-api-key")
@@ -571,6 +573,7 @@ def _job_manifest(
     workflow_cm = os.environ.get("SYMPHONY_WORKFLOW_CONFIGMAP", f"{cfg.app_name}-workflow")
     sa = os.environ.get("SYMPHONY_RUNNER_SERVICE_ACCOUNT", f"{cfg.app_name}-runner")
     labels = {"app": cfg.app_name, "component": component}
+    mem = f"{cfg.runner['memory_mib']}Mi"
     return {
         "apiVersion": "batch/v1",
         "kind": "Job",
@@ -583,7 +586,12 @@ def _job_manifest(
             "ttlSecondsAfterFinished": 3600,
             "activeDeadlineSeconds": deadline_s,
             "template": {
-                "metadata": {"labels": labels},
+                "metadata": {
+                    "labels": labels,
+                    # A drain or scale-down would kill the attempt in flight; the daemon,
+                    # not the platform, decides when a runner ends.
+                    "annotations": {SAFE_TO_EVICT_ANNOTATION: "false"},
+                },
                 "spec": {
                     "restartPolicy": "Never",
                     "serviceAccountName": sa,
@@ -594,6 +602,13 @@ def _job_manifest(
                             "image": orchestrator_image(),
                             "command": ["python", "-m", module],
                             "env": _env_list(env),
+                            # A request keeps the pod out of BestEffort, which the kubelet
+                            # evicts first under node pressure. No CPU limit: the runner
+                            # waits on I/O and throttling only slows the attempt.
+                            "resources": {
+                                "requests": {"cpu": str(cfg.runner["cpu"]), "memory": mem},
+                                "limits": {"memory": mem},
+                            },
                             "envFrom": [
                                 # Optional like every integration: a Job is only spawned
                                 # once setup configured the tracker, and a missing App is
