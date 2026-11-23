@@ -7,6 +7,16 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Stopping an agent generation no longer fails when a process in the workspace exits during
+  the scan. The scan read a process's state before its environment, so a process that
+  exited between the two reads was a zombie with an unreadable environment, and the stop
+  could not be confirmed: the runner crashed after the work, skipped the sandbox release
+  and spent a retry. The scan now reads the environment first and checks the state only
+  when that read fails; a live process whose environment cannot be read still fails the
+  stop.
+
 ## [0.2.12] - 2026-11-21
 
 ### Fixed

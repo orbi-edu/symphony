@@ -38,15 +38,20 @@ def _generation_stop_script(issue_id: str, seq: int) -> str:
 generation_pids() {
     for path in /proc/[0-9]*/environ; do
         [ -d "${path%/environ}" ] || continue
-        # A zombie has exited: it holds nothing, and its environ cannot be read (ESRCH).
-        case $(sed -n 's/^State:[[:space:]]*//p' "${path%/environ}/status" 2>/dev/null) in
-            Z*|X*) continue ;;
-        esac
         if environment=$(tr '\000' '\n' < "$path" 2>/dev/null); then
             :
         else
-            # A vanished process is harmless; an unreadable live one is not proof.
-            [ ! -d "${path%/environ}" ] && continue
+            # A vanished process is harmless, and so is a zombie: it has exited, holds
+            # nothing, and its environ cannot be read (ESRCH). State is read only after the
+            # failure: any process may exit mid-scan, and a zombie never comes back to life.
+            # A status that can no longer be read means the process is gone.
+            [ -d "${path%/environ}" ] || continue
+            state=$(sed -n 's/^State:[[:space:]]*//p' "${path%/environ}/status" 2>/dev/null) ||
+                continue
+            case $state in
+                Z*|X*) continue ;;
+            esac
+            # An unreadable live process is not proof.
             return 1
         fi
         if printf '%s\n' "$environment" | grep -Fqx -- "$wanted_issue" &&
