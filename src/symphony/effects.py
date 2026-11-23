@@ -44,10 +44,12 @@ generation_pids() {
             # A vanished process is harmless, and so is a zombie: it has exited, holds
             # nothing, and its environ cannot be read (ESRCH). State is read only after the
             # failure: any process may exit mid-scan, and a zombie never comes back to life.
-            # A status that can no longer be read means the process is gone.
+            # A status that can no longer be read is proof only once the process is gone.
             [ -d "${path%/environ}" ] || continue
-            state=$(sed -n 's/^State:[[:space:]]*//p' "${path%/environ}/status" 2>/dev/null) ||
-                continue
+            if ! state=$(sed -n 's/^State:[[:space:]]*//p' "${path%/environ}/status" 2>/dev/null); then
+                [ -d "${path%/environ}" ] || continue
+                return 1
+            fi
             case $state in
                 Z*|X*) continue ;;
             esac
