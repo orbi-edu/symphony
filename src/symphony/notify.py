@@ -651,7 +651,7 @@ def _question_blocks(message: str, qid: str, options: Sequence[str]) -> list[dic
     if buttons:
         blocks.append({"type": "actions", "elements": buttons})
     blocks.append({"type": "context", "elements": [
-        {"type": "mrkdwn", "text": "Or answer in your own words in this thread."}]})
+        {"type": "mrkdwn", "text": "Answer with a button, in this thread, on the ticket or in a comment on the PR."}]})
     return blocks
 
 

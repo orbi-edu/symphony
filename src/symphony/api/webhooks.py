@@ -96,6 +96,37 @@ def github_wakes(event: str, payload: dict) -> list[tuple[str, str]]:
     return []
 
 
+def github_answer(client, ns: str, event: str, payload: dict, now_ms: int) -> str | None:
+    """Pull request conversation for agents' questions (`questions.pull_answer`): remembers a
+    pull request's branch, and takes a new comment or review as an answer. Returns the
+    question it answered. Inline review comments are about code lines, not answers."""
+    repo = str((payload.get("repository") or {}).get("full_name") or "").lower()
+    if not repo:
+        return None
+    if event == "pull_request":
+        pull = payload.get("pull_request") or {}
+        questions.remember_pull(client, ns, repo, pull.get("number"),
+                                (pull.get("head") or {}).get("ref") or "")
+        return None
+    if event == "issue_comment" and payload.get("action") == "created":
+        issue = payload.get("issue") or {}
+        if "pull_request" not in issue or not issue.get("number"):
+            return None  # a comment on an issue, not on a pull request
+        comment = payload.get("comment") or {}
+        pull = {k: issue.get(k) for k in ("title", "body", "state")}
+        number, at = issue["number"], comment.get("created_at")
+    elif event == "pull_request_review" and payload.get("action") == "submitted":
+        pull = payload.get("pull_request") or {}
+        if not pull.get("number"):
+            return None
+        comment = payload.get("review") or {}
+        number, at = pull["number"], comment.get("submitted_at")
+    else:
+        return None
+    return questions.pull_answer(client, ns, repo=repo, number=int(number), pull=pull,
+                                 comment=comment, at_ms=questions.iso_ms(at), now_ms=now_ms)
+
+
 def build_router(control: Control) -> APIRouter:
     router = APIRouter(prefix="/v1/webhooks")
     s = control.s
@@ -119,12 +150,20 @@ def build_router(control: Control) -> APIRouter:
             raise ApiError(401, "stale_webhook", "the webhook timestamp is too old")
         delivered("linear")
         data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
-        if payload.get("type") == "Comment" and payload.get("action") == "create":
-            # A reply to an agent's question is its answer (`questions.py`).
-            author = (data.get("user") or {}).get("name") or (payload.get("actor") or {}).get("name")
-            questions.queue_reply(s.client, s.namespace, comment_id=str(data.get("id") or ""),
-                                  parent_id=str(data.get("parentId") or ""),
-                                  body=str(data.get("body") or ""), author=str(author or ""))
+        actor = payload.get("actor") or {}
+        if (payload.get("type") == "Comment" and payload.get("action") == "create"
+                and not data.get("botActor") and actor.get("type", "user") == "user"):
+            # A comment may answer an agent's question; the daemon decides (`questions.py`).
+            now = int(time.time() * 1000)
+            author = ((data.get("user") or {}).get("name")
+                      or (data.get("externalUser") or {}).get("name") or actor.get("name"))
+            at_ms = (questions.iso_ms(data.get("createdAt"))
+                     or (stamp if isinstance(stamp, int) else now))
+            questions.queue_reply(
+                s.client, s.namespace, comment_id=str(data.get("id") or ""),
+                issue_id=str(data.get("issueId") or (data.get("issue") or {}).get("id") or ""),
+                parent_id=str(data.get("parentId") or ""), body=str(data.get("body") or ""),
+                author=str(author or ""), at_ms=at_ms, now_ms=now)
         reason = f"linear:{payload.get('action', '')}:{data.get('identifier') or payload.get('type', '')}"
         wake.wake(s.client, s.namespace, wake.DAEMON, reason[:200])
         return {"woke": [wake.DAEMON]}
@@ -141,6 +180,9 @@ def build_router(control: Control) -> APIRouter:
         payload = _payload(body)
         if event == "ping":
             return {"woke": []}
+        # Before the wake: a comment that answers an agent's question is claimed first, so the
+        # review watch the wake triggers leaves it alone.
+        github_answer(s.client, s.namespace, event, payload, int(time.time() * 1000))
         targets = github_wakes(event, payload)
         for target, reason in targets:
             wake.wake(s.client, s.namespace, target, reason[:200])

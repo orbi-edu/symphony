@@ -695,6 +695,11 @@ def _watch_review(
             kv.put(state.issue_key(issue_id), entry)
     if not numbers:
         return  # no pull request yet
+    # A comment that answered one of the ticket's questions reaches the work that way
+    # (`questions.pull_answer`); answering it here too would deliver it twice.
+    answered = set(kv.get(state.answered_key(issue_id)) or ())
+    if answered:
+        comments = [c for c in comments if prwatch.comment_ref(c) not in answered]
 
     if entry.get("pr_comment_watermark") is None:
         # First sight: record where the conversation already is. Without this, turning the

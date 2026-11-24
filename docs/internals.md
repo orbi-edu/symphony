@@ -212,10 +212,26 @@ Rules for the runner tools:
   mentioning the person `to` names through the profile link Linear turns into a
   mention) and the Slack message (`ask:<id>:<n>` buttons; the mention comes from
   `notify.users.slack`, whose keys may be e-mails); reminds once after
-  `agent.ask_reminder_ms`; and closes it unanswered after seven days. An answer is a reply
-  in the comment's thread (the Linear webhook queues it in `sym:<ns>:questions:inbox`;
-  Symphony's own replies are recorded and never count), a Slack button or thread reply (the
-  assistant; only people mapped in `notify.users`), or the waiting run itself (Tern, CLI).
+  `agent.ask_reminder_ms`; and closes it unanswered after seven days. The set
+  `sym:<ns>:questions:open:<issue id>` holds a ticket's open questions. The tracker adapter
+  that `edge.make_tracker` builds in every process (Linear, memory) records the id of each
+  comment it writes, the agent's `linear_graphql` comment mutations included, as
+  `sym:<ns>:comment-own:<comment id>` (14 days). An answer is a comment on the ticket: the
+  Linear webhook queues a comment that is not a bot's or an app's (`botActor`, `actor.type`)
+  in `sym:<ns>:questions:inbox` when it replies in a question's thread or the ticket has an
+  open question. The daemon judges each one at least 5 s after it arrived, so the process
+  that wrote it has recorded it. A recorded comment never answers, whoever its author is.
+  Otherwise it answers when it replies in the question's thread, or, with exactly one open
+  question on the ticket, when it is top-level or replies to a recorded comment, and was
+  made after the question. An answer is also a comment or a
+  review by a person (`User`) on the ticket's open pull request, after the question, with
+  exactly one open question: the GitHub webhook claims it before it wakes the daemon and
+  writes its node id in `answered:<issue id>`, which the review watch skips. The pull
+  request is the ticket's when the review watch recorded it (`pr_numbers`), its branch is
+  `symphony/<issue id>` (remembered from `pull_request` events, as `issue_comment` does not
+  carry it), or its title, body or branch names the ticket. A Slack button or thread reply
+  (the assistant; only people mapped in `notify.users`), or the waiting run itself (Tern,
+  CLI), also answers.
   `SET NX` makes the first one win. The daemon delivers it: an `answer` intent to the run
   still waiting on it, `steer` (or `follow_up`) to a later run of the ticket, else Rework
   for a ticket in review, nothing for an active or closed one (an active ticket's next

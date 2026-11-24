@@ -130,6 +130,7 @@ Each line gives one feature and how it is verified. "Mocked" means the
 | O4 | Provider rate limits in the status | `test_usage.py`, `test_runner_live.py` |
 | O5 | Planning ticket → task tree with blocks; only unblocked children dispatch | `test_linear_tools.py`, `test_github_tracker.py`, Mocked 4 |
 | O6 | Investigation tickets with no pull request (read-only token) | `test_ghapp.py`, `test_runner_live.py`, Mocked 3 |
+| O7 | An agent question takes its answer where people give it: the ticket (the question's thread; with one open question, any reply to Symphony or a new comment), the ticket's pull request (with one open question), Slack, Tern and the CLI; never from Symphony or a bot | `test_questions.py`, `test_api_webhooks.py`, `test_review_watch.py` |
 
 ## R. Merger review
 

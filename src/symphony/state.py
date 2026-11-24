@@ -21,6 +21,7 @@ RETRO_PREFIX = "retro:"
 METRICS_PREFIX = "metrics:"
 TELEMETRY_PREFIX = "telemetry:"
 HOLD_PREFIX = "hold:"
+ANSWERED_PREFIX = "answered:"
 HEARTBEAT_KEY = "orchestrator:heartbeat"
 LOCK_KEY = "lock:orchestrator"
 TOTALS_KEY = "totals:tokens"
@@ -77,6 +78,12 @@ def toolcall_key(issue_id: str, seq: int, call_id: str) -> str:
 
 def retro_key(issue_id: str) -> str:
     return f"{RETRO_PREFIX}{issue_id}"
+
+
+def answered_key(issue_id: str) -> str:
+    """Pull request comments (`prwatch.comment_ref`) that answered one of the ticket's
+    questions (`questions.pull_answer`): the review watch does not answer them again."""
+    return f"{ANSWERED_PREFIX}{issue_id}"
 
 
 def telemetry_key(issue_id: str) -> str:

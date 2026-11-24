@@ -11,7 +11,8 @@ import datetime as dt
 from tests.test_dispatch import FakeEffects
 from tests.test_dispatch import cfg as base_cfg
 
-from symphony import prwatch, state
+from symphony import notify, prwatch, questions, state
+from symphony.kv import RedisKV
 from symphony.orchestrator import PARKED, tick
 
 HUMAN = {"type": "User"}
@@ -386,3 +387,39 @@ def test_a_multi_repo_ticket_watches_the_pull_request_in_every_repository(kv, cl
     assert second.conversations == [("acme/api", 7), ("acme/web", 3)]
     assert second.spawned == [("i1", 1)]
     assert entry["pr_comment_watermark"] == "2026-08-07T09:00:00Z"
+
+
+# -- answers to an agent's question -----------------------------------------
+
+
+def test_a_pull_request_comment_that_answered_a_question_is_not_answered_again(
+        redis_client, clock, tracker, monkeypatch):
+    """The GitHub webhook took the comment as the answer to the ticket's one open question
+    (`questions.pull_answer`); the review watch must not also dispatch an answer run for it."""
+    monkeypatch.setattr(notify, "post_question", lambda *a, **kw: None)
+    kv = RedisKV(client=redis_client)
+    c = cfg()
+    park(kv, clock, tracker, c)
+    baseline = comment("2026-08-01T10:00:00Z")
+    watch(kv, clock, tracker, c, WatchEffects(comments=[baseline]))  # finds PR 7 in acme/api
+    questions.ask(redis_client, "test", qid="q1", issue_id="i1", identifier="ENG-i1",
+                  sid="i1:1", url=None, question="Keep the legend?",
+                  options=["Keep it", "Remove it"], to=None, now_ms=clock.now_ms())
+    questions.tick(redis_client, "test", kv=kv, tracker=tracker, cfg=c, now_ms=clock.now_ms())
+    answer = {**comment("2026-08-07T09:00:00Z", body="2"), "node_id": "IC_9",
+              "user": {"type": "User", "login": "alice"}}
+    assert questions.pull_answer(redis_client, "test", repo="acme/api", number=7,
+                                 pull={"state": "open"}, comment=answer,
+                                 at_ms=questions.iso_ms(answer["created_at"]),
+                                 now_ms=clock.now_ms()) == "q1"
+
+    fx = WatchEffects(comments=[baseline, answer])
+    watch(kv, clock, tracker, c, fx)
+    assert fx.spawned == []
+    rec = questions.load(redis_client, "test", "q1")
+    assert (rec["answer"], rec["by"], rec["via"]) == ("Remove it", "alice", "github")
+
+    later = comment("2026-08-07T10:00:00Z", body="and why this approach?")
+    fx = WatchEffects(comments=[baseline, answer, later])
+    watch(kv, clock, tracker, c, fx)
+    assert fx.spawned == [("i1", 1)], "a later comment is still answered"
