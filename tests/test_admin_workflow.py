@@ -299,6 +299,33 @@ def test_credential_patterns_are_checked_in_decoded_structured_values():
         clean.validate("10", {"tracker.required_labels": encoded})
     assert error.value.status_code == 422
 
+def test_skill_sources_publish_as_objects_and_reach_the_config():
+    core = ConfigMaps()
+    repository = WorkflowRepository(core, "symphony")
+    sources = [
+        {"repo": "acme/skills", "path": "global"},
+        {"repo": "acme/skills", "path": "public", "repos": ["acme/app"]},
+        {"repo": "acme/skills", "path": "artifacts", "roles": ["implementer", "planner"]},
+    ]
+    payload = reviewed(repository, {"skills.sources": json.dumps(sources)})
+    repository.publish(payload, "command-skills", before_write=lambda: None)
+    config = parse_workflow(core.current.data["WORKFLOW.md"])
+    assert [(s.repo, s.path, s.repos, s.roles) for s in config.skill_sources] == [
+        ("acme/skills", "global", (), ()),
+        ("acme/skills", "public", ("acme/app",), ()),
+        ("acme/skills", "artifacts", (), ("implementer", "planner")),
+    ]
+    assert json.loads(repository.read()["values"]["skills.sources"]) == sources
+
+    with pytest.raises(WorkflowError) as error:
+        repository.validate(
+            repository.read()["revision"],
+            {"skills.sources": json.dumps([{"repo": "acme/skills", "roles": ["nobody"]}])},
+        )
+    assert error.value.status_code == 422
+    assert "unknown roles" in error.value.diagnostics[0]["message"]
+
+
 
 @pytest.mark.parametrize(
     "patch",

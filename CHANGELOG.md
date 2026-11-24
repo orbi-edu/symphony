@@ -7,6 +7,15 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.15] - 2026-11-24
+
+### Fixed
+
+- The workflow API (Admin › Workflow, `symphony setup skills`, Tern Setup) rejected
+  `skills.sources` entries as "not an array of strings", and would have failed to read a
+  workflow that already had sources. Entries are now validated by the same rules as
+  WORKFLOW.md and read back in the same form.
+
 ## [0.2.14] - 2026-11-24
 
 ### Added

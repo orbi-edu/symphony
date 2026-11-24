@@ -27,6 +27,8 @@ from .config import (
     TELEMETRY_CAPTURE_MODES,
     TRACKER_KINDS,
     Config,
+    ConfigError,
+    _skills,
     parse_workflow,
 )
 from .prompt import validate_template
@@ -208,6 +210,8 @@ def _at(data: Mapping, path: str) -> Any:
 def _effective(cfg: Config, field: _Field) -> Any:
     root, _, rest = field.attribute.partition(".")
     value = getattr(cfg, root)
+    if root == "skill_sources":
+        return [source.as_entry() for source in value]
     return _at(value, rest) if rest else value
 
 
@@ -368,6 +372,14 @@ def _check_value(key: str, value: Any, namespace: str, *, submitted: bool) -> An
         if key == "tracker.states":
             # role -> Linear state name.
             return _string_map(key, value)
+        if key == "skills.sources":
+            # Entries are mappings ({repo, path, ref, roles, repos}); the config parser
+            # owns their rules so the API and WORKFLOW.md cannot disagree.
+            try:
+                _skills({"skills": {"sources": value}})
+            except ConfigError as exc:
+                raise _invalid(key, str(exc)) from None
+            return list(value)
         if (
             not isinstance(value, (list, tuple))
             or len(value) > _MAX_ITEMS
