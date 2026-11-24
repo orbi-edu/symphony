@@ -76,6 +76,29 @@ def kill_agent_generation(sandbox, issue_id: str, seq: int) -> None:
     if code != 0:
         raise RuntimeError("Agent generation termination could not be confirmed")
 
+
+def _pod_disruption(pod) -> dict:
+    """`pod` and `disruption` entries when the cluster deleted, evicted or disrupted the pod;
+    nothing for a pod whose container ended on its own."""
+    status = pod.status
+    target = next((c for c in (status.conditions or [])
+                   if c.type == "DisruptionTarget" and c.status == "True"), None)
+    deleted = pod.metadata.deletion_timestamp is not None
+    if not (deleted or target or status.reason):
+        return {}
+    parts = []
+    if deleted:
+        parts.append(f"deleted while {status.phase.lower()}" if status.phase else "deleted")
+    if target:
+        parts.append(f"DisruptionTarget: {target.reason}: {target.message}")
+    if status.reason:
+        parts.append(f"{status.reason}: {status.message}" if status.message else status.reason)
+    if pod.spec and pod.spec.node_name:
+        parts.append(f"node {pod.spec.node_name}")
+    cause = (target and target.reason) or status.reason or "deleted"
+    return {"pod": "; ".join(parts), "disruption": cause}
+
+
 class K8sEffects:
     def __init__(self, cfg, core, batch, namespace: str) -> None:
         self.cfg = cfg
@@ -158,9 +181,10 @@ class K8sEffects:
         return kube.job_status(self._batch, self._ns, call_id) == "running"
 
     def failure_evidence(self, call_id: str) -> dict:
-        """What the cluster knows about a failed runner Job: its failure condition, how the
-        runner container ended, the last error it logged and its last log lines (the agent's
-        own output excluded). Best effort: each part that cannot be read is left out."""
+        """What the cluster knows about a failed runner Job: its failure condition, whether the
+        cluster removed its pod (`pod`, with the cause in `disruption`), the runner container's
+        state, the last error it logged and its last log lines (the agent's own output
+        excluded). Best effort: each part that cannot be read is left out."""
         out: dict = {"job": call_id}
         try:
             job = self._batch.read_namespaced_job(call_id, self._ns, _request_timeout=10)
@@ -173,12 +197,21 @@ class K8sEffects:
             log.warning("failure_evidence_unavailable", job=call_id, error=str(exc)[:200])
             return out
         if not pods:
+            out["pod"] = "missing (deleted, or its node is gone)"
+            out["disruption"] = "missing"
             return out
         pod = max(pods, key=lambda p: p.metadata.creation_timestamp)
+        out.update(_pod_disruption(pod))
         for status in pod.status.container_statuses or []:
-            ended = status.state and status.state.terminated
-            if status.name == "runner" and ended:
+            if status.name != "runner" or not status.state:
+                continue
+            if status.state.terminated:
+                ended = status.state.terminated
                 out["container"] = f"{ended.reason} (exit {ended.exit_code})"
+            elif status.state.waiting:
+                out["container"] = f"waiting: {status.state.waiting.reason}"
+            elif status.state.running:
+                out["container"] = "running"
         try:
             text = self._core.read_namespaced_pod_log(
                 pod.metadata.name, self._ns, container="runner", tail_lines=300, _request_timeout=10)

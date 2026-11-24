@@ -7,6 +7,14 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Failure evidence of a runner Job now says when the cluster removed its pod: a `Runner pod`
+  line on the triage ticket names the deletion, the `DisruptionTarget` or `Evicted` reason
+  and the node, or says that the pod is missing. A runner container that did not terminate
+  shows its state (`running`, `waiting: <reason>`). The triage signature includes the
+  disruption cause, so each external cause gets its own investigation, apart from crashes.
+
 ## [0.2.12] - 2026-11-21
 
 ### Fixed
