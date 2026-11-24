@@ -40,6 +40,7 @@ STANDALONE_ACTIONS = frozenset({
     "setup.notifications",
     "setup.assistant",
     "setup.webhooks",
+    "setup.skills",
     "admin.mcp.put",
     "admin.mcp.remove",
     "admin.mcp.headers",

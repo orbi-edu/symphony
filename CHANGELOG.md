@@ -7,6 +7,22 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.17] - 2026-11-24
+
+### Fixed
+
+- `PUT /v1/setup/skills` (`symphony setup skills`, Tern Setup) published the change but
+  answered 422 `invalid_audit`, because `setup.skills` was not an audited action. Sources
+  are now keyed by repository and path, so one repository can hold several (`global`,
+  `artifacts`); `--remove` with `--path` removes only that source.
+- `GET /v1/admin/skills` (Admin › Skills) always listed no source: it parsed a workflow
+  field the read did not return. A source limited to some roles now resolves with one of
+  them, so its skills show.
+- The merger and the assistant staged skills only from sources that existed when they
+  started: a source published later reached their agents only after a restart. Both now
+  read the sources at each agent run. The assistant gets global sources and the ones scoped
+  to a repository it can read, as documented, instead of every source.
+
 ## [0.2.16] - 2026-11-24
 
 ### Changed

@@ -669,6 +669,7 @@ local ACTION = {
 	["setup.tracker"] = "set up the tracker", ["setup.github_app"] = "set up the GitHub App",
 	["setup.repositories"] = "set the default repository", ["setup.notifications"] = "set up notifications",
 	["setup.webhooks"] = "created webhook secrets", ["setup.assistant"] = "set up the assistant",
+	["setup.skills"] = "changed skill sources",
 }
 
 local RESULT = {

@@ -117,12 +117,14 @@ def build(client, ns: str, cfg, env=os.environ, pulse: Pulse | None = None, *,
           token: Callable[[], str] | None = None, notify_post=None, tracker=None,
           providers: Callable[[str, str], object | None] | None = None,
           mcp: McpLaunch | None = None,
-          workdir: str | None = None) -> Merger:
+          workdir: str | None = None,
+          current_cfg: Callable[[], object] | None = None) -> Merger:
     """The merger for one repository. `token` defaults to the GitHub App installation token
     (scoped to that repository); `notify_post` to `symphony.notify.post`; `tracker` to
     WORKFLOW.md's tracker (none while its credential is missing); `providers` resolves each
     agent role's credential (internals §13), None leaving the pod's env to every agent; `mcp`
-    stages each agent role's MCP servers (None: no MCP servers)."""
+    stages each agent role's MCP servers (None: no MCP servers). `current_cfg` returns the
+    latest WORKFLOW.md (default: `cfg`), so skill sources published later reach new runs."""
     if repo is None:
         repo = env.get("SYMPHONY_MERGER_REPO") or cfg.default_repo
     if not repo:
@@ -145,31 +147,30 @@ def build(client, ns: str, cfg, env=os.environ, pulse: Pulse | None = None, *,
     git = Mirror(workdir, f"{github_server_url()}/{repo}.git", main=cfg.base_branch(repo), token=token)
     git.ensure()
     git.fetch()
-    # Build a skill stager that resolves and stages central skills per agent run.
-    skill_stager = None
-    if cfg.skill_sources:
-        from ..skills import deduplicate, resolve_sources, skills_meta, stage_skills_local
-        sessions_for_skills = SessionStore(client, ns)
+    # A skill stager that resolves and stages central skills per agent run, from the latest
+    # workflow: sources published after this repository started must reach its next run.
+    from ..skills import deduplicate, resolve_sources, skills_meta, stage_skills_local
+    sessions_for_skills = SessionStore(client, ns)
+    latest = current_cfg or (lambda: cfg)
 
-        def _skill_stager(agent_dir: str, role: str, meta: dict) -> None:
-            if not agent_dir or not cfg.skill_sources:
-                return
-            resolved = resolve_sources(
-                cfg.skill_sources, role, repo,
-                env, now_ms,
-                cache_client=client, cache_ns=ns,
-            )
-            skills = deduplicate(resolved, repo)
-            stage_skills_local(agent_dir, skills)
-            # Record in session meta if a session id is available.
-            sid = meta.get("sid")
-            if sid and resolved:
-                try:
-                    sessions_for_skills.update(sid, skills=skills_meta(resolved))
-                except Exception:  # noqa: BLE001
-                    pass
-
-        skill_stager = _skill_stager
+    def skill_stager(agent_dir: str, role: str, meta: dict) -> None:
+        sources = getattr(latest(), "skill_sources", ())
+        if not agent_dir or not sources:
+            return
+        resolved = resolve_sources(
+            sources, role, repo,
+            env, now_ms,
+            cache_client=client, cache_ns=ns,
+        )
+        skills = deduplicate(resolved, repo)
+        stage_skills_local(agent_dir, skills)
+        # Record in session meta if a session id is available.
+        sid = meta.get("sid")
+        if sid and resolved:
+            try:
+                sessions_for_skills.update(sid, skills=skills_meta(resolved))
+            except Exception:  # noqa: BLE001
+                pass
 
     return Merger(
         store=MergerStore(client, ns, repo),
@@ -540,7 +541,7 @@ def main() -> None:
 
     def build_for_repo(*, repo: str, pulse: Pulse) -> Merger:
         return build(client, ns, cfg, pulse=pulse, repo=repo,
-                     providers=providers, mcp=mcp)
+                     providers=providers, mcp=mcp, current_cfg=lambda: holder.config or cfg)
 
     fleet = MergerFleet(client=client, ns=ns, cfg=cfg, env=os.environ, stop=stop,
                         build_fn=build_for_repo, review_semaphore=review_semaphore,

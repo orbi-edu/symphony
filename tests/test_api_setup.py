@@ -573,3 +573,25 @@ def test_base_branches_are_validated_published_and_restarted(setup):
     })
     assert no_field.status_code == 200
     assert no_field.json()["base_branches"] == {"acme/app": "main"}
+
+
+def test_skill_sources_from_one_repository_are_kept_apart_and_listed(setup):
+    env = setup
+    for body in ({"repo": "acme/skills", "path": "global"},
+                 {"repo": "acme/skills", "path": "artifacts", "roles": ["planner"]}):
+        added = env.client.put("/v1/setup/skills", headers=env.admin, json=body)
+        assert added.status_code == 200, added.text
+    listed = env.client.get("/v1/admin/skills", headers=env.admin)
+    assert listed.status_code == 200, listed.text
+    assert [(s["repo"], s["path"], s["roles"], s["scope"]) for s in listed.json()["sources"]] == [
+        ("acme/skills", "global", None, "global"),
+        ("acme/skills", "artifacts", ["planner"], "global"),
+    ]
+
+    gone = env.client.put("/v1/setup/skills", headers=env.admin,
+                          json={"repo": "acme/skills", "path": "global", "remove": True})
+    assert gone.json()["sources"] == [{"repo": "acme/skills", "path": "artifacts", "roles": ["planner"]}]
+    every = env.client.put("/v1/setup/skills", headers=env.admin,
+                           json={"repo": "acme/skills", "remove": True})
+    assert every.json()["sources"] == []
+    assert env.client.get("/v1/admin/skills", headers=env.admin).json() == {"sources": []}
