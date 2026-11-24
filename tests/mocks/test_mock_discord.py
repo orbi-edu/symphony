@@ -189,6 +189,35 @@ def test_both_channels_get_each_event(bot, monkeypatch):
         srv.server_close()
 
 
+def test_notify_dm_to_the_assignee_pings_no_role_or_everyone(bot):
+    notify.configure({"discord": {"alice": ALICE, "alice@example.com": ALICE}})
+    text = f"PR #12 went back <@{BOB}> @everyone"
+    assert notify.post("back_to_author", text, direct_to=["alice@example.com", "alice"])
+    on_channel, dm = _messages(bot)
+    assert on_channel["channel_id"] == CHANNEL
+    assert dm["channel_id"] != CHANNEL and dm["via"] == "bot"
+    assert dm["content"] == (
+        f"\N{LEFTWARDS ARROW WITH HOOK}\N{VARIATION SELECTOR-16} **PR returned to its author**\n{text}")
+    assert dm["allowed_mentions"] == {"parse": []}
+    assert dm["mentions"] == [] and dm["mention_everyone"] is False
+    # The next event reuses the DM channel.
+    assert notify.post("run_error", "boom", direct_to=["alice"])
+    assert [m["channel_id"] for m in _messages(bot)][2:] == [CHANNEL, dm["channel_id"]]
+    dms = [c for c in httpx.get(f"{bot}/_mock/state").json()["channels"] if c.get("recipient")]
+    assert [c["recipient"] for c in dms] == [ALICE]
+
+
+def test_notify_no_dm_for_an_unmapped_assignee_or_a_webhook(env, monkeypatch):
+    notify.configure({"discord": {"alice": ALICE}})
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", env + discord.DEFAULT_WEBHOOK_PATH)
+    assert notify.post("run_error", "boom", direct_to=["alice"])  # a webhook cannot DM
+    monkeypatch.delenv("DISCORD_WEBHOOK_URL")
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", TOKEN)
+    monkeypatch.setenv("DISCORD_CHANNEL_ID", CHANNEL)
+    assert notify.post("run_error", "boom again", direct_to=["carol"])
+    assert [m["channel_id"] for m in _messages(env)] == [CHANNEL, CHANNEL]
+
+
 # the mock itself ----------------------------------------------------------------------
 
 
@@ -200,6 +229,22 @@ def test_create_message_success_matches_spec(mock):
     # Bot messages parse every mention type by default.
     assert [u["id"] for u in r.json()["mentions"]] == [ALICE, BOB]
     assert r.json()["author"]["bot"] is True
+
+
+def test_create_dm_follows_the_docs(mock):
+    auth = {"Authorization": f"Bot {TOKEN}"}
+    r = _api(mock, "/users/@me/channels", headers=auth, json={"recipient_id": ALICE})
+    assert r.status_code == 200
+    discord.validator("#/components/schemas/PrivateChannelResponse").validate(r.json())
+    assert r.json()["type"] == 1 and r.json()["recipients"][0]["id"] == ALICE
+    # "if one already exists, it will be returned instead"
+    again = _api(mock, "/users/@me/channels", headers=auth, json={"recipient_id": ALICE})
+    assert again.json()["id"] == r.json()["id"]
+    sent = _api(mock, f"/channels/{r.json()['id']}/messages", headers=auth, json={"content": "hi"})
+    assert sent.status_code == 200
+    unknown = _api(mock, "/users/@me/channels", headers=auth, json={"recipient_id": "1500000000000000999"})
+    assert (unknown.status_code, unknown.json()["code"]) == (400, 50033)
+    assert _api(mock, "/users/@me/channels", json={"recipient_id": ALICE}).status_code == 401
 
 
 def test_execute_webhook_wait_and_no_wait(mock):

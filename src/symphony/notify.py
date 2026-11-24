@@ -1,4 +1,5 @@
-"""Slack and Discord notifications (internals §8): `post(event, text, *, link=None, github_logins=())`.
+"""Slack and Discord notifications (internals §8): `post(event, text, *, link=None, github_logins=(),
+direct_to=())`.
 
 Channels, picked from the environment at call time; every configured channel gets each event:
 
@@ -16,6 +17,15 @@ id. A process that already holds a parsed config calls
 the mounted WORKFLOW.md front matter (`$SYMPHONY_WORKFLOW_MOUNT/WORKFLOW.md`, reloaded when
 the file changes), so every pod gets mentions without extra wiring.
 
+Direct messages: the people `direct_to` names (`notify.users` keys: the ticket's assignee,
+the person a question is for) also get the event as a direct message from the bot, on each
+service whose channel is configured and that has a bot token (a webhook cannot open a DM):
+Slack `chat.postMessage` with the user id as `channel` (the app's DM, scope `chat:write`),
+Discord Create DM (`POST /users/@me/channels`) then Create Message in it. Each person once
+per event, never a mention or a ping beyond the DM itself; a key `notify.users` does not map
+is skipped (logged at debug). `notify.direct_messages: false` turns DMs off and
+`notify.direct_events` limits them to some events.
+
 Discord messages are Discord markdown, at most 2000 characters (the text is cut, the title
 and link are kept), and `allowed_mentions` lets only the mapped user be pinged: never a role,
 `@everyone` or `@here`, whatever the text says. A 429 is retried once after its
@@ -23,8 +33,8 @@ and link are kept), and `allowed_mentions` lets only the mapped user be pinged: 
 
 `post` never raises into its caller: a notification is advice, never a reason for a run,
 the merger or the daemon to fail. Each send is bounded by a 2 s timeout, and an identical
-message that was delivered to a channel in the last 60 s is not sent there again (per
-process). The caller's `text` is passed through as written.
+message that was delivered to a destination (a channel, or one person's DM) in the last 60 s
+is not sent there again (per process). The caller's `text` is passed through as written.
 """
 
 from __future__ import annotations
@@ -33,7 +43,9 @@ import hashlib
 import os
 import threading
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
+from functools import partial
 
 import httpx
 import structlog
@@ -88,27 +100,54 @@ DISCORD_EMOJI: dict[str, str] = {
 _UNKNOWN_DISCORD_EMOJI = "\N{BELL}"
 
 Sender = Callable[[str, list[str]], bool]  # (message, mapped user ids) → delivered
+DirectSender = Callable[[str, str], bool]  # (user id, message) → delivered
+
+
+@dataclass(frozen=True)
+class _Settings:
+    """`notify.users` (service → key, casefolded → user id) and the direct-message switches."""
+
+    users: dict[str, dict[str, str]] = field(default_factory=dict)
+    direct_messages: bool = True
+    direct_events: frozenset[str] | None = None  # None: every event
+
 
 _lock = threading.Lock()
-_sent: dict[str, float] = {}  # channel + message digest → monotonic time of the last delivery
-_configured_users: dict[str, dict[str, str]] | None = None
-_workflow_users: tuple[float | None, dict[str, dict[str, str]]] = (None, {})
+_sent: dict[str, float] = {}  # destination + message digest → monotonic time of the last delivery
+_configured: _Settings | None = None
+_workflow: tuple[float | None, _Settings] = (None, _Settings())
+_discord_dms: dict[tuple[str, str], str] = {}  # (bot token, user id) → that DM's channel id
 
 
-def configure(users: Mapping[str, Mapping[str, str]] | None) -> None:
-    """Set the `notify.users` maps for this process (`cfg.notify_users`: `slack` and
-    `discord`, each GitHub login → user id). `None` returns to the mounted WORKFLOW.md."""
-    global _configured_users
-    _configured_users = None if users is None else _normalize_users(users)
+def configure(
+    users: Mapping[str, Mapping[str, str]] | None,
+    *,
+    direct_messages: bool = True,
+    direct_events: Iterable[str] | None = None,
+) -> None:
+    """Set this process's `notify.users` maps (`cfg.notify_users`: `slack` and `discord`, each
+    GitHub login or e-mail → user id) and `notify.direct_messages` / `notify.direct_events`
+    (None: every event). `users=None` returns to the mounted WORKFLOW.md."""
+    global _configured
+    _configured = None if users is None else _Settings(
+        _normalize_users(users), direct_messages,
+        None if direct_events is None else frozenset(direct_events),
+    )
 
 
 def reset() -> None:
-    """Forget the configured maps and the dedup memory (process start state)."""
-    global _configured_users, _workflow_users
+    """Forget the configured maps, the dedup memory and the DM channels (process start state)."""
+    global _configured, _workflow
     with _lock:
         _sent.clear()
-    _configured_users = None
-    _workflow_users = (None, {})
+        _discord_dms.clear()
+    _configured = None
+    _workflow = (None, _Settings())
+
+
+def users() -> dict[str, dict[str, str]]:
+    """The `notify.users` maps in force: service → key (casefolded) → user id."""
+    return _settings().users
 
 
 def post(
@@ -117,23 +156,32 @@ def post(
     *,
     link: str | None = None,
     github_logins: Sequence[str] = (),
+    direct_to: Sequence[str] = (),
 ) -> bool:
-    """Send the event to every configured channel. True when at least one channel accepted
-    it; False when none is configured, or each one deduplicated or failed (failures are
-    logged, never raised)."""
+    """Send the event to every configured channel, and as a direct message to each person
+    `direct_to` names. True when at least one channel or DM accepted it; False when none is
+    configured, or each one deduplicated or failed (failures are logged, never raised)."""
     if event not in EVENTS:
         log.warning("notify_unknown_event", notify_event=event)
     delivered = False
     for channel in CHANNELS:
-        try:
-            if _post(channel, event, text, link=link, github_logins=github_logins):
-                delivered = True
-        except Exception as exc:  # noqa: BLE001 — a notification never fails its caller
-            log.warning(
-                "notify_failed", notify_channel=channel, notify_event=event,
-                error=type(exc).__name__,
-            )
+        if _safely(channel, event, _post, channel, event, text, link=link,
+                   github_logins=github_logins):
+            delivered = True
+        if _safely(channel, event, _post_direct, channel, event, text, link=link, keys=direct_to):
+            delivered = True
     return delivered
+
+
+def _safely(channel: str, event: str, send: Callable[..., bool], *args, **kwargs) -> bool:
+    try:
+        return bool(send(*args, **kwargs))
+    except Exception as exc:  # noqa: BLE001 — a notification never fails its caller
+        log.warning(
+            "notify_failed", notify_channel=channel, notify_event=event,
+            error=type(exc).__name__,
+        )
+        return False
 
 
 def _post(
@@ -146,11 +194,32 @@ def _post(
     fmt = format_message if channel == "slack" else format_discord_message
     mentions = " ".join(f"<@{uid}>" for uid in user_ids)
     message = fmt(event, text, link=link, mention=mentions)
-    digest = hashlib.sha256(f"{channel}\0{event}\0{message}".encode()).hexdigest()
+    return _once(f"{channel}\0{event}\0{message}", partial(send, message, user_ids))
+
+
+def _post_direct(
+    channel: str, event: str, text: str, *, link: str | None, keys: Sequence[str]
+) -> bool:
+    """One DM per person `keys` maps on this service; no mention (a DM reaches its reader)."""
+    send = _direct_sender(channel)
+    if send is None:
+        return False
+    fmt = format_message if channel == "slack" else format_discord_message
+    message = fmt(event, text, link=link)
+    delivered = False
+    for uid in _direct_ids(channel, event, keys):
+        if _once(f"{channel}:dm:{uid}\0{event}\0{message}", partial(send, uid, message)):
+            delivered = True
+    return delivered
+
+
+def _once(key: str, send: Callable[[], bool]) -> bool:
+    """`send()`, unless the same message reached the same destination in the last 60 s."""
+    digest = hashlib.sha256(key.encode()).hexdigest()
     now = time.monotonic()
     with _lock:
-        for key in [k for k, at in _sent.items() if now - at >= DEDUP_WINDOW_S]:
-            del _sent[key]
+        for stale in [k for k, at in _sent.items() if now - at >= DEDUP_WINDOW_S]:
+            del _sent[stale]
         if digest in _sent:
             return False
         # Claimed before the network call so concurrent identical posts send once;
@@ -158,13 +227,40 @@ def _post(
         _sent[digest] = now
     delivered = False
     try:
-        delivered = send(message, user_ids)
+        delivered = send()
     finally:
         if not delivered:
             with _lock:
                 if _sent.get(digest) == now:
                     del _sent[digest]
     return delivered
+
+
+def _direct_sender(channel: str) -> DirectSender | None:
+    """DMs come in addition to the channel: none where the channel is not configured, and
+    only with the bot token."""
+    if (_slack_sender() if channel == "slack" else _discord_sender()) is None:
+        return None
+    if channel == "slack":
+        token = os.environ.get("SLACK_BOT_TOKEN", "").strip()
+        return partial(_send_slack_bot, token) if token else None
+    token = os.environ.get("DISCORD_BOT_TOKEN", "").strip()
+    return partial(_send_discord_dm, token) if token else None
+
+
+def _direct_ids(channel: str, event: str, keys: Sequence[str]) -> list[str]:
+    """The user ids to DM for `event` on `channel`: each person once; none when
+    `notify.direct_messages` is off or `notify.direct_events` leaves the event out."""
+    if not keys:
+        return []
+    settings = _settings()
+    if not settings.direct_messages or (
+            settings.direct_events is not None and event not in settings.direct_events):
+        return []
+    ids = list(dict.fromkeys(_user_ids(channel, keys)))
+    if not ids:
+        log.debug("notify_direct_unmapped", notify_channel=channel, notify_event=event)
+    return ids
 
 
 # Slack ----------------------------------------------------------------------------------
@@ -268,6 +364,34 @@ def _send_discord(
     return True
 
 
+def _send_discord_dm(token: str, user_id: str, message: str) -> bool:
+    headers = {"User-Agent": DISCORD_USER_AGENT, "Authorization": f"Bot {token}"}
+    dm = _discord_dm_channel(token, headers, user_id)
+    if dm is None:
+        return False
+    # No user listed: `parse: []` keeps every role, `@everyone` and `@here` silent.
+    return _send_discord(f"{discord_api_url()}/channels/{dm}/messages", headers, {}, message, [])
+
+
+def _discord_dm_channel(token: str, headers: dict[str, str], user_id: str) -> str | None:
+    """Create DM (`POST /users/@me/channels`): Discord returns the DM already open, if any.
+    Kept for the process, so each person costs one call."""
+    with _lock:
+        known = _discord_dms.get((token, user_id))
+    if known:
+        return known
+    response = httpx.post(f"{discord_api_url()}/users/@me/channels", headers=headers,
+                          json={"recipient_id": user_id}, timeout=TIMEOUT_S)
+    body = _json(response)
+    if response.status_code != 200 or not body.get("id"):
+        log.warning("notify_rejected", notify_channel="discord", method="create_dm",
+                    status=response.status_code, discord_code=body.get("code"))
+        return None
+    with _lock:
+        _discord_dms[(token, user_id)] = str(body["id"])
+    return str(body["id"])
+
+
 def _retry_after(response: httpx.Response) -> float | None:
     # Discord: rely on the `retry_after` field or the `Retry-After` header (seconds).
     value = _json(response).get("retry_after", response.headers.get("Retry-After"))
@@ -309,8 +433,7 @@ def _json(response: httpx.Response) -> dict:
 def _user_ids(channel: str, github_logins: Sequence[str]) -> list[str]:
     if not github_logins:
         return []
-    users = _configured_users if _configured_users is not None else _users_from_workflow()
-    channel_map = users.get(channel, {})
+    channel_map = _settings().users.get(channel, {})
     return [uid for login in github_logins
             for uid in [channel_map.get(login.casefold())] if uid]
 
@@ -330,27 +453,36 @@ def _normalize_users(users: Mapping) -> dict[str, dict[str, str]]:
     return out
 
 
-def _users_from_workflow() -> dict[str, dict[str, str]]:
-    global _workflow_users
+def _settings() -> _Settings:
+    return _configured if _configured is not None else _workflow_settings()
+
+
+def _workflow_settings() -> _Settings:
+    global _workflow
     path = os.path.join(os.environ.get("SYMPHONY_WORKFLOW_MOUNT", "/workflow"), "WORKFLOW.md")
     try:
         mtime = os.stat(path).st_mtime
     except OSError:
-        return {}
-    cached_mtime, cached = _workflow_users
+        return _Settings()
+    cached_mtime, cached = _workflow
     if cached_mtime == mtime:
         return cached
-    users: dict[str, dict[str, str]] = {}
+    settings = _Settings()
     try:
         with open(path, encoding="utf-8") as fh:
-            front = _front_matter(fh.read())
-        section = (front.get("notify") or {}).get("users") or {}
-        if isinstance(section, Mapping):
-            users = _normalize_users(section)
+            section = _front_matter(fh.read()).get("notify") or {}
+        users = section.get("users") or {}
+        events = section.get("direct_events")
+        settings = _Settings(
+            _normalize_users(users) if isinstance(users, Mapping) else {},
+            # The config parser rejects anything but a boolean; only `false` turns DMs off.
+            section.get("direct_messages") is not False,
+            frozenset(map(str, events)) if isinstance(events, list) else None,
+        )
     except (OSError, yaml.YAMLError, AttributeError):
         log.warning("notify_users_unreadable")
-    _workflow_users = (mtime, users)
-    return users
+    _workflow = (mtime, settings)
+    return settings
 
 
 def _front_matter(text: str) -> dict:
@@ -374,32 +506,25 @@ def post_with_button(
     button_action_id: str,
     link: str | None = None,
     github_logins: list[str] | None = None,
+    direct_to: Sequence[str] = (),
 ) -> bool:
-    """Post a Slack Block Kit message with one button.  Discord gets a plain-text
-    fallback with no button.  Returns True when at least one channel accepted the
-    message.
+    """Post a Slack Block Kit message with one button, in the channel and as a DM to each
+    person `direct_to` names (`post`'s rules).  Discord gets a plain-text fallback with no
+    button.  Returns True when at least one channel or DM accepted the message.
 
     ``github_logins`` is the list of reviewers to mention.
     """
     if event not in EVENTS:
         log.warning("notify_unknown_event", notify_event=event)
-    delivered = False
-    # Slack — Block Kit with button.
-    try:
-        if _post_slack_blocks(event, text, button_label=button_label,
-                              button_action_id=button_action_id, link=link,
-                              github_logins=github_logins or []):
-            delivered = True
-    except Exception as exc:  # noqa: BLE001
-        log.warning("notify_failed", notify_channel="slack", notify_event=event,
-                    error=type(exc).__name__)
+    logins = github_logins or []
+    delivered = _safely("slack", event, _post_slack_blocks, event, text,
+                        button_label=button_label, button_action_id=button_action_id,
+                        link=link, github_logins=logins, direct_to=direct_to)
     # Discord — plain text, no button.
-    try:
-        if _post("discord", event, text, link=link, github_logins=github_logins or []):
-            delivered = True
-    except Exception as exc:  # noqa: BLE001
-        log.warning("notify_failed", notify_channel="discord", notify_event=event,
-                    error=type(exc).__name__)
+    if _safely("discord", event, _post, "discord", event, text, link=link, github_logins=logins):
+        delivered = True
+    if _safely("discord", event, _post_direct, "discord", event, text, link=link, keys=direct_to):
+        delivered = True
     return delivered
 
 
@@ -411,24 +536,31 @@ def _post_slack_blocks(
     button_action_id: str,
     link: str | None = None,
     github_logins: list[str],
+    direct_to: Sequence[str],
 ) -> bool:
-    """Send a Slack Block Kit message with a button.  Uses ``chat.postMessage`` with
-    the bot token only (a webhook cannot send blocks with interactive elements)."""
+    """Send a Slack Block Kit message with a button, to the channel and the DMs.  Uses
+    ``chat.postMessage`` with the bot token only (a webhook cannot send blocks with
+    interactive elements)."""
     token = os.environ.get("SLACK_BOT_TOKEN", "").strip()
     channel = os.environ.get("SLACK_CHANNEL", "").strip()
     if not token or not channel:
         return False
-    users = _configured_users if _configured_users is not None else _users_from_workflow()
-    slack_map = users.get("slack", {})
-    mention_parts = []
-    for login in github_logins:
-        uid = slack_map.get(login.casefold())
-        if uid:
-            mention_parts.append(f"<@{uid}>")
+    mention = " ".join(f"<@{uid}>" for uid in _user_ids("slack", github_logins))
+    send = partial(_send_slack_blocks, token, event=event, text=text, button_label=button_label,
+                   button_action_id=button_action_id, link=link)
+    delivered = _once(f"slack\0{event}\0{button_action_id}", partial(send, channel, mention))
+    for uid in _direct_ids("slack", event, direct_to):
+        if _once(f"slack:dm:{uid}\0{event}\0{button_action_id}", partial(send, uid, "")):
+            delivered = True
+    return delivered
+
+
+def _send_slack_blocks(token: str, channel: str, mention: str, *, event: str, text: str,
+                       button_label: str, button_action_id: str, link: str | None) -> bool:
     emoji, title = EVENTS.get(event, _UNKNOWN_EVENT)
     header = f"{emoji} *{title}*"
-    if mention_parts:
-        header += " " + " ".join(mention_parts)
+    if mention:
+        header += " " + mention
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": header + "\n" + _escape(text)}},
         {"type": "actions", "elements": [
@@ -438,38 +570,10 @@ def _post_slack_blocks(
     ]
     if link:
         blocks[0]["text"]["text"] += f"\n<{_escape(link)}|Open>"
-    fallback = format_message(event, text, link=link,
-                              mention=" ".join(mention_parts) if mention_parts else "")
-    # Dedup using the same mechanism.
-    digest = hashlib.sha256(f"slack\0{event}\0{button_action_id}".encode()).hexdigest()
-    now = time.monotonic()
-    with _lock:
-        for key in [k for k, at in _sent.items() if now - at >= DEDUP_WINDOW_S]:
-            del _sent[key]
-        if digest in _sent:
-            return False
-        _sent[digest] = now
-    ok = False
-    try:
-        response = httpx.post(
-            f"{slack_api_url()}/chat.postMessage",
-            headers={"Authorization": f"Bearer {token}"},
-            json={"channel": channel, "text": fallback, "blocks": blocks,
-                  "unfurl_links": False},
-            timeout=TIMEOUT_S,
-        )
-        body = _json(response)
-        if response.status_code == 200 and body.get("ok"):
-            ok = True
-        else:
-            log.warning("notify_rejected", notify_channel="slack", status=response.status_code,
-                        slack_error=body.get("error", ""))
-    finally:
-        if not ok:
-            with _lock:
-                if _sent.get(digest) == now:
-                    del _sent[digest]
-    return ok
+    fallback = format_message(event, text, link=link, mention=mention)
+    return bool(_slack_call(token, "chat.postMessage", {
+        "channel": channel, "text": fallback, "blocks": blocks, "unfurl_links": False,
+    }))
 
 
 # Questions (`questions.py`): a message people answer with a button or in its thread ------
@@ -494,24 +598,50 @@ def parse_question_action(action_id: str) -> tuple[str, int] | None:
 
 def post_question(
     text: str, *, qid: str, options: Sequence[str], mention_keys: Sequence[str] = (),
-    link: str | None = None, thread: Mapping[str, str] | None = None,
+    direct_keys: Sequence[str] = (), link: str | None = None,
+    thread: Mapping[str, str] | None = None,
 ) -> dict | None:
     """Post an agent's question: in Slack (bot token and channel) with one button per option
     and an invitation to answer in the thread, at the top of the channel or, with `thread`
     (`{channel, ts}`), as a reply also shown in the channel. Discord, when configured, gets
     the text without buttons. `mention_keys` are `notify.users` keys (a GitHub login or an
-    e-mail). Returns Slack's `{channel, ts}`; None when Slack did not take it. Never raises."""
-    try:
-        _post("discord", "input_requested", text, link=link, github_logins=mention_keys)
-    except Exception as exc:  # noqa: BLE001 — a notification never fails its caller
-        log.warning("notify_failed", notify_channel="discord", notify_event="input_requested",
-                    error=type(exc).__name__)
+    e-mail); `direct_keys` (who decides, the ticket's assignee) also get the question as a DM,
+    buttons included, under `post`'s rules. Returns `{channel, ts, dms}`: Slack's channel
+    message (left out when Slack did not take it) and `dms`, the Slack DMs `[{channel, ts}]`;
+    None when Slack took neither. Never raises."""
+    _safely("discord", "input_requested", _post, "discord", "input_requested", text, link=link,
+            github_logins=mention_keys)
+    _safely("discord", "input_requested", _post_direct, "discord", "input_requested", text,
+            link=link, keys=direct_keys)
     token = os.environ.get("SLACK_BOT_TOKEN", "").strip()
     channel = (thread or {}).get("channel") or os.environ.get("SLACK_CHANNEL", "").strip()
     if not token or not channel:
         return None
     mention = " ".join(f"<@{uid}>" for uid in _user_ids("slack", mention_keys))
     message = format_message("input_requested", text, link=link, mention=mention)
+    payload: dict = {"channel": channel, "text": message,
+                     "blocks": _question_blocks(message, qid, options), "unfurl_links": False}
+    if thread and thread.get("ts"):
+        payload.update(thread_ts=thread["ts"], reply_broadcast=True)
+    body = _slack_call(token, "chat.postMessage", payload)
+    out: dict = {"channel": body.get("channel") or channel, "ts": body["ts"]} if body.get("ts") else {}
+    # A DM starts its own thread (the reply `thread` names is the channel's): the answer can
+    # be a button or a reply in that DM thread.
+    dm_message = format_message("input_requested", text, link=link)
+    dms = []
+    for uid in _direct_ids("slack", "input_requested", direct_keys):
+        sent = _slack_call(token, "chat.postMessage", {
+            "channel": uid, "text": dm_message, "unfurl_links": False,
+            "blocks": _question_blocks(dm_message, qid, options)})
+        if sent.get("ts"):
+            # Slack answers with the DM's own channel id (`D…`): replies there carry it.
+            dms.append({"channel": sent.get("channel") or uid, "ts": sent["ts"]})
+    if dms:
+        out["dms"] = dms
+    return out or None
+
+
+def _question_blocks(message: str, qid: str, options: Sequence[str]) -> list[dict]:
     blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": message[:3000]}}]
     buttons = [
         {"type": "button", "action_id": question_action(qid, i), "value": str(i),
@@ -522,24 +652,24 @@ def post_question(
         blocks.append({"type": "actions", "elements": buttons})
     blocks.append({"type": "context", "elements": [
         {"type": "mrkdwn", "text": "Or answer in your own words in this thread."}]})
-    payload: dict = {"channel": channel, "text": message, "blocks": blocks, "unfurl_links": False}
-    if thread:
-        payload.update(thread_ts=thread["ts"], reply_broadcast=True)
-    body = _slack_call(token, "chat.postMessage", payload)
-    return {"channel": body.get("channel") or channel, "ts": body["ts"]} if body.get("ts") else None
+    return blocks
 
 
-def edit_question(where: Mapping[str, str], head: str, text: str) -> bool:
-    """Replace a question message posted by `post_question`, buttons removed: `head` is
-    Slack mrkdwn written by Symphony, `text` is shown as written (escaped)."""
+def edit_question(where: Mapping, head: str, text: str) -> bool:
+    """Replace a question posted by `post_question` (its channel message and its DMs), buttons
+    removed: `head` is Slack mrkdwn written by Symphony, `text` is shown as written (escaped).
+    True when every one of them was edited."""
     token = os.environ.get("SLACK_BOT_TOKEN", "").strip()
-    if not token or not where.get("channel") or not where.get("ts"):
+    refs = [ref for ref in (where, *(where.get("dms") or ()))
+            if ref.get("channel") and ref.get("ts")]
+    if not token or not refs:
         return False
     message = f"{head}\n{_escape(text.strip())}"[:3000]
     blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": message}}]
-    return bool(_slack_call(token, "chat.update", {
-        "channel": where["channel"], "ts": where["ts"], "text": message, "blocks": blocks,
-    }).get("ok"))
+    edited = [bool(_slack_call(token, "chat.update", {
+        "channel": ref["channel"], "ts": ref["ts"], "text": message, "blocks": blocks,
+    }).get("ok")) for ref in refs]
+    return all(edited)
 
 
 def _button_text(index: int, option: str) -> str:

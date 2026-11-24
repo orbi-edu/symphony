@@ -101,9 +101,7 @@ def _approval_reviewers_and_logins(m: Merger, n: int, pr: dict) -> tuple[list[st
                 logins.append(user)
     except Exception:  # noqa: BLE001
         pass
-    users = (_notify._configured_users  # noqa: SLF001
-             if _notify._configured_users is not None  # noqa: SLF001
-             else _notify._users_from_workflow())  # noqa: SLF001
+    users = _notify.users()
     # A login mapped on any channel is mentioned; each channel resolves its own id.
     mapped = [lg for lg in logins
               if any(section.get(lg.casefold()) for section in users.values())]
@@ -161,6 +159,7 @@ def _notify_needs_approval(m: Merger, n: int, rec: dict) -> None:
         "\n".join(lines),
         link=m.pr_url(n),
         logins=mapped,
+        tickets=[rec.get("issue")],
     )
 
 
@@ -244,6 +243,10 @@ def check_preview(m: Merger, policy: Policy, pr: dict) -> None:
     bid = button_id(m.repo, n, head_sha)
     from .. import notify as _notify
 
+    try:
+        direct = m.assignee_keys(m.ticket_of(pr))
+    except Exception:  # noqa: BLE001 — a tracker outage costs the DM only
+        direct = []
     _notify.post_with_button(
         "preview_ready",
         text,
@@ -251,6 +254,7 @@ def check_preview(m: Merger, policy: Policy, pr: dict) -> None:
         button_action_id=bid,
         link=m.pr_url(n),
         github_logins=reviewers,
+        direct_to=direct,
     )
 
 

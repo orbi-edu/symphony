@@ -131,11 +131,11 @@ def is_bot_author(rec: dict) -> bool:
 
 
 def say(m: Merger, event: str, n: int, title: str, login: str | None, link: str, why: str = "",
-        *, is_bot: bool = False) -> None:
+        *, is_bot: bool = False, ticket: str | None = None) -> None:
     reason = f": {why}" if why else ""
     text_key = f"{event}_bot" if is_bot and f"{event}_bot" in SAY else event
     m.notify(event, f"PR #{n} {title[:90]} {SAY[text_key]}{reason}",
-             link=link, logins=[login] if login else [])
+             link=link, logins=[login] if login else [], tickets=[ticket])
 
 
 def conclude(m: Merger, run, result, outcome: str, draft: bool, event: str | None, ci: str = "",
@@ -152,7 +152,8 @@ def conclude(m: Merger, run, result, outcome: str, draft: bool, event: str | Non
     except Exception:  # noqa: BLE001
         pass
     if event:
-        say(m, event, run.pr, run.title, run.author, comment or m.pr_url(run.pr), is_bot=is_bot)
+        say(m, event, run.pr, run.title, run.author, comment or m.pr_url(run.pr), is_bot=is_bot,
+            ticket=run.issue)
     return comment, drafted
 
 
@@ -160,7 +161,7 @@ def run_failed(m: Merger, run, why: str) -> None:
     """A failed run is the machine's, not the PR's: no comment and no draft."""
     drop_in_audit(m, run.pr)
     m.notify("run_error", f"The review of PR #{run.pr} {run.title[:90]} failed (no PR comment posted): {why}",
-             link=m.pr_url(run.pr))
+             link=m.pr_url(run.pr), tickets=[run.issue])
 
 
 def post_waiting(m: Merger, run, result, outcome: str) -> str:
@@ -240,7 +241,7 @@ def train_conclude(m: Merger, rec: dict, save) -> None:
         if o["end"] == "draft":
             say(m, "back_to_author", n, rec.get("title", ""), rec.get("author"),
                 o.get("comment") or m.pr_url(n), "the merge train could not merge it",
-                is_bot=is_bot_author(rec))
+                is_bot=is_bot_author(rec), ticket=rec.get("issue"))
             m.move_ticket(rec.get("issue"), "rework",
                           f"The merge train sent the PR back: {o['text']}\n\n{o.get('comment') or m.pr_url(n)}")
 

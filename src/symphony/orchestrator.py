@@ -8,7 +8,7 @@ collides on the put-if-absent dispatch token — only one wins (§3.7.1, constit
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from typing import Protocol
 
 from . import discovery, intake, prwatch, state, telemetry, triage
@@ -60,9 +60,11 @@ class Effects(Protocol):
         """
         ...
 
-    def notify(self, event: str, text: str, *, link: str | None = None) -> None:
-        """Post a notice to the team's channel (`symphony.notify`). Best effort: a channel
-        outage never fails a tick."""
+    def notify(self, event: str, text: str, *, link: str | None = None,
+               direct_to: Sequence[str] = ()) -> None:
+        """Post a notice to the team's channel (`symphony.notify`), and as a direct message
+        to the people `direct_to` names (`notify.users` keys: the ticket's assignee). Best
+        effort: a channel outage never fails a tick."""
         ...
 
     def failure_evidence(self, call_id: str) -> dict:
@@ -568,7 +570,7 @@ def _intake(
             continue
         fx.report_to_ticket(issue.id, f"**Symphony** — {v.text}")
         if v.human:
-            fx.notify("not_queued", v.text, link=issue.url)
+            fx.notify("not_queued", v.text, link=issue.url, direct_to=issue.assignee_keys)
         fx.emit("intake_verdict", issue_id=issue.id, verdict=v.key)
 
 
@@ -892,6 +894,7 @@ def _report_exhausted(
         f"What failed: {triage.redact(cause)}\nWho acts: {who}.\n"
         f"Next: once the cause is fixed, {queue_again}.",
         link=issue.url,
+        direct_to=issue.assignee_keys,
     )
 
 

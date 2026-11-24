@@ -622,6 +622,12 @@ class GitHubTracker:
         return pick_person([{"name": login, "mention": f"@{login}"} for login in logins if login],
                            hint)
 
+    def assignee(self, issue: str) -> dict | None:
+        # The first assignee, as `Issue.assignee` has it.
+        assignees = (self._require(issue).get("assignees") or {}).get("nodes") or []
+        login = (assignees[0] or {}).get("login") if assignees else None
+        return pick_person([{"name": login, "mention": f"@{login}"}] if login else [], None)
+
     def _post_comment(self, repo: str, number: int, body: str) -> dict:
         return self._rest("POST", f"/repos/{repo}/issues/{number}/comments", json={"body": body})
 

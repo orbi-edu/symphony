@@ -70,13 +70,28 @@ class Merger:
     def pr_url(self, n: int) -> str:
         return f"{github_server_url()}/{self.repo}/pull/{n}"
 
-    def notify(self, event: str, text: str, *, link: str | None = None, logins: Sequence[str] = ()) -> None:
+    def notify(self, event: str, text: str, *, link: str | None = None, logins: Sequence[str] = (),
+               tickets: Sequence[str | None] = ()) -> None:
+        """To the channel, mentioning `logins`, and as a DM to the assignee of each of
+        `tickets` (the PRs' tickets, `ticket_of`)."""
         if self.notify_post is None:
             return
         try:
-            self.notify_post(event, text, link=link, github_logins=logins)
+            direct = [key for ticket in dict.fromkeys(tickets) for key in self.assignee_keys(ticket)]
+            self.notify_post(event, text, link=link, github_logins=logins, direct_to=direct)
         except Exception as exc:  # noqa: BLE001 — a channel outage never stops a merge
             log.warning("merger_notify_failed", event=event, error=str(exc)[:300])
+
+    def assignee_keys(self, identifier: str | None) -> list[str]:
+        """What names the ticket's assignee in `notify.users` (e-mail, then name or login)."""
+        if not identifier or self.tracker is None:
+            return []
+        try:
+            who = self.tracker.assignee(identifier) or {}
+        except Exception as exc:  # noqa: BLE001 — a tracker outage costs the DM only
+            log.warning("merger_assignee_failed", issue=identifier, error=str(exc)[:300])
+            return []
+        return [key for key in (who.get("email"), who.get("name")) if key]
 
     def ticket_of(self, pr: dict) -> str | None:
         """The ticket a PR implements: Symphony's branches and titles carry its identifier,

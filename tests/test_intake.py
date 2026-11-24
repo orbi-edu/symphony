@@ -25,12 +25,14 @@ def test_a_backlog_ticket_is_told_to_move_and_the_channel_hears_it_once(kv, cloc
     c = board()
     run(kv, clock, tracker, c)  # first look: the watermark
     tracker.add_issue("b1", "ENG-7", state="Backlog", labels=("symphony", "repo:acme/app"),
-                      updated_at=LATER, url="https://t/ENG-7")
+                      updated_at=LATER, url="https://t/ENG-7", assignee="Alice",
+                      assignee_email="alice@example.com")
     fx = run(kv, clock, tracker, c, reasons=["linear:create:ENG-7"])
     [(issue_id, comment)] = fx.reported
     assert issue_id == "b1" and "not queued" in comment and "**Backlog**" in comment and "Todo" in comment
     [(event, text, link)] = fx.notified
     assert event == "not_queued" and "Who acts" in text and link == "https://t/ENG-7"
+    assert fx.direct == [("not_queued", ("alice@example.com", "Alice"))]  # the assignee's DM
     # same verdict on the next pass: silence
     fx = run(kv, clock, tracker, c, reasons=["linear:update:ENG-7"])
     assert getattr(fx, "reported", []) == [] and getattr(fx, "notified", []) == []

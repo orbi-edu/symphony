@@ -7,6 +7,17 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Notifications about a ticket now also reach its assignee as a direct message from the
+  Slack or Discord bot, when `notify.users` maps them (GitHub login, or the e-mail or name
+  Linear has); the channel message is unchanged. An agent's question goes by DM to the
+  person who decides and to the assignee, with the same buttons: a click or a reply in the
+  DM's thread answers it. `notify.direct_messages: false` keeps notifications in the
+  channel only, and `notify.direct_events` limits DMs to some events; the workflow API
+  reads and writes both. Slack needs only `chat:write`; Discord opens the DM with
+  `POST /users/@me/channels`.
+
 ## [0.2.17] - 2026-11-24
 
 ### Fixed

@@ -20,16 +20,21 @@ VICTOR = {"name": "Victor", "email": "victor@example.com", "mention": "https://t
 
 
 class Slack:
-    """`notify.post_question`/`edit_question`, recorded."""
+    """`notify.post_question`/`edit_question`, recorded. With `dm_channel`, each post also
+    goes as one DM there, as Slack answers for a member ID."""
 
     def __init__(self):
         self.posts: list[dict] = []
         self.edits: list[tuple[dict, str, str]] = []
+        self.dm_channel: str | None = None
 
-    def post(self, text, *, qid, options, mention_keys=(), link=None, thread=None):
+    def post(self, text, *, qid, options, mention_keys=(), direct_keys=(), link=None, thread=None):
         where = {"channel": "C1", "ts": f"{len(self.posts) + 1}.0"}
+        if self.dm_channel and direct_keys:
+            where["dms"] = [{"channel": self.dm_channel, "ts": f"{len(self.posts) + 1}.5"}]
         self.posts.append({"text": text, "qid": qid, "options": list(options),
-                           "mention_keys": list(mention_keys), "thread": thread, **where})
+                           "mention_keys": list(mention_keys), "direct_keys": list(direct_keys),
+                           "thread": thread, **where})
         return where
 
     def edit(self, where, head, text):
@@ -262,3 +267,45 @@ def test_numbers_pick_options():
     options = ["Keep it", "Change it"]
     assert [questions.choice(t, options) for t in ("2", " 1. ", "#2", "opção 1", "3", "2 maybe")] \
         == ["Change it", "Keep it", "Change it", "Keep it", "3", "2 maybe"]
+
+
+def test_the_question_goes_by_dm_to_who_decides_and_the_assignee(world):
+    world["tracker"].add_issue("i1", "ENG-1", state="In Review", assignee="Alice",
+                               assignee_email="alice@example.com")
+    world["slack"].dm_channel = "D1"
+    world["ask"]()
+    world["tick"]()
+    [post] = world["slack"].posts
+    assert post["mention_keys"] == ["victor@example.com", "Victor"]
+    assert post["direct_keys"] == ["victor@example.com", "Victor", "alice@example.com", "Alice"]
+    rec = questions.load(world["client"], NS, "q1")
+    assert rec["assignee"] == {"name": "Alice", "email": "alice@example.com", "mention": ""}
+    assert rec["slack"]["dms"] == [{"channel": "D1", "ts": "1.5"}]
+    # The reminder's DM is a thread of its own too.
+    world["now"][0] += 3 * HOUR
+    world["tick"]()
+    assert world["slack"].posts[1]["direct_keys"] == post["direct_keys"]
+    users = {"slack": {"alice@example.com": "U2"}}
+    answers = Answers(world["client"], NS, notify_users=lambda: users)
+    assert answers.thread_known("D1", "1.5") and answers.thread_known("D1", "2.5")
+    assert not answers.thread_known("D1", "9.0")
+
+
+def test_a_reply_in_the_dm_thread_answers_and_the_dm_is_edited(world):
+    world["slack"].dm_channel = "D1"
+    world["ask"]()
+    world["tick"]()
+    users = {"slack": {"victor@example.com": "U1"}}
+    answers = Answers(world["client"], NS, notify_users=lambda: users)
+    out = Out()
+    elsewhere = Inbound(transport="slack", channel="D1", thread="7.0", message_id="8.0",
+                        user_id="U1", text="2", files=(), is_dm=True)
+    assert not answers.on_reply(elsewhere, out)  # not a question's DM thread
+    reply = Inbound(transport="slack", channel="D1", thread="1.5", message_id="3.0",
+                    user_id="U1", text="2", files=(), is_dm=True)
+    assert answers.on_reply(reply, out)
+    rec = questions.load(world["client"], NS, "q1")
+    assert (rec["answer"], rec["by"], rec["via"]) == ("Change it", "victor@example.com", "slack")
+    world["tick"]()
+    [(where, head, _)] = world["slack"].edits
+    assert "Answered" in head and where["dms"] == [{"channel": "D1", "ts": "1.5"}]

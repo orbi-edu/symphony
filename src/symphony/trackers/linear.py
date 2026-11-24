@@ -40,7 +40,7 @@ ISSUE_FIELDS = """
       id identifier title description priority createdAt updatedAt url branchName
       state { name }
       labels(first: 25) { nodes { name } }
-      assignee { id name }
+      assignee { id name email }
       inverseRelations(first: 20) { nodes { type issue { id identifier state { name type } } } }
 """
 # blockers: in IssueRelation, `issue` is the SOURCE and `relatedIssue` the target — whatever
@@ -152,6 +152,11 @@ query SymphonyPeople($id: String!) {
     assignee { name displayName email url }
     comments(first: 100) { nodes { user { name displayName email url } } }
   }
+}
+"""
+ASSIGNEE_QUERY = """
+query SymphonyAssignee($id: String!) {
+  issue(id: $id) { assignee { name email url } }
 }
 """
 LABELS_QUERY = """
@@ -324,6 +329,7 @@ class LinearTracker:
             labels=labels,
             assignee=assignee,
             assignee_id=(node.get("assignee") or {}).get("id"),
+            assignee_email=(node.get("assignee") or {}).get("email"),
             url=node.get("url"),
             branch_name=node.get("branchName"),
             native_ref=node["id"],
@@ -469,6 +475,11 @@ class LinearTracker:
         return pick_person([{"name": u.get("name"), "display": u.get("displayName"),
                              "email": u.get("email"), "mention": u.get("url") or ""}
                             for u in users if u], hint)
+
+    def assignee(self, issue: str) -> dict | None:
+        user = (self._post(ASSIGNEE_QUERY, {"id": issue}).get("issue") or {}).get("assignee")
+        return pick_person([{"name": user.get("name"), "email": user.get("email"),
+                             "mention": user.get("url") or ""}] if user else [], None)
 
     def upsert_workpad(self, issue: str, body: str) -> str:
         nodes = ((self._post(COMMENTS_QUERY, {"id": issue}).get("issue") or {}).get("comments")

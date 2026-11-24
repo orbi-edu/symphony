@@ -46,9 +46,11 @@ class FakeEffects:
         self.reported = getattr(self, "reported", [])
         self.reported.append((issue_id, message))
 
-    def notify(self, event, text, *, link=None):
+    def notify(self, event, text, *, link=None, direct_to=()):
         self.notified = getattr(self, "notified", [])
         self.notified.append((event, text, link))
+        self.direct = getattr(self, "direct", [])
+        self.direct.append((event, tuple(direct_to)))
 
     def failure_evidence(self, call_id):
         return getattr(self, "evidence", {"job": call_id})

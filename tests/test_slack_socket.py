@@ -259,3 +259,68 @@ def test_an_answer_at_the_message_limit_can_be_edited_in_place(bot):
     bot.transport.update(ref, "x" * bot.transport.message_limit)
     with pytest.raises(SlackError, match="msg_too_long"):
         bot.transport.update(ref, "x" * (bot.transport.message_limit + 1))
+
+
+def test_a_question_sent_as_a_dm_is_answered_from_the_dm(bot, redis_client, monkeypatch, tmp_path):
+    """The daemon sends the question to the assignee's DM as well; a click there, and a reply
+    in that DM's thread, reach the same answer handler as in the channel."""
+    from tests.conftest import FakeKV
+    from tests.test_dispatch import cfg
+
+    from symphony import notify, questions
+    from symphony.assistant.answers import Answers
+    from symphony.trackers.memory import MemoryTracker
+
+    for var in ("SLACK_WEBHOOK_URL", "DISCORD_BOT_TOKEN", "DISCORD_CHANNEL_ID", "DISCORD_WEBHOOK_URL"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_MOUNT", str(tmp_path))
+    monkeypatch.setenv("SLACK_API_URL", f"{bot.base}/api")
+    monkeypatch.setenv("SLACK_BOT_TOKEN", slack.DEFAULT_TOKEN)
+    monkeypatch.setenv("SLACK_CHANNEL", CHANNEL)
+    httpx.post(f"{bot.base}/_mock/users", json={"id": ALICE, "name": "alice", "email": "alice@example.com"})
+    users = {"slack": {"alice@example.com": ALICE}, "discord": {}}
+    notify.reset()
+    notify.configure(users)
+    tracker = MemoryTracker()
+    tracker.add_issue("i1", "ENG-12", state="In Review", assignee="Alice", assignee_email="alice@example.com")
+    tracker.people["i1"] = [{"name": "Bob", "email": "bob@example.com"}]  # the author decides
+    answers = Answers(redis_client, "test", notify_users=lambda: users)
+    try:
+        for qid in ("q1", "q2"):
+            questions.ask(redis_client, "test", qid=qid, issue_id="i1", identifier="ENG-12", sid="i1:1",
+                          url=None, question="Which layout?", options=["Keep it", "Change it"], to=None,
+                          now_ms=1)
+        questions.tick(redis_client, "test", kv=FakeKV(), tracker=tracker, cfg=cfg(), now_ms=2)
+        posted = {qid: questions.load(redis_client, "test", qid)["slack"] for qid in ("q1", "q2")}
+        for where in posted.values():
+            assert where["channel"] == CHANNEL and where["dms"][0]["channel"].startswith("D")
+        dm = posted["q1"]["dms"][0]
+        [on_dm] = [m for m in httpx.get(f"{bot.base}/_mock/messages").json()["messages"]
+                   if (m["channel"], m["ts"]) == (dm["channel"], dm["ts"])]
+        assert [e["action_id"] for b in on_dm["blocks"] if b["type"] == "actions"
+                for e in b["elements"]] == ["ask:q1:0", "ask:q1:1"]
+
+        httpx.post(f"{bot.base}/_control/socket/interactive",
+                   json={"user": ALICE, "channel": dm["channel"], "message_ts": dm["ts"],
+                         "action_id": "ask:q1:1"})
+        action = bot.actions.get(timeout=3)
+        assert action.channel == dm["channel"]
+        assert answers.on_click(action, bot.transport) == "answered"
+        rec = questions.load(redis_client, "test", "q1")
+        assert (rec["state"], rec["answer"], rec["by"]) == ("answered", "Change it", "alice@example.com")
+        [note] = httpx.get(f"{bot.base}/_mock/ephemerals").json()["ephemerals"]
+        assert note["channel"] == dm["channel"] and "Answer recorded" in note["text"]
+
+        dm2 = posted["q2"]["dms"][0]
+        bot.push({"type": "message", "user": ALICE, "channel": dm2["channel"],
+                  "thread_ts": dm2["ts"], "text": "1"})
+        reply = bot.messages.get(timeout=3)
+        assert reply.is_dm and answers.thread_known(reply.channel, reply.thread)
+        assert answers.on_reply(reply, bot.transport)
+        assert questions.load(redis_client, "test", "q2")["answer"] == "Keep it"
+        # Any other DM is not a question's thread: it stays the assistant's.
+        other = bot.push({"type": "message", "user": ALICE, "channel": dm2["channel"], "text": "hi"})
+        hello = bot.messages.get(timeout=3)
+        assert hello.thread == other["ts"] and not answers.thread_known(hello.channel, hello.thread)
+    finally:
+        notify.reset()

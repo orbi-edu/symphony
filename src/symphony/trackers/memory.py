@@ -156,6 +156,11 @@ class MemoryTracker:
         found = self._require(issue)
         return pick_person(self.people.get(found.id, []), hint)
 
+    def assignee(self, issue: str) -> dict | None:
+        found = self._require(issue)
+        return pick_person([{"name": found.assignee, "email": found.assignee_email}]
+                           if found.assignee or found.assignee_email else [], None)
+
     def upsert_workpad(self, issue: str, body: str) -> str:
         found = self._require(issue)
         for entry in self.comments.get(found.id, []):

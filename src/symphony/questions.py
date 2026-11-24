@@ -37,7 +37,7 @@ EXPIRE_MS = 7 * 24 * 3600 * 1000  # an open question closes, unanswered, after t
 INBOX_MAX = 500
 BATCH = 200  # questions advanced per tick
 VIA = {"linear": "on the ticket", "slack": "in Slack", "symphony": "in Symphony"}
-_JSON_FIELDS = frozenset({"options", "own", "slack", "slack_reminder", "stakeholder"})
+_JSON_FIELDS = frozenset({"options", "own", "slack", "slack_reminder", "stakeholder", "assignee"})
 _INT_FIELDS = frozenset({"asked_at", "answered_at", "reminded_at"})
 # "4", "4.", "#4", "option 4", "opção 4": the 4th option.
 _NUMBER = re.compile(r"\s*(?:#|op(?:tion|ção|cao)?\.?\s*)?(\d{1,2})\s*[.):]?\s*", re.IGNORECASE)
@@ -220,7 +220,8 @@ def _advance(client, ns: str, qid: str, *, kv, tracker, cfg, sessions: SessionSt
         return True
     if "stakeholder" not in rec:
         rec["stakeholder"] = tracker.person(rec["issue_id"], rec.get("to") or None) or {}
-        _set(client, ns, qid, stakeholder=rec["stakeholder"])
+        rec["assignee"] = tracker.assignee(rec["issue_id"]) or {}
+        _set(client, ns, qid, stakeholder=rec["stakeholder"], assignee=rec["assignee"])
     if not rec.get("comment"):
         comment = tracker.comment(rec["issue_id"], _ticket_question(rec, cfg))
         _own(client, ns, rec, comment)
@@ -229,10 +230,10 @@ def _advance(client, ns: str, qid: str, *, kv, tracker, cfg, sessions: SessionSt
         rec["comment"] = comment
     if not rec.get("posted"):
         where = notify.post_question(_slack_question(rec), qid=qid, options=rec["options"],
-                                     mention_keys=_mention_keys(rec), link=rec.get("url") or None)
+                                     mention_keys=_mention_keys(rec), direct_keys=_direct_keys(rec),
+                                     link=rec.get("url") or None)
         _set(client, ns, qid, posted="1", slack=where or {})
-        if where:
-            _remember(client, ns, "slack", f"{where['channel']}:{where['ts']}", qid)
+        _remember_slack(client, ns, where, qid)
         log.info("question_posted", question=qid, issue_id=rec["issue_id"], slack=bool(where))
         return False
     age = now_ms - rec["asked_at"]
@@ -258,6 +259,18 @@ def _own(client, ns: str, rec: dict, comment_id: str) -> None:
 def _mention_keys(rec: dict) -> list[str]:
     who = rec.get("stakeholder") or {}
     return [k for k in (who.get("email"), who.get("name")) if k]
+
+
+def _direct_keys(rec: dict) -> list[str]:
+    """Who gets the question as a DM: who decides, and the ticket's assignee."""
+    who = rec.get("assignee") or {}
+    return [*_mention_keys(rec), *(k for k in (who.get("email"), who.get("name")) if k)]
+
+
+def _remember_slack(client, ns: str, where: dict | None, qid: str) -> None:
+    """A reply in the thread of the channel message or of a DM answers the question."""
+    for ref in ([where] if where and where.get("ts") else []) + list((where or {}).get("dms") or []):
+        _remember(client, ns, "slack", f"{ref['channel']}:{ref['ts']}", qid)
 
 
 def _who(rec: dict) -> str:
@@ -302,9 +315,10 @@ def _remind(client, ns: str, rec: dict, tracker, age_ms: int) -> None:
             f"Still waiting for an answer{f' from {name}' if name else ''} ({hours} h): "
             f"{rec['identifier']}: {rec['question']}",
             qid=rec["id"], options=rec["options"], mention_keys=_mention_keys(rec),
-            link=rec.get("url") or None, thread=rec["slack"])
+            direct_keys=_direct_keys(rec), link=rec.get("url") or None, thread=rec["slack"])
         if where:
             _set(client, ns, rec["id"], slack_reminder=where)
+            _remember_slack(client, ns, {"dms": where.get("dms")}, rec["id"])
     log.info("question_reminded", question=rec["id"], issue_id=rec["issue_id"], hours=hours)
 
 

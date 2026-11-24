@@ -43,7 +43,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -581,11 +581,12 @@ class LocalEffects:
         except Exception as exc:  # noqa: BLE001 — visibility is not worth the daemon
             log.warning("ticket_report_failed", issue_id=issue_id, error=str(exc))
 
-    def notify(self, event: str, text: str, *, link: str | None = None) -> None:
-        """Same as `K8sEffects`: the configured channels, best effort."""
+    def notify(self, event: str, text: str, *, link: str | None = None,
+               direct_to: Sequence[str] = ()) -> None:
+        """Same as `K8sEffects`: the configured channels and DMs, best effort."""
         from . import notify
 
-        notify.post(event, text, link=link)
+        notify.post(event, text, link=link, direct_to=direct_to)
 
     def failure_evidence(self, call_id: str) -> dict:
         """A local attempt is a thread with no separate record of how it ended."""

@@ -99,6 +99,7 @@ def record(kv: state.KV, tracker, cfg: Config, issue: Issue, entry: dict, summar
         f"Who acts: an agent — Symphony opened {made['identifier']} to find the cause.\n"
         f"Next: its report and the fix it specifies land on {made['identifier']}.",
         link=made.get("url"),
+        direct_to=issue.assignee_keys,  # the failed ticket's assignee
     )
     return made["identifier"]
 

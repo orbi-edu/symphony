@@ -435,6 +435,8 @@ The runner sends `input_requested` when an agent asks a person a question. The m
 
 Symphony sends an identical message to a channel at most once in 60 seconds. A notification failure never stops a run. On Discord, a message has at most 2000 characters, and only the mapped user can be pinged (never a role, `@everyone` or `@here`).
 
+With a bot, each notification about a ticket also goes as a direct message to the ticket's assignee, and a question to the person who decides, when `notify.users` maps them (by GitHub login, e-mail or tracker name). Slack needs no other scope than `chat:write`; turn on the App Home **Messages Tab** so people can reply. On Discord, the person must share a server with the bot and accept direct messages from its members. `notify.direct_messages: false` keeps notifications in the channel only ([configuration.md](configuration.md#notify)).
+
 ### The assistant on Slack and Discord (optional)
 
 The assistant is a chat bot that answers questions and plans tickets ([assistant.md](assistant.md)). It reuses the bot of the notifications step, so set up a Slack bot or a Discord bot above first. A webhook is not enough. Either transport alone works.

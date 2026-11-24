@@ -32,6 +32,7 @@ class Issue:
     url: str | None = None
     branch_name: str | None = None
     assignee_id: str | None = None
+    assignee_email: str | None = None  # trackers that know it (Linear); GitHub gives a login
     native_ref: str | None = None
     blocked_by: tuple[dict, ...] = ()  # blocker refs {id, identifier, state} (upstream §4.1.1)
     # The repositories this issue's work belongs in, resolved by the ADAPTER from the
@@ -41,6 +42,11 @@ class Issue:
     target_repo: str | None = None
     target_repos: tuple[str, ...] = ()
     undispatchable_reason: str | None = None
+
+    @property
+    def assignee_keys(self) -> tuple[str, ...]:
+        """What names the assignee in `notify.users`: the e-mail, then the name or login."""
+        return tuple(k for k in (self.assignee_email, self.assignee) if k)
 
 
 @dataclass(frozen=True)
@@ -134,6 +140,11 @@ class TrackerAdapter(Protocol):
         matches `hint` (case-insensitive), or the ticket's author without one. `{name,
         email, mention}` (`mention`: text that notifies them in a comment, "" when the
         tracker has none); None when nobody matches."""
+        ...
+
+    def assignee(self, issue: str) -> dict | None:
+        """The ticket's assignee, shaped as `person` returns it (`{name, email, mention}`);
+        None when nobody is assigned."""
         ...
 
     def upsert_workpad(self, issue: str, body: str) -> str:

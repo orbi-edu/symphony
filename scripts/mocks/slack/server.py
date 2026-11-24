@@ -4,7 +4,9 @@
 Served Web API methods (POST or GET, `application/x-www-form-urlencoded` or
 `application/json` bodies, query string too, as Slack accepts):
 
-- `chat.postMessage` (scope `chat:write`)
+- `chat.postMessage` (scope `chat:write`). A user's ID as `channel` posts in the bot's DM
+  with that user (`slack-chat.postMessage.md`): the mock opens a `D…` channel for a user of
+  `/_mock/users` once and answers with its id; an unknown user → `channel_not_found`.
 - `chat.update` (only the bot's own messages; else `cant_update_message`)
 - `chat.postEphemeral`
 - `conversations.replies` (the bot's messages and the user messages pushed over the socket)
@@ -201,9 +203,20 @@ class SlackMock:
     def _channel(self, ref: str) -> dict | None:
         ref = ref.lstrip("#")
         for ch in self.state["channels"]:
-            if ref in (ch["id"], ch["name"]):
+            # A DM is named `directmessage` (as interaction payloads show it): never by name.
+            if ref == ch["id"] or (ref == ch["name"] and not ch.get("user")):
                 return ch
         return None
+
+    def _open_dm(self, user_id: str) -> dict | None:
+        """The bot's DM with a known user, opened on first use (`chat.postMessage`)."""
+        if not any(u["id"] == user_id for u in self.state["users"]):
+            return None
+        found = next((ch for ch in self.state["channels"] if ch.get("user") == user_id), None)
+        if found is None:
+            found = {"id": f"D{user_id[1:]}", "name": "directmessage", "user": user_id}
+            self.state["channels"].append(found)
+        return found
 
     def rate_limited(self) -> int | None:
         rl = self.state["ratelimit"]
@@ -252,7 +265,8 @@ class SlackMock:
         raise _Reject("users_not_found")
 
     def _chat_postMessage(self, args: dict) -> dict:  # noqa: N802 — Slack method name
-        channel = self._channel(str(args.get("channel", "")))
+        ref = str(args.get("channel", ""))
+        channel = self._channel(ref) or (self._open_dm(ref) if ref[:1] in ("U", "W") else None)
         if channel is None:
             raise _Reject("channel_not_found")
         text = args.get("text")

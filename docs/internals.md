@@ -398,7 +398,7 @@ certification and the tests use it.
 
 ### Notifications
 
-- **Post:** `symphony.notify.post(event, text, *, link=None, github_logins=())`. The
+- **Post:** `symphony.notify.post(event, text, *, link=None, github_logins=(), direct_to=())`. The
   events are `input_requested`, `back_to_author`, `needs_maintainer`, `needs_approval`,
   `preview_ready`, `batch_split`, `main_red`, `main_green`, `run_error`,
   `retries_exhausted`, `not_queued` and `triage_opened`. Each configured channel gets each event:
@@ -411,8 +411,22 @@ certification and the tests use it.
 - **Discord format:** Discord markdown, at most 2000 characters. `allowed_mentions` allows only
   the mapped users. If Discord answers 429 with a short `retry_after`, `notify` waits and tries
   one more time.
+- **Direct messages:** `direct_to` holds `notify.users` keys; each mapped person also gets the
+  event as a DM, without a mention, once per event. The daemon passes the ticket's assignee
+  (`Issue.assignee_keys`: the e-mail when the tracker has it, then the name or login), the
+  merger the assignee of each PR's ticket (`TrackerAdapter.assignee`), and a question
+  (`post_question(direct_keys=…)`) the person who decides and the assignee. A DM needs the
+  channel of that service configured and its bot token:
+  - Slack: `chat.postMessage` with `channel` set to the member ID opens the bot's DM (scope
+    `chat:write`). A question's DM carries the option buttons; its `{channel, ts}` (the `D…`
+    id Slack answers with) is kept under `dms` in the question's `slack` record, so a click,
+    a reply in that DM's thread and the final edit work as in the channel.
+  - Discord: Create DM (`POST /users/@me/channels`, `{"recipient_id"}`), kept per process,
+    then Create Message there with `allowed_mentions: {"parse": []}`.
+  - `notify.direct_messages: false` turns DMs off; `notify.direct_events` lists the events
+    that get them (default: all). An unmapped key is skipped (debug log `notify_direct_unmapped`).
 - Without a configuration, `post` does nothing. The same event and text are sent at most once
-  in 60 s.
+  in 60 s to each destination (the channel, each person's DM).
 
 ## 9. Services, ports and variables
 

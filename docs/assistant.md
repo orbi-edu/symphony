@@ -247,6 +247,8 @@ Previews are enabled when a Seiji server named `seiji` is configured and the Git
 
 An agent's question ([concepts](concepts.md#questions-to-people)) reaches Slack as a message with one button per option. The assistant process takes the answers: a click, or a reply in the message's thread (the thread of a question is routed even though the daemon posted it). Only people mapped in `notify.users` answer; others get a private refusal. The first answer wins and the clicker gets a private confirmation, or who answered first. A reply in a question's thread is an answer, never a message for the assistant.
 
+The question also goes as a direct message from the bot to the person who decides and to the ticket's assignee, when `notify.users` maps them ([configuration.md](configuration.md#notify), `notify.direct_messages`). That message has the same buttons. A click in the DM, or a reply in the DM message's thread, answers the question the same way. Any other DM to the bot still goes to the assistant.
+
 ## Plan mode
 
 The planner investigates before it proposes tickets: it reads the code and, with the sandbox, runs the build or the tests that matter. It writes a short spec in the thread with these sections:
