@@ -11,6 +11,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -376,6 +377,21 @@ def test_unmodelled_parts_fail_loudly(mock):
     assert len(control(mock.base, "GET", "issues")["issues"]) == 1  # nothing half-created
     resp = gql(mock.base, "{ issues(filter: {hasBlockedByRelations: {eq: true}}) { nodes { id } } }")
     assert resp.status_code == 501
+
+
+def test_create_takes_only_a_version_4_client_id(mock):
+    """Linear's create inputs take "The identifier in UUID v4 format" and reject any other."""
+    team = gql(mock.base, "{ teams { nodes { id } } }").json()["data"]["teams"]["nodes"][0]["id"]
+    create = "mutation($i: IssueCreateInput!) { issueCreate(input: $i) { success issue { id } } }"
+    v5 = str(uuid.uuid5(uuid.NAMESPACE_URL, "symphony:x"))
+    resp = gql(mock.base, create, {"i": {"teamId": team, "title": "v5", "id": v5}})
+    err = resp.json()["errors"][0]
+    assert err["message"] == "Argument Validation Error"
+    assert err["extensions"]["code"] == "INVALID_INPUT"
+    assert err["extensions"]["userPresentableMessage"] == "id must be a UUID"
+    v4 = str(uuid.uuid4())
+    resp = gql(mock.base, create, {"i": {"teamId": team, "title": "v4", "id": v4}})
+    assert resp.json()["data"]["issueCreate"] == {"success": True, "issue": {"id": v4}}
 
 
 def test_filters_pagination_and_cursors(mock):
