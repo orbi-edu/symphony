@@ -54,7 +54,7 @@ RETRY_REASONS = ("failure", "continuation")
 ATTEMPT_KINDS = ("implement", "answer")
 TOKEN_TYPES = ("input", "output", "cache_read", "cache_write")
 SETUP_STEPS = ("tracker", "github_app", "repositories", "models", "notifications", "assistant",
-               "webhooks")
+               "webhooks", "skills")
 SETUP_STATUSES = ("done", "todo", "error", "skipped")
 CLEANUP_RESULTS = ("released", "failed")
 TRANSPORTS = ("slack", "discord")

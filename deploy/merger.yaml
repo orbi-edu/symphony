@@ -1,7 +1,11 @@
 # The merger (docs/merger.md): agent review of every ready pull request and the merge train.
-# One Deployment per repository: set SYMPHONY_MERGER_REPO (owner/name), or leave it empty to
-# use WORKFLOW.md's default repository. For more repositories, add one copy per repository
-# with its own `merger` label and PVC (docs/install.md, "Add a merger for each repository").
+# One Deployment serves every repository with a .symphony/merger.md policy file, plus the
+# default repository and any listed in SYMPHONY_MERGER_REPO (comma-separated).  The merger
+# discovers repositories automatically and starts per-repo loops.
+#
+# SYMPHONY_MERGER_REPO: optional extra repositories (comma-separated owner/name).
+# SYMPHONY_MERGER_CONCURRENCY: max concurrent agent review steps across all repos (default 8).
+# SYMPHONY_MERGER_REVIEWERS: review worker threads per repository (default 2).
 #
 # It runs omp locally (reviewer/oracle/arbiter/developer agents) and git in a mirror +
 # worktrees on its own PVC. Its only Kubernetes API access is reading the provider keys
@@ -26,8 +30,7 @@ spec:
   replicas: 1
   strategy:
     type: Recreate # RWO volume; the train lease absorbs any overlap
-  # `merger` tells one merger Deployment from another: one Deployment per repository, each
-  # with its own value (docs/install.md). `component: merger` stays for the NetworkPolicies.
+  # `component: merger` stays for the NetworkPolicies.
   selector:
     matchLabels: {app: symphony, component: merger, merger: default}
   template:
@@ -52,7 +55,10 @@ spec:
               valueFrom:
                 fieldRef: {fieldPath: metadata.namespace}
             - name: SYMPHONY_MERGER_REPO
+              # Optional: comma-separated extra repos; discovery handles the rest.
               value: ""
+            - name: SYMPHONY_MERGER_CONCURRENCY
+              value: "8"
             - name: SYMPHONY_MERGER_REVIEWERS
               value: "2"
             # mirror/, wt/ (worktrees) and sessions/ (omp session files) live here
@@ -82,8 +88,8 @@ spec:
               mountPath: /workflow
               readOnly: true
           resources:
-            requests: {cpu: 500m, memory: 1Gi}
-            limits: {cpu: "4", memory: 6Gi}
+            requests: {cpu: "2", memory: 4Gi}
+            limits: {cpu: "8", memory: 16Gi}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: {drop: ["ALL"]}

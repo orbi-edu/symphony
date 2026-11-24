@@ -14,7 +14,7 @@ This document tells you how to install Symphony on Kubernetes (k3s on a VM, or a
 8. [Prepare the model credentials](#8-prepare-the-model-credentials)
 9. [Connect the webhooks](#9-connect-the-webhooks)
 10. [Configure by hand (without setup)](#10-configure-by-hand-without-setup)
-11. [Add a merger for each repository](#11-add-a-merger-for-each-repository)
+11. [The merger serves every repository](#11-the-merger-serves-every-repository)
 12. [Install k3s on a VM](#12-install-k3s-on-a-vm)
 13. [Evaluate on kind](#13-evaluate-on-kind)
 14. [Expose the API with a Cloudflare Tunnel](#14-expose-the-api-with-a-cloudflare-tunnel)
@@ -135,7 +135,7 @@ The integration Secrets carry no data on purpose. The API may only patch Secrets
 
 > **Caution:** Do not add data to `deploy/providers.yaml` or `deploy/integrations.yaml`. A later apply would delete the keys that admins saved.
 
-The merger in `deploy/merger.yaml` serves the repository in `SYMPHONY_MERGER_REPO`. Its value is empty, so it serves `kubernetes.default_repo`.
+The merger in `deploy/merger.yaml` serves every repository with a `.symphony/merger.md` policy file, plus the default repository and any listed in `SYMPHONY_MERGER_REPO`. See [step 11](#11-the-merger-serves-every-repository).
 
 ### Images
 
@@ -250,7 +250,7 @@ flowchart TD
 | Assistant (`assistant`, optional) | The Slack app-level token and the channels, the Discord channels, the repositories it reads (step 7) | Slack: `apps.connections.open` with the app token and `auth.test` with the bot token. Discord: the bot has the Message Content Intent | Secret `symphony-slack` (`SLACK_APP_TOKEN`), and the `assistant` section of the published WORKFLOW |
 | Webhooks (`webhooks`) | Nothing. The API makes the secrets (step 9) | A signed delivery arrived from each source in use | Secrets `linear-api-key` (`LINEAR_WEBHOOK_SECRET`) and `symphony-api` (`GITHUB_WEBHOOK_SECRET`) |
 
-Setup is complete when every required step is `done`. The repositories step is `done` only when each repository has a merger that runs. Step 11 adds a merger for each other repository.
+Setup is complete when every required step is `done`. The repositories step is `done` only when each repository has a merger that runs. The single merger Deployment serves all repositories automatically (step 11).
 
 In Kubernetes, a saved credential reaches the components through a restart. The API restarts the Deployments that read the Secret: the daemon, the mergers, the assistant, and the API itself last. It finds the mergers by their Deployment labels (`app: symphony`, `component: merger`), so an added merger Deployment needs those labels on its `metadata`. Each saved step prints the restarted Deployments. Runner and reflector Jobs read the Secrets when they start, so they need no restart.
 
@@ -532,168 +532,46 @@ You can fill the integration Secrets yourself. Setup is better, because it verif
 
 [configuration.md](configuration.md#kubernetes-secrets) lists every Secret and key.
 
-## 11. Add a merger for each repository
+## 11. The merger serves every repository
 
-One merger Deployment serves one repository. For each other repository that gets pull requests from Symphony, add one more merger Deployment. Each merger needs:
+One merger Deployment serves every repository that has a `.symphony/merger.md` policy file. The merger discovers repositories automatically from three sources:
 
-| Field | Value for each merger |
-|---|---|
-| Deployment `metadata.name` | unique, for example `symphony-merger-example-lib` |
-| Label `merger` in `spec.selector.matchLabels` and in the pod template | unique, for example `example-lib` (the base uses `default`) |
-| Labels `app: symphony` and `component: merger` | the same as the base. The NetworkPolicies and the setup restart select them. |
-| PVC name and `claimName` | unique, for example `symphony-merger-example-lib` (the PVC holds the git mirror) |
-| `SYMPHONY_MERGER_REPO` | the repository, `owner/name` |
-| A name in the API Role | the Deployment name in the `resourceNames` of the `deployments` `get`/`patch` rule of the Role `symphony-api`. Without it, setup cannot restart the merger (`restart_forbidden`). |
+1. `SYMPHONY_MERGER_REPO` (comma-separated list, optional extra repos).
+2. The default repository in `WORKFLOW.md` (`kubernetes.default_repo`).
+3. Every non-archived repository the daemon's discovery marks `merger_policy: true`.
 
-All other fields stay as in `deploy/merger.yaml`. The mergers share the ServiceAccount `symphony-merger`, the Secrets, Redis and the namespace. Each merger keeps its Redis state under its own repository.
+A reconcile loop (every ~60 s) starts loops for new repositories and stops those that disappear. Each repository gets its own coordinator heartbeat, train, main-watch and review workers, so `GET /v1/merger` and the Tern Merger tab list every served repository.
 
-Kustomize does not load a file of another directory, so the overlay below holds a full copy of the merger PVC and Deployment. Replace `acme/app`, `acme/lib`, `example-lib` and the image with your values.
+You no longer need one Deployment per repository. The single `deploy/merger.yaml` handles all repositories. To add a repository, commit a `.symphony/merger.md` file to that repository, and the merger picks it up on the next reconcile.
 
-1. Make the directory `overlays/production/` next to `deploy/`.
-2. Write `overlays/production/kustomization.yaml`:
-   ```yaml
-   apiVersion: kustomize.config.k8s.io/v1beta1
-   kind: Kustomization
-   namespace: symphony
-   resources:
-     - ../../deploy
-     - merger-example-lib.yaml
-   # The image of the copied merger. Use the same reference as in deploy/kustomization.yaml.
-   images:
-     - name: symphony-orchestrator
-       newName: registry.example.com/symphony/symphony-orchestrator
-       newTag: latest
-   patches:
-     # Give the base merger an explicit repository.
-     - target:
-         kind: Deployment
-         name: symphony-merger
-       patch: |-
-         apiVersion: apps/v1
-         kind: Deployment
-         metadata:
-           name: symphony-merger
-         spec:
-           template:
-             spec:
-               containers:
-                 - name: merger
-                   env:
-                     - name: SYMPHONY_MERGER_REPO
-                       value: acme/app
-     # Let setup restart the new merger: add it to the named Deployments of the API Role.
-     - target:
-         kind: Role
-         name: symphony-api
-       patch: |-
-         - op: add
-           path: /rules/7/resourceNames/-
-           value: symphony-merger-example-lib
-   ```
-   Rule 7 is the `deployments` rule with `resourceNames` in `deploy/rbac.yaml`. Check the index when you update Symphony.
-3. Write `overlays/production/merger-example-lib.yaml`:
-   ```yaml
-   apiVersion: v1
-   kind: PersistentVolumeClaim
-   metadata:
-     name: symphony-merger-example-lib
-   spec:
-     accessModes: ["ReadWriteOnce"]
-     resources:
-       requests:
-         storage: 20Gi
-   ---
-   apiVersion: apps/v1
-   kind: Deployment
-   metadata:
-    name: symphony-merger-example-lib
-    labels: {app: symphony, component: merger, merger: example-lib}
-   spec:
-     replicas: 1
-     strategy:
-       type: Recreate
-     selector:
-       matchLabels: {app: symphony, component: merger, merger: example-lib}
-     template:
-       metadata:
-         labels: {app: symphony, component: merger, merger: example-lib}
-       spec:
-         serviceAccountName: symphony-merger
-         securityContext:
-           runAsNonRoot: true
-           runAsUser: 10001
-           runAsGroup: 10001
-           fsGroup: 10001
-           seccompProfile: {type: RuntimeDefault}
-         containers:
-           - name: merger
-             image: symphony-orchestrator
-             command: ["python", "-m", "symphony.entry.merger"]
-             env:
-               - name: REDIS_URL
-                 value: redis://symphony-redis:6379/0
-               - name: POD_NAMESPACE
-                 valueFrom:
-                   fieldRef: {fieldPath: metadata.namespace}
-               - name: SYMPHONY_MERGER_REPO
-                 value: acme/lib
-               - name: SYMPHONY_MERGER_REVIEWERS
-                 value: "2"
-               - name: SYMPHONY_MERGER_WORKDIR
-                 value: /var/lib/symphony/merger
-               - name: SYMPHONY_SECRET_PROVIDERS
-                 value: symphony-providers
-             envFrom:
-               - secretRef: {name: linear-api-key, optional: true}
-               - secretRef: {name: github-app, optional: true}
-               - secretRef: {name: symphony-slack, optional: true}
-               - secretRef: {name: symphony-discord, optional: true}
-               - secretRef: {name: model-provider, optional: true}
-             ports:
-               - name: health
-                 containerPort: 8081
-             volumeMounts:
-               - name: work
-                 mountPath: /var/lib/symphony/merger
-               - name: workflow
-                 mountPath: /workflow
-                 readOnly: true
-             resources:
-               requests: {cpu: 500m, memory: 1Gi}
-               limits: {cpu: "4", memory: 6Gi}
-             securityContext:
-               allowPrivilegeEscalation: false
-               capabilities: {drop: ["ALL"]}
-             livenessProbe:
-               httpGet: {path: /healthz, port: health}
-               initialDelaySeconds: 30
-               periodSeconds: 30
-               failureThreshold: 3
-         volumes:
-           - name: work
-             persistentVolumeClaim:
-               claimName: symphony-merger-example-lib
-           - name: workflow
-             configMap: {name: symphony-workflow}
-   ```
-4. Check that each merger has its own repository. The output must show `acme/app` and `acme/lib`:
-   ```sh
-   kubectl kustomize overlays/production | grep -A1 SYMPHONY_MERGER_REPO
-   ```
-5. Apply the overlay. From now on, use the overlay instead of `deploy/`:
-   ```sh
-   kubectl apply -k overlays/production
-   ```
-6. Wait for the new merger:
-   ```sh
-   kubectl -n symphony rollout status deploy/symphony-merger-example-lib
-   ```
-7. Check the repositories step. It must show no repository without a merger:
-   ```sh
-   symphony setup --status
-   ```
+### Concurrency
 
-For a third repository, add one more file like `merger-example-lib.yaml` with other unique values. Add it to `resources`, and add its name to the Role patch.
+| Variable | Default | Effect |
+|---|---|---|
+| `SYMPHONY_MERGER_CONCURRENCY` | `8` | Maximum concurrent agent review steps across all repositories. A process-wide semaphore. |
+| `SYMPHONY_MERGER_REVIEWERS` | `2` | Review worker threads per repository. |
+
+Each review step runs one or more agents (reviewer, oracle, arbiter). The semaphore limits how many run at the same time across the entire process. Idle workers do not hold a slot.
+
+### Resources
+
+Scale resources with the concurrency. Each concurrent review can use up to 1 CPU and 2 GiB for the agent and its tools.
+
+| Concurrency | Suggested requests | Suggested limits |
+|---|---|---|
+| 4 | 1 CPU / 2 GiB | 4 CPU / 8 GiB |
+| 8 (default) | 2 CPU / 4 GiB | 8 CPU / 16 GiB |
+| 16 | 4 CPU / 8 GiB | 16 CPU / 32 GiB |
+
+The merger's memory grows with the number of repositories (each keeps a git mirror and worktrees) and with the number of concurrent reviews (each agent session loads the diff and the codebase into memory). Start with the defaults and raise them when reviews get `OOMKilled`.
+
+### Workdir layout
+
+The first/default repository (`kubernetes.default_repo` or the first entry in `SYMPHONY_MERGER_REPO`) uses the existing flat layout (`<workdir>/mirror`, `<workdir>/wt`, `<workdir>/sessions`) so an existing mirror is not re-cloned on upgrade. Every other repository lives under `<workdir>/repos/<owner>__<name>/` with the same subdirectories.
+
+### Legacy: extra repositories via env
+
+`SYMPHONY_MERGER_REPO` accepts a comma-separated list of repositories. Use this to add repositories that do not have a `.symphony/merger.md` file yet, or to pin specific repositories without depending on discovery. The env value is merged with the other sources; duplicates are ignored.
 
 ## 12. Install k3s on a VM
 

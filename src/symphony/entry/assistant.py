@@ -204,6 +204,59 @@ def build(cfg_holder: ConfigHolder, client, namespace: str, env: Mapping[str, st
                     gateway_url(policy()))
     repos = ReadOnlyRepos(workdir, mirrored, server_url=github_server_url(), token_for=token_for,
                           base_branch_for=lambda repo: policy().base_branch(repo), logger=log)
+
+    # Build a skill stager for the assistant: global sources + sources whose repos intersect
+    # the assistant's reachable repositories. Each role gets only its applicable skills.
+    skill_stager = None
+    _assist_sessions = SessionStore(client, namespace)
+
+    def _make_skill_stager():
+        cfg = policy()
+        if not cfg.skill_sources:
+            return None
+        from ..skills import deduplicate, resolve_sources, skills_meta, stage_skills_local
+
+        def _stager(agent_dir: str, role: str, meta: dict) -> None:
+            if not agent_dir:
+                return
+            current_cfg = policy()
+            if not current_cfg.skill_sources:
+                return
+            # The assistant has no single target repo. Apply global sources and sources
+            # whose repos intersect the assistant's reachable repositories.
+            assist_repos = repositories()
+            resolved = resolve_sources(
+                current_cfg.skill_sources, role, None,
+                env, now_ms,
+                cache_client=client, cache_ns=namespace,
+            )
+            # Also include repo-specific sources that match any reachable repo.
+            repo_specific = []
+            for src in current_cfg.skill_sources:
+                if src.repos and src.applies_to(role, None) is False:
+                    # Check intersection with reachable repos.
+                    for ar in assist_repos:
+                        if src.applies_to(role, ar):
+                            repo_specific_resolved = resolve_sources(
+                                [src], role, ar, env, now_ms,
+                                cache_client=client, cache_ns=namespace,
+                            )
+                            repo_specific.extend(repo_specific_resolved)
+                            break
+            all_resolved = resolved + repo_specific
+            skills = deduplicate(all_resolved, None)
+            stage_skills_local(agent_dir, skills)
+            sid = meta.get("sid")
+            if sid and all_resolved:
+                try:
+                    _assist_sessions.update(sid, skills=skills_meta(all_resolved))
+                except Exception:  # noqa: BLE001
+                    pass
+
+        return _stager
+
+    skill_stager = _make_skill_stager()
+
     runner = AssistRunner(
         SessionStore(client, namespace),
         session_root=os.path.join(workdir, "sessions"),
@@ -214,6 +267,7 @@ def build(cfg_holder: ConfigHolder, client, namespace: str, env: Mapping[str, st
         providers=managed_providers(namespace, env),
         mcp=mcp,
         omp_bin=env.get("SYMPHONY_OMP_BIN", "omp"),
+        skill_stager=skill_stager,
     )
 
     def confirm_policy() -> Policy:

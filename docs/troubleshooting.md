@@ -62,7 +62,7 @@ The step errors in `symphony setup --status`:
 | Code | Step | Fix |
 |---|---|---|
 | `github_permissions_missing` | GitHub App | The message lists each missing permission, for example `issues: write` or `organization_projects: write`. Give the App these permissions ([install.md](install.md#5-make-the-github-app)), then accept them in the installation. The check needs `contents: write`, `pull_requests: write`, `issues: write`, `actions: write`, `checks: read`, `statuses: read`, `metadata: read`, and a projects permission with the GitHub tracker |
-| `merger_missing` | Repositories | A repository has no merger that runs. Add one ([install.md](install.md#11-add-a-merger-for-each-repository)). If the merger exists, read its `merger_not_configured` event |
+| `merger_missing` | Repositories | A repository has no merger that runs. The merger serves every repository whose default branch has `.symphony/merger.md` ([install.md](install.md#11-the-merger-serves-every-repository)): merge the policy, then wait for discovery (up to 15 minutes) and the merger's reconcile (one minute). If it still has none, read the merger's `merger_not_configured` event or its build failure for that repository |
 | `model_credential_missing` | Models | Store a key for the provider, or put a host credential in the Secret `model-provider` |
 | `notification_failed` | Notifications | The last test message failed. Fix the channel and run `symphony setup notifications test` |
 | `workflow_unavailable` | Tracker, repositories | The API cannot read the ConfigMap `symphony-workflow`. Apply the manifests (`kubectl apply -k deploy/`) |
@@ -78,7 +78,7 @@ The API verifies each value before it saves it. A refused value is not saved. Th
 | `repo_not_installed` | The GitHub App is not installed on the default repository | Install the App on the repository, or choose another one |
 | `secret_missing` | The Secret does not exist. The API may only patch Secrets that the manifests made | Apply the manifests (`kubectl apply -k deploy/`), then retry |
 | `secret_forbidden` | The API Role cannot patch the Secret | Apply `deploy/rbac.yaml` again. Do not remove the Secret names from the Role |
-| `restart_forbidden` | The value was stored, but the API Role cannot restart a Deployment. Usually a merger that an overlay added is not in the Role | Add the Deployment name to the Role `symphony-api` ([install.md](install.md#11-add-a-merger-for-each-repository)). Restart it by hand now: `kubectl -n symphony rollout restart deployment/<name>` |
+| `restart_forbidden` | The value was stored, but the API Role cannot restart a Deployment. Usually a merger that an overlay added is not in the Role | Add the Deployment name to the Role `symphony-api` ([install.md](install.md#11-the-merger-serves-every-repository)). Restart it by hand now: `kubectl -n symphony rollout restart deployment/<name>` |
 | `restart_failed` | The value was stored, but a restart failed | Restart the named Deployment by hand |
 | `host_env_overrides` | Local mode: the host environment sets this variable, and it would win over `secrets.env` | Unset it in the host environment (or `/etc/symphony/env`) and restart Symphony, or keep the host value |
 | `linear_unauthorized`, `linear_team_not_found`, `linear_project_not_found` | Linear refused the key, or has no such team or project | Check the key and the team key or project slug |

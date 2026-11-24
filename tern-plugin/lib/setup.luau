@@ -36,6 +36,7 @@ local WHY = {
 	notifications = "Optional. Symphony tells your team in Slack or Discord when a ticket needs an answer or a PR is merged.",
 	assistant = "Optional. A bot in Slack and Discord answers questions about the project, researches and plans tickets. It creates a ticket only after a person mapped in notify.users confirms. It uses the bot token from Notifications.",
 	webhooks = "Optional, recommended. Webhooks wake Symphony as soon as a ticket or a PR changes, instead of on the next poll.",
+	skills = "Optional. Central skill sources are instructions fetched from other repositories and staged for agents before each run.",
 }
 
 -- What the API checks a step against, for the spinner.
@@ -46,6 +47,7 @@ local VERIFYING = {
 	notifications = "Sending a test message to the channel…",
 	assistant = "Opening a Socket Mode connection and checking the bot…",
 	webhooks = "Creating the webhook secrets…",
+	skills = "Resolving the skill sources…",
 	test = "Sending a test message to each channel…",
 }
 
@@ -74,6 +76,11 @@ local F = {
 	app_token = { id = "app_token", label = "Slack app token", help = "The app-level token (xapp-…) with connections:write, for Socket Mode. Leave it empty to keep the stored one.", placeholder = "xapp-…", secret = true, optional = true },
 	discord_channels = { id = "discord_channels", label = "Discord channels", help = "Channel IDs where it answers @mentions, separated by spaces. The bot needs the Message Content intent.", placeholder = "123456789012345678", optional = true },
 	assistant_repos = { id = "repos", label = "Repositories", help = "owner/name, separated by spaces. It reads them at their base branch. Empty: every repository Symphony routes to.", placeholder = "acme/app", optional = true },
+	skill_repo = { id = "skill_repo", label = "Source repository", help = "The repository holding the skill directories (owner/name).", placeholder = "acme/agent-skills" },
+	skill_path = { id = "skill_path", label = "Path", help = "Directory in the source repo holding skill sub-directories. Default: skills.", placeholder = "skills", optional = true },
+	skill_ref = { id = "skill_ref", label = "Ref", help = "Branch or tag. Default: the repo's default branch.", placeholder = "main", optional = true },
+	skill_roles = { id = "skill_roles", label = "Roles", help = "Restrict to these roles, separated by commas. Default: every role.", placeholder = "implementer, reviewer", optional = true },
+	skill_for_repos = { id = "skill_for_repos", label = "Target repositories", help = "owner/name, separated by spaces. Default: every repository (global).", placeholder = "acme/app", optional = true },
 }
 
 -- The fields a step shows in its current mode.
@@ -96,6 +103,8 @@ local function fields(state: any, step: string?): { Field }
 		return { if provider == "discord" then F.discord_channel else F.slack_channel, if provider == "discord" then F.discord_token else F.slack_token }
 	elseif step == "assistant" then
 		return { F.slack_channels, F.app_token, F.discord_channels, F.assistant_repos }
+	elseif step == "skills" then
+		return { F.skill_repo, F.skill_path, F.skill_ref, F.skill_roles, F.skill_for_repos }
 	end
 	return {}
 end
@@ -471,6 +480,35 @@ local function command(state: any): ({ string }?, string?, string?)
 		local stdin = if #slack > 0 then token .. "\n" else nil
 		table.insert(args, "--json")
 		return args, stdin, nil
+	elseif step == "skills" then
+		local repo = trim(v("skill_repo"))
+		if repo == "" or not string.match(repo, "^[%w%.%-_]+/[%w%.%-_]+$") then
+			return nil, nil, "Enter the source repository as owner/name."
+		end
+		local args = { "setup", "skills", "--repo", repo }
+		local path = trim(v("skill_path"))
+		if path ~= "" then
+			table.insert(args, "--path")
+			table.insert(args, path)
+		end
+		local ref = trim(v("skill_ref"))
+		if ref ~= "" then
+			table.insert(args, "--ref")
+			table.insert(args, ref)
+		end
+		for r in string.gmatch(trim(v("skill_roles")), "[^,%s]+") do
+			table.insert(args, "--role")
+			table.insert(args, r)
+		end
+		for r in string.gmatch(trim(v("skill_for_repos")), "%S+") do
+			if not string.match(r, "^[%w%.%-_]+/[%w%.%-_]+$") then
+				return nil, nil, "Enter each target repository as owner/name."
+			end
+			table.insert(args, "--for-repo")
+			table.insert(args, r)
+		end
+		table.insert(args, "--json")
+		return args, nil, nil
 	end
 	return nil, nil, nil
 end
@@ -701,6 +739,16 @@ local function detail_rows(s: any): { { Spans } }
 				table.insert(rows, { PROVIDER_WORD[p], spans })
 			end
 		end
+	elseif s.id == "skills" then
+		local sources = if type(d.sources) == "table" then d.sources else {}
+		if #sources == 0 then
+			table.insert(rows, { "Sources", { ui.span("none yet", "muted") } })
+		else
+			for _, src in sources do
+				local scope = if type(src.repos) == "table" and #src.repos > 0 then "for " .. table.concat(src.repos, ", ") else "global"
+				table.insert(rows, { tostring(src.repo or "?"), { ui.span(tostring(src.path or "skills") .. "  ", "mono"), ui.span(scope, "muted") } })
+			end
+		end
 	end
 	return rows
 end
@@ -743,6 +791,10 @@ local function result_nodes(state: any, step: string): { Node }
 	end
 	if step == "assistant" then
 		assistant_rows(r, rows, false)
+	end
+	if step == "skills" then
+		local sources = type(r.sources) == "table" and r.sources or {}
+		table.insert(rows, { "Sources", { ui.span(tostring(#sources), "mono") } })
 	end
 	if type(r.restarted) == "table" and #r.restarted > 0 then
 		table.insert(rows, { "Restarted", { ui.span(names(r.restarted), "mono") } })
@@ -880,6 +932,12 @@ local function detail_card(state: any): Node
 		table.insert(acts, h.action_key(if state.busy == "test" then "Sending…" else "Send a test", "test", "⌃T"))
 	elseif s.id == "repositories" then
 		table.insert(acts, h.action_key("Clear the default", "clear_repo", "⌃D", "muted"))
+	elseif s.id == "skills" then
+		local d = s.detail
+		for _, src in (type(d) == "table" and type(d.sources) == "table" and d.sources) or {} do
+			local repo = tostring(src.repo or "?")
+			table.insert(acts, h.action("Remove " .. repo, "remove_skill=" .. repo, "muted"))
+		end
 	end
 	if #acts > 0 then
 		-- 0.8.3 ignores a card's `end`: the actions open the body, at its right.
@@ -1167,6 +1225,10 @@ local function on_action(state: any, act: string, v: string?, cx: any)
 		open_link(cx, { kind = "open", view = "dashboard" })
 	elseif act == "refresh" then
 		load(state, cx)
+	elseif act == "remove_skill" and v then
+		run(state, cx, "skills", { "setup", "skills", "--repo", v, "--remove", "--json" }, nil, function(data)
+			state.results.skills = type(data) == "table" and data or {}
+		end)
 	end
 	cx:render()
 end

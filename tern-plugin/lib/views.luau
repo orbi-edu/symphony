@@ -13,7 +13,7 @@ local ui = tern.ui
 local V = {}
 
 V.VIEWS = { "dashboard", "sessions", "tickets", "merger", "repositories", "infrastructure", "telemetry", "learnings", "audit", "admin" }
-V.ADMIN_TABS = { "models", "providers", "tokens", "mcp", "omp", "assistant" }
+V.ADMIN_TABS = { "models", "providers", "tokens", "mcp", "skills", "omp", "assistant" }
 V.FILTERS = { "active", "input", "ended", "all" }
 
 -- Stable node keys from ids that may hold ":" or "." (session ids, consumers).
@@ -1765,17 +1765,50 @@ local function assistant(state: any): Node
 	return h.col("assistant", parts, { gap = "md" })
 end
 
+-- ── Admin › Skills ─────────────────────────────────────────────────────────
+
+-- `GET /v1/admin/skills` lists `{sources: [{repo, path, ref, roles, repos, scope, sha, skills, error}]}`.
+function V.skill_sources(state: any): { any }
+	local doc = state.data.skills
+	if type(doc) ~= "table" or type(doc.sources) ~= "table" then
+		return {}
+	end
+	return doc.sources
+end
+
+local function skills(state: any): Node
+	local items = V.skill_sources(state)
+	if #items == 0 then
+		return h.empty("skills", "Skills", "No central skill sources configured. Add one in WORKFLOW.md under skills.sources or with symphony setup skills.", nil)
+	end
+	local rows: { Node } = {}
+	for _, src in items do
+		local repo = tostring(src.repo or "?")
+		local path = tostring(src.path or "skills")
+		local scope = if src.repos then "repos" else "global"
+		local sha = if src.sha then string.sub(tostring(src.sha), 1, 8) else "—"
+		local skill_names = src.skills
+		local count = if type(skill_names) == "table" then #skill_names else 0
+		local err = src.error
+		local tone = if err then "error" elseif count > 0 then "positive" else "muted"
+		local detail_text = if err then tostring(err) else tostring(count) .. " skills"
+		local spans: Spans = { ui.span(repo, "strong"), ui.span("  " .. path .. "  ", "muted"), ui.span(scope, "muted"), ui.span("  " .. sha, "muted"), ui.span("  " .. detail_text, tone) }
+		table.insert(rows, ui.text(spans))
+	end
+	return h.col("skills", rows, { gap = "sm" })
+end
+
 local function admin(state: any): Node
 	if not apimod.can(state.api, "admin") then
 		local role = tostring(state.api.creds and state.api.creds.role or "?")
 		return h.empty("admin", "Administration", "Models, providers, tokens, MCP servers and the assistant's memory need an admin token. Your role: " .. role .. ".", nil)
 	end
-	local labels = { models = "Models", providers = "Providers", tokens = "Tokens", mcp = "MCP", omp = "Team omp", assistant = "Assistant" }
+	local labels = { models = "Models", providers = "Providers", tokens = "Tokens", mcp = "MCP", skills = "Skills", omp = "Team omp", assistant = "Assistant" }
 	local items: { any } = {}
 	for _, t in V.ADMIN_TABS do
 		table.insert(items, { id = t, label = labels[t] })
 	end
-	local body = ({ models = models, providers = providers, tokens = tokens, mcp = mcp, omp = omp, assistant = assistant })[state.admin_tab] or models
+	local body = ({ models = models, providers = providers, tokens = tokens, mcp = mcp, skills = skills, omp = omp, assistant = assistant })[state.admin_tab] or models
 	return h.col("admin", {
 		ui.node("tabs", { key = "sub", variant = "segmented", active = state.admin_tab, items = items }),
 		body(state),

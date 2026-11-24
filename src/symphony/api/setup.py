@@ -64,7 +64,7 @@ from typing import Annotated, Any, Literal
 from urllib.parse import quote
 
 import httpx
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Body, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -87,6 +87,7 @@ STEPS = (
     ("notifications", "Notifications", False),
     ("assistant", "Assistant", False),
     ("webhooks", "Webhooks", False),
+    ("skills", "Skills", False),
 )
 GITHUB_EVENTS = (
     "pull_request", "pull_request_review", "pull_request_review_comment", "issue_comment",
@@ -196,6 +197,7 @@ class SetupService:
             "notifications": self._notifications_step(),
             "assistant": self._assistant_step(values),
             "webhooks": self._webhooks_step(kind),
+            "skills": self._skills_step(values),
         }
         if workflow_error:
             for step in ("tracker", "repositories"):
@@ -481,6 +483,93 @@ class SetupService:
             return self._step("skipped", detail)
         waiting = [s for s, d in detail.items() if d["in_use"] and not (d["secret"] and d["last_delivery_at"])]
         return self._step("todo" if waiting else "done", detail)
+
+    def _skills_step(self, values: dict) -> dict:
+        sources_raw = self._json_value(values, "skills.sources", None)
+        if not sources_raw:
+            return self._step("skipped", {"sources": []})
+        # Parse sources to validate them.
+        from ..skills import SkillSource, resolve_sources
+        sources = []
+        for s in (sources_raw if isinstance(sources_raw, list) else []):
+            if isinstance(s, dict) and isinstance(s.get("repo"), str):
+                sources.append(SkillSource(
+                    repo=s["repo"],
+                    path=s.get("path", "skills"),
+                    ref=s.get("ref"),
+                    roles=tuple(s["roles"]) if s.get("roles") else (),
+                    repos=tuple(s["repos"]) if s.get("repos") else (),
+                ))
+        detail = {
+            "sources": [
+                {
+                    "repo": src.repo,
+                    "path": src.path,
+                    "ref": src.ref,
+                    "roles": list(src.roles) or None,
+                    "repos": list(src.repos) or None,
+                    "scope": "repos" if src.repos else "global",
+                }
+                for src in sources
+            ],
+        }
+        if not sources:
+            return self._step("skipped", detail)
+        # Try to resolve at least one source.
+        import os as _os
+        import time as _time
+        try:
+            resolved = resolve_sources(
+                sources, "implementer", None, _os.environ,
+                lambda: int(_time.time() * 1000),
+                cache_client=self.s.client, cache_ns=self.s.namespace,
+            )
+            has_skills = any(rs.skills for rs in resolved)
+            errors = [rs for rs in resolved if rs.error]
+            if errors:
+                return self._step(
+                    "error", detail,
+                    {"code": "skill_source_failed",
+                     "message": f"{errors[0].source.repo}: {errors[0].error}"},
+                )
+            return self._step("done" if has_skills else "todo", detail)
+        except Exception as exc:
+            return self._step("error", detail,
+                              {"code": "skill_resolve_failed", "message": str(exc)})
+
+    def put_skills(self, caller: Caller, body: dict) -> dict:
+        """Add or remove a skill source through the workflow."""
+        import json as _json
+        repo = body.get("repo")
+        if not repo or not _REPO.fullmatch(repo):
+            raise ApiError(422, "invalid_request", "repo must be owner/name")
+        remove = body.get("remove", False)
+        try:
+            values = self._values()
+        except (ApiError, WorkflowError) as exc:
+            raise ApiError(503, "workflow_unavailable", str(getattr(exc, "message", exc))) from None
+        current = self._json_value(values, "skills.sources", [])
+        if not isinstance(current, list):
+            current = []
+        if remove:
+            updated = [s for s in current if not (isinstance(s, dict) and s.get("repo") == repo)]
+        else:
+            # Add or replace.
+            entry: dict = {"repo": repo}
+            if body.get("path"):
+                entry["path"] = body["path"]
+            if body.get("ref"):
+                entry["ref"] = body["ref"]
+            if body.get("roles"):
+                entry["roles"] = body["roles"]
+            if body.get("repos"):
+                entry["repos"] = body["repos"]
+            updated = [s for s in current if not (isinstance(s, dict) and s.get("repo") == repo)]
+            updated.append(entry)
+        self._publish(caller, {"skills.sources": _json.dumps(updated)})
+        self.invalidate()
+        self._audit(caller, "skills", f"{'remove' if remove else 'add'}:{repo}")
+        return {"sources": updated}
 
     # -- actions ---------------------------------------------------------------------
     def _publish(self, caller: Caller, patch: dict) -> str:
@@ -1028,5 +1117,9 @@ def build_router(control: Control, auth: Authenticator) -> APIRouter:
     def webhooks(request: Request, body: WebhooksBody | None = None, caller: Caller = admin):
         result = setup.post_webhooks(caller, request, bool(body and body.rotate))
         return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+    @router.put("/skills")
+    def skills(body: Annotated[Any, Body()], caller: Caller = admin):
+        return setup.put_skills(caller, body if isinstance(body, dict) else {})
 
     return router

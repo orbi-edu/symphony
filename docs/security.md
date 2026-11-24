@@ -208,7 +208,7 @@ Each identity has a namespaced Role. No ClusterRole exists.
 | `symphony-assistant` | Secrets `symphony-providers` and `symphony-mcp`: get. | assistant |
 | `symphony-gateway` | None. No token is mounted. | gateway |
 
-The API has no `create` or `delete` on any object. Kubernetes cannot limit `create` to a name, so every Secret that the API writes exists before setup runs. The `get` on an integration Secret serves only `has` (is a name set); the API never returns a value. A merger Deployment that an overlay adds must also be added to the named Deployments of the Role `symphony-api` ([install.md](install.md#11-add-a-merger-for-each-repository)). Otherwise the restart gives `restart_forbidden`.
+The API has no `create` or `delete` on any object. Kubernetes cannot limit `create` to a name, so every Secret that the API writes exists before setup runs. The `get` on an integration Secret serves only `has` (is a name set); the API never returns a value. One merger Deployment serves every repository ([install.md](install.md#11-the-merger-serves-every-repository)); a second merger Deployment that an overlay adds must also be added to the named Deployments of the Role `symphony-api`. Otherwise the restart gives `restart_forbidden`.
 
 ## Pod security
 

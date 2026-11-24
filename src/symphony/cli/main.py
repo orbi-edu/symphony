@@ -741,6 +741,24 @@ def cmd_setup_assistant(args) -> int:
     return 0
 
 
+def cmd_setup_skills(args) -> int:
+    body: dict = {"repo": args.repo}
+    if args.remove:
+        body["remove"] = True
+    else:
+        if args.path:
+            body["path"] = args.path
+        if args.ref:
+            body["ref"] = args.ref
+        if args.role:
+            body["roles"] = args.role
+        if args.for_repo:
+            body["repos"] = args.for_repo
+    doc = setup.put_skills(_api(), body)
+    _emit(args, doc, lambda: setup.skills_text(doc, _style()))
+    return 0
+
+
 # -- raw API for the Tern plugin -------------------------------------------------
 
 def cmd_api(args) -> int:
@@ -1164,6 +1182,20 @@ def build_parser() -> argparse.ArgumentParser:
                    help="a Discord channel ID where it answers @mentions (repeat)")
     p.add_argument("--repo", action="append", metavar="OWNER/NAME",
                    help="a repository it may read (repeat; default: all)")
+    p = add("skills", cmd_setup_skills,
+            "add or remove a central skill source", steps)
+    p.add_argument("--repo", required=True, metavar="OWNER/NAME",
+                   help="the source repository (owner/name)")
+    p.add_argument("--path", default=None, metavar="DIR",
+                   help="directory in the source repo (default: skills)")
+    p.add_argument("--ref", default=None, metavar="REF",
+                   help="branch or tag (default: the repo's default branch)")
+    p.add_argument("--role", action="append", metavar="ROLE",
+                   help="restrict to this role (repeat; default: all)")
+    p.add_argument("--for-repo", action="append", metavar="OWNER/NAME",
+                   help="restrict to this target repository (repeat; default: global)")
+    p.add_argument("--remove", action="store_true",
+                   help="remove the source instead of adding it")
     return parser
 
 
