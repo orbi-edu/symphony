@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import itertools
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 
 from ..repos import PREFIX as REPO_LABEL_PREFIX
@@ -35,6 +35,7 @@ class MemoryTracker:
         # Defaults to a repository so issues built without a `repo:` label stay
         # dispatchable — otherwise every test fixture would need one.
         default_repo: str | None = "memory/repo",
+        on_comment: Callable[[str], None] | None = None,
     ):
         self.active_states = list(active_states)
         self.terminal_states = list(terminal_states)
@@ -51,6 +52,7 @@ class MemoryTracker:
         self.labels: set[str] = set()  # labels the board has, beyond those on issues
         self.parents: dict[str, str] = {}  # child id -> parent id
         self._seq = itertools.count(1)
+        self._on_comment = on_comment  # like Linear's: told the id of every comment written
 
     # -- test helpers ----------------------------------------------------
     def add_issue(self, issue_id: str, identifier: str, state: str = "Todo", **kw) -> Issue:
@@ -150,6 +152,8 @@ class MemoryTracker:
         comment_id = f"comment-{next(self._seq)}"
         entry = {"id": comment_id, "body": body, **({"parent": parent} if parent else {})}
         self.comments.setdefault(found.id, []).append(entry)
+        if self._on_comment is not None:
+            self._on_comment(comment_id)
         return comment_id
 
     def person(self, issue: str, hint: str | None = None) -> dict | None:

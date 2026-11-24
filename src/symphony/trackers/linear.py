@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 import re
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 import httpx
 
@@ -225,6 +225,7 @@ class LinearTracker:
         client: httpx.Client | None = None,
         default_repo: str | None = None,
         team_key: str | None = None,
+        on_comment: Callable[[str], None] | None = None,
     ) -> None:
         self.api_key = api_key
         self.project_slug = project_slug
@@ -242,6 +243,9 @@ class LinearTracker:
         self.assignee = assignee
         self.default_repo = default_repo
         self._client = client or httpx.Client(timeout=15.0)
+        # Told the id of every comment this adapter writes, the agent's too: Symphony's own
+        # comments are never a person's answer (`questions.record_own`).
+        self._on_comment = on_comment
 
     # -- transport --------------------------------------------------------
     def _post(self, query: str, variables: dict) -> dict:
@@ -409,7 +413,18 @@ class LinearTracker:
     def execute_agent_tool(self, name: str, args: dict) -> dict:
         if name != "linear_graphql":
             raise ValueError(f"unknown tool {name!r}")
-        return self._post(args["query"], args.get("variables") or {})
+        query = args["query"]
+        data = self._post(query, args.get("variables") or {})
+        if "mutation" in query and "comment" in query:  # the agent wrote a comment
+            for payload in data.values():
+                found = payload.get("comment") if isinstance(payload, dict) else None
+                if isinstance(found, dict) and isinstance(found.get("id"), str):
+                    self._own(found["id"])
+        return data
+
+    def _own(self, comment_id: str) -> None:
+        if self._on_comment is not None:
+            self._on_comment(comment_id)
 
     def secret_environment_names(self) -> list[str]:
         return ["LINEAR_API_KEY"]
@@ -459,7 +474,9 @@ class LinearTracker:
         payload = out.get("commentCreate") or {}
         if not payload.get("success"):
             raise RuntimeError("Linear did not create the comment")
-        return payload["comment"]["id"]
+        comment_id = payload["comment"]["id"]
+        self._own(comment_id)
+        return comment_id
 
     def person(self, issue: str, hint: str | None = None) -> dict | None:
         # Linear turns a profile URL in a comment into a mention of that person.

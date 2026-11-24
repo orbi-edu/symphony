@@ -521,7 +521,7 @@ def post_question(
     if buttons:
         blocks.append({"type": "actions", "elements": buttons})
     blocks.append({"type": "context", "elements": [
-        {"type": "mrkdwn", "text": "Or answer in your own words in this thread."}]})
+        {"type": "mrkdwn", "text": "Answer with a button, in this thread, on the ticket or in a comment on the PR."}]})
     payload: dict = {"channel": channel, "text": message, "blocks": blocks, "unfurl_links": False}
     if thread:
         payload.update(thread_ts=thread["ts"], reply_broadcast=True)

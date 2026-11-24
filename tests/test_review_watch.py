@@ -11,7 +11,8 @@ import datetime as dt
 from tests.test_dispatch import FakeEffects
 from tests.test_dispatch import cfg as base_cfg
 
-from symphony import prwatch, state
+from symphony import notify, prwatch, questions, state
+from symphony.kv import RedisKV
 from symphony.orchestrator import PARKED, tick
 
 HUMAN = {"type": "User"}
