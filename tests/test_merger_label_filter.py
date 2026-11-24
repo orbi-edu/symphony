@@ -382,9 +382,9 @@ def test_workflow_api_rejects_invalid_filter_values_with_a_diagnostic(patch, mes
 # -- status payload ----------------------------------------------------------
 
 def test_snapshot_includes_label_filter(redis_client):
-    store = MergerStore(redis_client, NS, "acme/app")
-    store.label_filter = {"active": True, "labels": ["symphony"]}
-    snap = store.snapshot()
+    """The API serves the status from its own store: the filter the merger set reaches it."""
+    MergerStore(redis_client, NS, "acme/app").label_filter = {"active": True, "labels": ["symphony"]}
+    snap = MergerStore(redis_client, NS, "acme/app").snapshot()
     assert snap["label_filter"] == {"active": True, "labels": ["symphony"]}
 
 

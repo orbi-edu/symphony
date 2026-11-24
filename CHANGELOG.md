@@ -33,6 +33,16 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   answers is not answered again by the review watch. The answer note says `on the pull
   request`, and the question on the ticket and in Slack says where to answer.
 
+## [0.2.18] - 2026-11-24
+
+### Fixed
+
+- Two skill sources from one repository (different paths) shared one cache entry, so every
+  such source delivered the skills of whichever was fetched first. The cache key now holds
+  the path.
+- `GET /v1/merger` never carried `label_filter`: the merger kept it in memory and the API
+  reads Redis. It is now stored with the repository's merger state.
+
 ## [0.2.17] - 2026-11-24
 
 ### Fixed
