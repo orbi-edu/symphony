@@ -28,17 +28,33 @@ from .workspace import kill_agent_processes, run_hook, sandbox_name
 _LOGGED_ERROR = re.compile(r"\berror='((?:[^'\\]|\\.)*)'")
 
 
+_STOP_UNCONFIRMED = "Agent generation termination could not be confirmed"
+# The stop script's own exit codes, and the ones `PodSandbox.exec_script` adds around it:
+# -1 for an exec that failed or wedged, 124 for `timeout`'s TERM, 137 for its `-k` KILL.
+_STOP_CAUSES = {-1: "exec failed", 3: "unreadable", 4: "survivors", 124: "timeout", 137: "timeout"}
+_STOP_DETAIL_CHARS = 200
+
+
 def _generation_stop_script(issue_id: str, seq: int) -> str:
     # Workspaces are Linux containers. Environment markers are set by run_issue for
     # the engine and inherited by its children; a delayed request cannot match a new seq.
+    # A failure prints one line with its cause: pids and process states only, never
+    # environment content (it holds credentials).
     return (
         f"wanted_issue={shlex.quote('SYMPHONY_ISSUE_ID=' + issue_id)}\n"
         f"wanted_seq={shlex.quote('SYMPHONY_DISPATCH_SEQ=' + str(seq))}\n"
         r"""
-[ -d /proc/self ] || exit 1
+[ -d /proc/self ] || { echo 'no procfs'; exit 1; }
+# generation_pids runs in a command substitution: its cause line goes to fd 3, the output.
+exec 3>&1
+me=$(id -u)
 generation_pids() {
+    # A process of another user is unreadable by permission; one of our own user is the
+    # likelier suspect, so it is the one named when there is one.
+    unreadable=
     for path in /proc/[0-9]*/environ; do
-        [ -d "${path%/environ}" ] || continue
+        dir=${path%/environ}
+        [ -d "$dir" ] || continue
         if environment=$(tr '\000' '\n' < "$path" 2>/dev/null); then
             :
         else
@@ -46,42 +62,60 @@ generation_pids() {
             # nothing, and its environ cannot be read (ESRCH). State is read only after the
             # failure: any process may exit mid-scan, and a zombie never comes back to life.
             # A status that can no longer be read is proof only once the process is gone.
-            [ -d "${path%/environ}" ] || continue
-            if ! state=$(sed -n 's/^State:[[:space:]]*//p' "${path%/environ}/status" 2>/dev/null); then
-                [ -d "${path%/environ}" ] || continue
-                return 1
+            [ -d "$dir" ] || continue
+            if ! state=$(sed -n 's/^State:[[:space:]]*//p' "$dir/status" 2>/dev/null); then
+                [ -d "$dir" ] || continue
+                state='?'
             fi
             case $state in
                 Z*|X*) continue ;;
             esac
             # An unreadable live process is not proof.
-            return 1
+            line="unreadable pid=${dir#/proc/} state=${state%% *}"
+            uid=$(sed -n 's/^Uid:[[:space:]]*\([0-9]*\).*/\1/p' "$dir/status" 2>/dev/null)
+            if [ "$uid" = "$me" ]; then
+                printf '%s\n' "$line" >&3
+                return 1
+            fi
+            [ -n "$unreadable" ] || unreadable=$line
+            continue
         fi
         if printf '%s\n' "$environment" | grep -Fqx -- "$wanted_issue" &&
            printf '%s\n' "$environment" | grep -Fqx -- "$wanted_seq"; then
-            pid=${path#/proc/}
-            printf '%s\n' "${pid%/environ}"
+            printf '%s\n' "${dir#/proc/}"
         fi
     done
+    [ -z "$unreadable" ] || { printf '%s\n' "$unreadable" >&3; return 1; }
 }
 for round in 1 2 3 4 5; do
-    pids=$(generation_pids) || exit 1
+    pids=$(generation_pids) || exit 3
     [ -n "$pids" ] || exit 0
     signal=TERM
     [ "$round" != 5 ] || signal=KILL
     kill -"$signal" $pids 2>/dev/null || true
     sleep 1
 done
-pids=$(generation_pids) || exit 1
-[ -z "$pids" ]
+pids=$(generation_pids) || exit 3
+[ -z "$pids" ] || { printf 'survivors pids=%s\n' "$(echo $pids)"; exit 4; }
 """
     )
 
 
 def kill_agent_generation(sandbox, issue_id: str, seq: int) -> None:
-    code, _ = sandbox.exec_script(_generation_stop_script(issue_id, seq), timeout_s=15)
-    if code != 0:
-        raise RuntimeError("Agent generation termination could not be confirmed")
+    """Raises `RuntimeError` naming the cause when the stop cannot be confirmed."""
+    code, output = sandbox.exec_script(_generation_stop_script(issue_id, seq), timeout_s=15)
+    if code == 0:
+        return
+    cause = _STOP_CAUSES.get(code, f"exit {code}")
+    # The cause line, else the first one: a login shell may print before the script.
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    detail = next((line for line in lines if line.startswith(cause)), lines[0] if lines else "")
+    detail = detail[:_STOP_DETAIL_CHARS]
+    if detail.startswith(cause):
+        cause = detail
+    elif detail:
+        cause = f"{cause}: {detail}"
+    raise RuntimeError(f"{_STOP_UNCONFIRMED}: {cause}")
 
 
 def _pod_disruption(pod) -> dict:

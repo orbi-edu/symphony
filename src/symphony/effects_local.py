@@ -472,7 +472,9 @@ class LocalEffects:
                 log.warning("engine_terminate_failed", call_id=record.call_id, error=str(exc))
         if pgid is not None:
             if not stop_process_group(pgid):
-                raise RuntimeError("Agent generation termination could not be confirmed")
+                raise RuntimeError(
+                    f"Agent generation termination could not be confirmed: survivors pgid={pgid}"
+                )
             pidfile = self._pgid_file(record.sandbox_name)
             try:
                 if pidfile.read_text().strip() == str(pgid):

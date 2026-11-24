@@ -373,6 +373,7 @@ def test_inflight_guard_cannot_reacquire_between_check_and_renewal(commands, mon
 )
 def test_unreadable_live_generation_cannot_confirm_termination():
     issue_id = uuid.uuid4().hex
+    secret = "dummy-secret-" + uuid.uuid4().hex
     process = subprocess.Popen(
         [
             sys.executable,
@@ -380,7 +381,8 @@ def test_unreadable_live_generation_cannot_confirm_termination():
             "import ctypes,time; assert ctypes.CDLL(None).prctl(4, 0, 0, 0, 0) == 0; "
             "print('ready', flush=True); time.sleep(30)",
         ],
-        env={**os.environ, "SYMPHONY_ISSUE_ID": issue_id, "SYMPHONY_DISPATCH_SEQ": "1"},
+        env={**os.environ, "SYMPHONY_ISSUE_ID": issue_id, "SYMPHONY_DISPATCH_SEQ": "1",
+             "API_KEY": secret},
         stdout=subprocess.PIPE,
         text=True,
     )
@@ -394,12 +396,24 @@ def test_unreadable_live_generation_cannot_confirm_termination():
 
     try:
         assert process.stdout.readline().strip() == "ready"
-        with pytest.raises(RuntimeError, match="termination could not be confirmed"):
+        with pytest.raises(RuntimeError, match="termination could not be confirmed") as raised:
             kill_agent_generation(LocalSandbox(), issue_id, 1)
+        assert f"unreadable pid={process.pid} state=" in str(raised.value)
+        assert secret not in str(raised.value)
         assert process.poll() is None
     finally:
         process.terminate()
         process.wait(timeout=5)
+
+
+def test_failed_exec_names_the_cause_of_an_unconfirmed_stop():
+    class DeadPodSandbox:
+        def exec_script(self, script, timeout_s=None):
+            return -1, "exec failed: (404)\nReason: Not Found\n"
+
+    with pytest.raises(RuntimeError, match="termination could not be confirmed") as raised:
+        kill_agent_generation(DeadPodSandbox(), uuid.uuid4().hex, 1)
+    assert "exec failed: (404)" in str(raised.value)
 
 
 def _every_process_environment_readable() -> bool:
