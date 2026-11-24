@@ -92,6 +92,7 @@ CORE_KEPT = {
     "retro:": "retrospective tokens; losing one repeats a retrospective and its learnings PR",
     "lessons:usage_age": "learning decay counters; the tracker cannot rebuild them",
     "totals:tokens": "the token ledger totals; the tracker cannot rebuild them",
+    "answered:": "PR comments that answered a question; losing one lets the review watch act on it again",
 }
 CORE_SKIPPED = {
     "issue:": "tracking entries; reconcile rebuilds them from the tracker",

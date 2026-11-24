@@ -29,6 +29,7 @@ Restored, because the tracker cannot rebuild them:
 | `retro:*` | Retrospective tokens. Without one, the nightly sweep repeats a retrospective and its learnings pull request |
 | `lessons:usage_age` | The decay counters of learnings |
 | `totals:tokens` | The token ledger totals |
+| `answered:*` | Pull request comments that answered a question. Without one, the review watch acts again on a comment that already answered |
 
 Not in the backup:
 
