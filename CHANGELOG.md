@@ -7,6 +7,16 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `PUT /v1/setup/skills` (`symphony setup skills`, Tern Setup) published the change but
+  answered 422 `invalid_audit`, because `setup.skills` was not an audited action. Sources
+  are now keyed by repository and path, so one repository can hold several (`global`,
+  `artifacts`); `--remove` with `--path` removes only that source.
+- `GET /v1/admin/skills` (Admin › Skills) always listed no source: it parsed a workflow
+  field the read did not return. A source limited to some roles now resolves with one of
+  them, so its skills show.
+
 ## [0.2.16] - 2026-11-24
 
 ### Changed

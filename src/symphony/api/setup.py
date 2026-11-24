@@ -551,20 +551,26 @@ class SetupService:
         current = self._json_value(values, "skills.sources", [])
         if not isinstance(current, list):
             current = []
+        path = (body.get("path") or "skills").strip().rstrip("/")
+
+        def same(s, *, any_path: bool = False) -> bool:
+            """A source is identified by its repository and path (one repo may hold several)."""
+            return (isinstance(s, dict) and s.get("repo") == repo
+                    and (any_path or (s.get("path") or "skills").rstrip("/") == path))
+
         if remove:
-            updated = [s for s in current if not (isinstance(s, dict) and s.get("repo") == repo)]
+            # Without `path`, every source from the repository goes; with it, only that one.
+            updated = [s for s in current if not same(s, any_path=not body.get("path"))]
         else:
-            # Add or replace.
-            entry: dict = {"repo": repo}
-            if body.get("path"):
-                entry["path"] = body["path"]
+            # Add, or replace the source with the same repository and path.
+            entry: dict = {"repo": repo, "path": path}
             if body.get("ref"):
                 entry["ref"] = body["ref"]
             if body.get("roles"):
                 entry["roles"] = body["roles"]
             if body.get("repos"):
                 entry["repos"] = body["repos"]
-            updated = [s for s in current if not (isinstance(s, dict) and s.get("repo") == repo)]
+            updated = [s for s in current if not same(s)]
             updated.append(entry)
         self._publish(caller, {"skills.sources": _json.dumps(updated)})
         self.invalidate()

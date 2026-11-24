@@ -134,7 +134,7 @@ The first-run setup (`/v1/setup/*`) writes the integration credentials into name
 - Only an `admin` token can write. Any token can read the checklist, which shows only whether a value is set.
 - The API verifies each value against the real service before it saves it. A value that fails is not saved.
 - The values are write-only. No response, log, audit entry or command line contains them. Request validation errors name the fields only.
-- The audit log records each write as `setup.<step>` (`setup.tracker`, `setup.github_app`, `setup.repositories`, `setup.notifications`, `setup.webhooks`), with a target that holds no secret.
+- The audit log records each write as `setup.<step>` (`setup.tracker`, `setup.github_app`, `setup.repositories`, `setup.notifications`, `setup.webhooks`, `setup.assistant`, `setup.skills`), with a target that holds no secret.
 - Redis holds no integration credential. The webhook secrets that `POST /v1/setup/webhooks` makes are the only values returned, once, with `Cache-Control: no-store`, the same exception as a new API token.
 - The vendor-check cache (30 s) is in process memory, under a digest of the inputs.
 - In local mode, the values go to `<root>/secrets.env` (mode `0600`).

@@ -743,11 +743,11 @@ def cmd_setup_assistant(args) -> int:
 
 def cmd_setup_skills(args) -> int:
     body: dict = {"repo": args.repo}
+    if args.path:
+        body["path"] = args.path
     if args.remove:
         body["remove"] = True
     else:
-        if args.path:
-            body["path"] = args.path
         if args.ref:
             body["ref"] = args.ref
         if args.role:
@@ -1195,7 +1195,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--for-repo", action="append", metavar="OWNER/NAME",
                    help="restrict to this target repository (repeat; default: global)")
     p.add_argument("--remove", action="store_true",
-                   help="remove the source instead of adding it")
+                   help="remove the source with this --path (every source of the repo "
+                        "without --path) instead of adding it")
     return parser
 
 

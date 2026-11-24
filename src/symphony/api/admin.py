@@ -303,23 +303,22 @@ def build_router(control: Control, auth: Authenticator) -> APIRouter:
     @router.get("/skills")
     def list_skills(_: Caller = admin):
         """Configured skill sources and their current resolution status."""
-        from ..admin_workflow import WorkflowError as WFErr
-        from ..config import ConfigHolder
+        from ..config import ConfigError as SourceError
+        from ..config import _skills
         from ..skills import resolve_sources
-        holder = ConfigHolder()
+        if s.workflow is None:
+            return {"sources": []}
+        raw = s.workflow.read()["values"].get("skills.sources") or "[]"
         try:
-            if s.workflow is not None:
-                doc = s.workflow.read()
-                holder.update(doc.get("text", ""))
-        except (WFErr, Exception):
-            pass
-        cfg = holder.config
-        if cfg is None or not cfg.skill_sources:
+            configured = _skills({"skills": {"sources": json.loads(raw)}}).get("skill_sources", ())
+        except (ValueError, SourceError) as exc:
+            raise invalid(f"skills.sources in the workflow is invalid: {exc}") from None
+        if not configured:
             return {"sources": []}
         import os
         import time
         sources_out = []
-        for src in cfg.skill_sources:
+        for src in configured:
             entry: dict = {
                 "repo": src.repo,
                 "path": src.path,
@@ -333,7 +332,7 @@ def build_router(control: Control, auth: Authenticator) -> APIRouter:
             }
             try:
                 resolved = resolve_sources(
-                    [src], "implementer", None, os.environ,
+                    [src], src.roles[0] if src.roles else "implementer", None, os.environ,
                     lambda: int(time.time() * 1000),
                     cache_client=s.client, cache_ns=s.namespace,
                 )
