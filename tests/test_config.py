@@ -256,6 +256,20 @@ def test_notify_users_map_github_logins_case_insensitively_per_service():
             parse_workflow(f"---\ntracker: {{kind: memory}}\nnotify: {{{bad}}}\n---\nx")
 
 
+def test_direct_messages_default_on_for_every_event_and_can_be_limited():
+    cfg = parse_workflow("---\ntracker: {kind: memory}\n---\nx")
+    assert (cfg.notify_direct_messages, cfg.notify_direct_events) == (True, None)
+    cfg = parse_workflow(
+        "---\ntracker: {kind: memory}\nnotify:\n  direct_messages: false\n"
+        "  direct_events: [input_requested, back_to_author]\n---\nx"
+    )
+    assert cfg.notify_direct_messages is False
+    assert cfg.notify_direct_events == ("input_requested", "back_to_author")
+    for bad in ("direct_messages: 'no'", "direct_events: [merged]", "direct_events: back_to_author"):
+        with pytest.raises(ConfigError):
+            parse_workflow(f"---\ntracker: {{kind: memory}}\nnotify: {{{bad}}}\n---\nx")
+
+
 def test_input_timeout_and_investigation_label_are_read():
     cfg = parse_workflow(
         "---\ntracker: {kind: memory, investigation_label: Spike}\n"

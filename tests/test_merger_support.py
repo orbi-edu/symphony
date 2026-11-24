@@ -522,6 +522,10 @@ class FakeTracker:
         self.created: list[dict] = []
         self.states: dict[str, dict] = {}
         self.attached: dict[str, list[dict]] = {}
+        self.assignees: dict[str, dict] = {}
+
+    def assignee(self, identifier: str) -> dict | None:
+        return self.assignees.get(identifier)
 
     def identifier_in(self, text: str, repo: str | None = None) -> str | None:
         m = IDENTIFIER.search(text or "")
@@ -567,6 +571,12 @@ def make_merger(redis_client, tmp_path, world: World, gh: FakeGitHub, agents: Sc
     git.ensure()
     git.fetch()
     notes = notes if notes is not None else []
+    direct: list[tuple[str, list[str]]] = []  # (event, `direct_to`) of each notification
+
+    def notify_post(event, text, link=None, github_logins=(), direct_to=()):
+        notes.append((event, text, link, list(github_logins)))
+        direct.append((event, list(direct_to)))
+
     m = Merger(
         store=MergerStore(redis_client, NS, gh.repo, now_ms=clock),
         gh=gh,
@@ -577,13 +587,14 @@ def make_merger(redis_client, tmp_path, world: World, gh: FakeGitHub, agents: Sc
         repo=gh.repo,
         states=STATES,
         tracker=tracker if tracker is not None else FakeTracker(),
-        notify_post=lambda event, text, link=None, github_logins=(): notes.append((event, text, link, list(github_logins))),
+        notify_post=notify_post,
         pause=pause or (lambda s: gh.tick()),
         clock=clock,
         ticket_labels=("symphony",),
         label_filter_active=False,  # existing tests run without the filter
     )
     m.notes = notes
+    m.direct = direct
     return m
 
 

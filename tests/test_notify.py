@@ -252,24 +252,169 @@ def test_multiple_logins_only_mapped_appear(bot):
     assert "charlie" not in text or "<@" not in text.split("charlie")[0][-10:]
 
 
-def test_a_question_has_a_button_per_option_mentions_by_email_and_can_be_edited(bot):
+QUESTION = ("Keep the old export layout?\n\nThe new one moves the button below the table.\n"
+            "1. Desktop too?\n2. Mobile too?")
+
+
+def test_a_question_reads_as_a_message_of_its_own_and_its_edit_keeps_the_header(bot):
     notify.configure({"slack": {"victor@example.com": "U7"}})
-    where = notify.post_question("ENG-1 needs an answer: Which?", qid="q1",
-                                 options=["Keep", "x" * 100], mention_keys=["victor@example.com"])
+    bot.responses.append((200, {"ok": True, "channel": "C42", "ts": "1.0"}, 0.0))
+    where = notify.post_question(
+        QUESTION, qid="q1", options=["Keep", "Change"], ticket="ENG-12",
+        title="Redesign the export page " + "x" * 100, decider="Victor",
+        mention_keys=["victor@example.com"], link="https://example.com/ENG-12")
     body = bot.requests[0]["body"]
+    # A divider first: two questions in a row (Slack collapses the sender) stay apart.
+    assert [b["type"] for b in body["blocks"]] == ["divider", "section", "section", "actions",
+                                                   "context"]
+    header = body["blocks"][1]["text"]["text"]
+    title = ("Redesign the export page " + "x" * 100)[:79] + "…"
+    assert header == (":raising_hand: *Agent is waiting for an answer* · "
+                      f"<https://example.com/ENG-12|ENG-12 · {title}> · <@U7>")
+    # The question as written, paragraphs and lines kept; the options are the buttons only.
+    assert body["blocks"][2]["text"]["text"] == QUESTION
+    buttons = body["blocks"][3]["elements"]
+    assert [(b["action_id"], b["text"]["text"]) for b in buttons] == [
+        ("ask:q1:0", "1. Keep"), ("ask:q1:1", "2. Change")]
+    [footer] = body["blocks"][4]["elements"]
+    assert "\n" not in footer["text"]
+    assert body["text"] == f"{header}\n{QUESTION}"
+    assert where == {"channel": "C42", "ts": "1.0", "header": header}
+    assert notify.edit_question(where, ":white_check_mark: *Answered*", "Victor, in Slack: Keep",
+                                question=QUESTION)
+    edit = bot.requests[1]
+    assert edit["path"] == "/api/chat.update"
+    blocks = edit["body"]["blocks"]
+    assert [b["type"] for b in blocks] == ["divider", "section", "section", "section"]
+    assert [b["text"]["text"] for b in blocks[1:]] == [
+        header, QUESTION, ":white_check_mark: *Answered*\nVictor, in Slack: Keep"]
+    assert edit["body"]["text"].startswith(header)
+
+
+def test_options_a_button_cuts_are_listed_once_under_the_question(bot):
+    where = notify.post_question("Which <one>?", qid="q1", options=["Keep", "x" * 100],
+                                 ticket="ENG-12", decider="Victor & co")
     assert where is None  # Slack's answer named no message: nothing to come back to
-    assert "<@U7>" in body["text"]
+    body = bot.requests[0]["body"]
+    header, question = (b["text"]["text"] for b in body["blocks"][1:3])
+    assert header == ":raising_hand: *Agent is waiting for an answer* · ENG-12 · Victor &amp; co"
+    assert question == "Which &lt;one&gt;?\n\n1. Keep\n2. " + "x" * 100
     [buttons] = [b["elements"] for b in body["blocks"] if b["type"] == "actions"]
-    assert [b["action_id"] for b in buttons] == ["ask:q1:0", "ask:q1:1"]
     assert buttons[0]["text"]["text"] == "1. Keep" and len(buttons[1]["text"]["text"]) == 75
     assert notify.parse_question_action("ask:q1:1") == ("q1", 1)
+
+
+def test_a_reminder_replies_in_the_thread_and_the_notification_text_is_short(bot):
     bot.responses.append((200, {"ok": True, "channel": "C42", "ts": "5.0"}, 0.0))
-    again = notify.post_question("reminder", qid="q1", options=["Keep"],
-                                 thread={"channel": "C42", "ts": "5.0"})
-    assert again == {"channel": "C42", "ts": "5.0"}
-    assert bot.requests[1]["body"]["thread_ts"] == "5.0"
-    assert bot.requests[1]["body"]["reply_broadcast"] is True
+    long = "Which one? " + "y" * 300
+    again = notify.post_question(long, qid="q1", options=["Keep"], ticket="ENG-12",
+                                 heading="Still waiting for an answer (2 h)",
+                                 thread={"channel": "C42", "ts": "1.0", "header": "h"})
+    body = bot.requests[0]["body"]
+    assert (body["thread_ts"], body["reply_broadcast"]) == ("1.0", True)
+    assert again["header"].startswith(":raising_hand: *Still waiting for an answer (2 h)* · ENG-12")
+    assert body["text"] == f"{again['header']}\n{long[:149]}…"
     assert notify.edit_question(again, ":white_check_mark: *Answered*", "<@here> took 1")
-    edit = bot.requests[2]
-    assert edit["path"] == "/api/chat.update" and "&lt;@here&gt; took 1" in edit["body"]["text"]
-    assert "blocks" in edit["body"] and all(b["type"] != "actions" for b in edit["body"]["blocks"])
+    edit = bot.requests[1]["body"]
+    assert edit["blocks"][-1]["text"]["text"].endswith("&lt;@here&gt; took 1")
+    assert all(b["type"] != "actions" for b in edit["blocks"])
+
+
+# Direct messages -------------------------------------------------------------------------
+
+
+def _posted(fake) -> list[tuple[str, str]]:
+    return [(r["body"]["channel"], r["body"]["text"]) for r in fake.requests
+            if r["path"] == "/api/chat.postMessage"]
+
+
+def test_the_assignee_gets_one_dm_besides_the_channel_message(bot):
+    # Two keys (e-mail and name, as Linear gives them) name one person: one DM.
+    notify.configure({"slack": {"alice@example.com": "U1", "Alice": "U1", "bob": "U2"}})
+    assert notify.post("back_to_author", "PR #12 went back", link="https://example.com/pr/12",
+                       github_logins=["bob"], direct_to=["alice@example.com", "Alice"])
+    [(channel, text), (dm, dm_text)] = _posted(bot)
+    assert channel == "C42" and "<@U2>" in text
+    assert dm == "U1"  # chat.postMessage with a member ID posts in the bot's DM
+    assert dm_text == (":leftwards_arrow_with_hook: *PR returned to its author*\n"
+                       "PR #12 went back\n<https://example.com/pr/12|Open>")
+
+
+def test_an_unmapped_assignee_gets_no_dm(bot):
+    notify.configure({"slack": {"bob": "U2"}})
+    assert notify.post("retries_exhausted", "ENG-1 stopped", direct_to=["carol@example.com"])
+    assert [c for c, _ in _posted(bot)] == ["C42"]
+
+
+def test_direct_messages_off_keeps_the_channel_only(bot, monkeypatch, tmp_path):
+    notify.configure({"slack": {"alice": "U1"}}, direct_messages=False)
+    assert notify.post("not_queued", "ENG-1 is not queued", direct_to=["alice"])
+    assert [c for c, _ in _posted(bot)] == ["C42"]
+    # The same switch, read from the mounted WORKFLOW.md.
+    notify.reset()
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_MOUNT", str(tmp_path))
+    (tmp_path / "WORKFLOW.md").write_text(
+        "---\nnotify:\n  users: {slack: {alice: U1}}\n  direct_messages: false\n---\n")
+    assert notify.post("not_queued", "ENG-2 is not queued", direct_to=["alice"])
+    assert [c for c, _ in _posted(bot)] == ["C42", "C42"]
+
+
+def test_direct_events_limit_which_events_are_sent_as_dms(bot, monkeypatch, tmp_path):
+    monkeypatch.setenv("SYMPHONY_WORKFLOW_MOUNT", str(tmp_path))
+    (tmp_path / "WORKFLOW.md").write_text(
+        "---\nnotify:\n  users: {slack: {alice: U1}}\n  direct_events: [back_to_author]\n---\n")
+    assert notify.post("run_error", "boom", direct_to=["alice"])
+    assert notify.post("back_to_author", "PR #3", direct_to=["alice"])
+    assert [c for c, _ in _posted(bot)] == ["C42", "C42", "U1"]
+
+
+def test_dm_dedup_is_per_destination_and_a_failed_dm_never_raises(bot):
+    notify.configure({"slack": {"alice": "U1", "bob": "U2"}})
+    assert notify.post("main_red", "CI failed", direct_to=["alice"])
+    assert notify.post("main_red", "CI failed", direct_to=["alice", "bob"])  # only bob is new
+    assert [c for c, _ in _posted(bot)] == ["C42", "U1", "U2"]
+    bot.responses.append((200, {"ok": True}, 0.0))
+    bot.responses.append((200, {"ok": False, "error": "channel_not_found"}, 0.0))
+    assert notify.post("main_green", "fixed", direct_to=["alice"]) is True  # the channel took it
+    bot.responses.append((200, {"ok": True}, 0.0))
+    assert notify.post("main_green", "fixed", direct_to=["alice"]) is True  # the failed DM is retried
+    assert [c for c, _ in _posted(bot)][-3:] == ["C42", "U1", "U1"]
+
+
+def test_a_webhook_alone_sends_no_dm(slack, monkeypatch):
+    monkeypatch.setenv("SLACK_WEBHOOK_URL", slack.url + "/hook")
+    notify.configure({"slack": {"alice": "U1"}})
+    assert notify.post("run_error", "boom", direct_to=["alice"])
+    assert [r["path"] for r in slack.requests] == ["/hook"]
+
+
+def test_a_question_dm_carries_the_buttons_and_is_edited_with_the_channel_message(bot):
+    notify.configure({"slack": {"victor@example.com": "U7", "alice": "U1"}})
+    bot.responses += [(200, {"ok": True, "channel": "C42", "ts": "1.0"}, 0.0),
+                      (200, {"ok": True, "channel": "D7", "ts": "2.0"}, 0.0),
+                      (200, {"ok": True, "channel": "D1", "ts": "3.0"}, 0.0)]
+    where = notify.post_question("Which?", qid="q1", options=["A", "B"], ticket="ENG-1",
+                                 mention_keys=["victor@example.com"],
+                                 direct_keys=["victor@example.com", "alice", "Victor"])
+    header = where["header"]
+    assert where == {"channel": "C42", "ts": "1.0", "header": header,
+                     "dms": [{"channel": "D7", "ts": "2.0"}, {"channel": "D1", "ts": "3.0"}]}
+    channel, *dms = [r["body"] for r in bot.requests]
+    assert [d["channel"] for d in dms] == ["U7", "U1"]
+    for body in (channel, *dms):
+        [buttons] = [b["elements"] for b in body["blocks"] if b["type"] == "actions"]
+        assert [b["action_id"] for b in buttons] == ["ask:q1:0", "ask:q1:1"]
+        assert "thread_ts" not in body
+        assert body["blocks"] == channel["blocks"]  # the DM reads the same
+    assert notify.edit_question(where, ":white_check_mark: *Answered*", "A")
+    edits = [r["body"] for r in bot.requests if r["path"] == "/api/chat.update"]
+    assert [(e["channel"], e["ts"]) for e in edits] == [("C42", "1.0"), ("D7", "2.0"), ("D1", "3.0")]
+
+
+def test_a_button_message_goes_to_the_assignee_with_its_button(bot):
+    notify.configure({"slack": {"alice": "U1"}})
+    assert notify.post_with_button("preview_ready", "#7 ready", button_label="Open",
+                                   button_action_id="preview:acme/app:7:abc", direct_to=["alice"])
+    channel, dm = [r["body"] for r in bot.requests]
+    assert (channel["channel"], dm["channel"]) == ("C42", "U1")
+    assert dm["blocks"][1]["elements"][0]["action_id"] == "preview:acme/app:7:abc"

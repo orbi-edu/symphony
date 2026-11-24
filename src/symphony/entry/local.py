@@ -148,6 +148,10 @@ class LockedMemoryTracker:
         with self._lock:
             return self._inner.person(issue, hint)
 
+    def assignee(self, issue: str) -> dict | None:
+        with self._lock:
+            return self._inner.assignee(issue)
+
     def upsert_workpad(self, issue: str, body: str) -> str:
         with self._lock:
             return self._inner.upsert_workpad(issue, body)

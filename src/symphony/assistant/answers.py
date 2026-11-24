@@ -1,6 +1,7 @@
 """Answers to agents' questions from chat (`questions.py`): a button on the question, or a
-reply in its thread. Only people mapped in `notify.users` answer; the answer is recorded at
-once and the daemon delivers it to the work."""
+reply in its thread, in the channel or in the DM the question was sent as. Only people
+mapped in `notify.users` answer; the answer is recorded at once and the daemon delivers it to
+the work."""
 
 from __future__ import annotations
 
@@ -38,8 +39,9 @@ class Answers:
                             rec["options"][parsed[1]], lambda text: out.ack_action(action, text))
 
     def on_reply(self, msg: Inbound, out: Outbound) -> bool:
-        """Take a reply in a question's thread as its answer. False: not a question's thread."""
-        if msg.is_dm or not msg.text.strip():
+        """Take a reply in a question's thread as its answer. False: not a question's thread
+        (in a DM too: only the thread of a question Symphony sent there is one)."""
+        if not msg.text.strip():
             return False
         qid = questions.by_ref(self.client, self.namespace, "slack", f"{msg.channel}:{msg.thread}")
         if qid is None:

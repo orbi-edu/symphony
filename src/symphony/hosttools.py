@@ -42,6 +42,9 @@ ASK_FALLBACK = (
     "assumption in the Workpad. An answer that comes while you still work reaches you as a "
     "message; one that comes after this run sends the ticket back to Rework with it."
 )
+ASK_QUESTION_MAX = 1200
+ASK_OPTIONS_MAX = 5
+ASK_OPTION_MAX = 60
 ASK_DEFINITION = {
     "name": ASK_TOOL,
     "label": "Ask a human",
@@ -49,22 +52,36 @@ ASK_DEFINITION = {
         "Ask a person a question and wait for their answer. Use it only when you cannot "
         "proceed responsibly without a human decision (ambiguous requirements, risky or "
         "irreversible choices). Symphony posts the question on the ticket and in Slack, "
-        "mentioning `to`, and reminds them later: do not post it as a comment yourself. If "
-        "nobody answers in time you get an instruction to proceed with your best judgment; a "
-        "later answer still reaches the work. Never ask for credentials, keys, tokens or "
-        "passwords: ask a person to run the command in an authorized environment and post "
-        "only the output."
+        "mentioning `to`, and reminds them later: do not post it as a comment yourself. "
+        "Write for a busy person reading Slack: the first sentence is the decision you need; "
+        "then at most three short lines of context. Several sub-questions go one per line, "
+        "numbered `1.` `2.`. Options are short (they become buttons: at most 5, 40 characters "
+        "each); do not repeat them inside the question. Ask one decision at a time; if a "
+        "question on this ticket is already open, wait for its answer unless the new one "
+        "blocks the work on its own. If nobody answers in time you get an instruction to "
+        "proceed with your best judgment; a later answer still reaches the work. Never ask for "
+        "credentials, keys, tokens or passwords: ask a person to run the command in an "
+        "authorized environment and post only the output."
     ),
     "parameters": {
         "type": "object",
         "additionalProperties": False,
         "required": ["question"],
         "properties": {
-            "question": {"type": "string", "description": "One clear, self-contained question."},
+            "question": {
+                "type": "string",
+                "description": (
+                    "The decision needed, in the first sentence; at most three short lines "
+                    "of context; sub-questions one per line. At most 1200 characters."
+                ),
+            },
             "options": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Suggested answers, when the choice is between known options.",
+                "description": (
+                    "Suggested answers, when the choice is between known options: at most 5, "
+                    "each a short label (40 characters) that becomes a button."
+                ),
             },
             "to": {
                 "type": "string",
@@ -77,6 +94,29 @@ ASK_DEFINITION = {
     },
     "loadMode": "essential",
 }
+# "(1) … (2) … (3) …" or "1) … 2) … 3) …" on one line: a list squeezed into a paragraph.
+_INLINE_ITEM = re.compile(r"(?:^|(?<=\s))\(?\d{1,2}\)(?=\s)")
+
+
+def _ask_problem(question: str, options: list[str]) -> str | None:
+    """Why a question would be hard to read on Slack, for the agent to rewrite it."""
+    if len(question) > ASK_QUESTION_MAX:
+        return (f"symphony_ask: the question is too long for a person to read on Slack "
+                f"({len(question)} characters, at most {ASK_QUESTION_MAX}): keep the decision "
+                "in the first sentence, at most three lines of context, sub-questions one per "
+                "line.")
+    if any(len(_INLINE_ITEM.findall(line)) >= 3 for line in question.splitlines()):
+        return ("symphony_ask: the question lists sub-questions inline, as \"(1) … (2) …\": "
+                "put each on its own line, numbered `1.` `2.`.")
+    if len(options) > ASK_OPTIONS_MAX:
+        return (f"symphony_ask: {len(options)} options, at most {ASK_OPTIONS_MAX}: they become "
+                "buttons. Keep the choices that matter, or ask one decision at a time.")
+    long = [o for o in options if len(o.strip()) > ASK_OPTION_MAX]
+    if long:
+        return (f"symphony_ask: an option is over {ASK_OPTION_MAX} characters ({long[0][:40]!r}…): "
+                "options become buttons; use a short label and put the detail in the question.")
+    return None
+
 
 # -- secret-request guard ---------------------------------------------------------
 
@@ -536,6 +576,10 @@ class HostToolBroker:
         options = [str(o) for o in raw_options] if isinstance(raw_options, list) else []
         if any(_is_secret_request(text) for text in (question, *options)):
             self._respond(call_id, _SECRET_REFUSAL, is_error=True)
+            return
+        problem = _ask_problem(question, options)
+        if problem:
+            self._respond(call_id, problem, is_error=True)
             return
         pending = _Ask()
         with self._lock:

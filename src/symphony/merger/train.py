@@ -587,7 +587,7 @@ class Train:
                     authors = sorted({x["author"] for x in recs})
                     m.notify("batch_split", f"CI failed twice on the batch {everyone}. The PRs go back to the merge "
                              "train in smaller batches until the failing PR is found.", link=m.pr_url(recs[0]["pr"]),
-                             logins=authors)
+                             logins=authors, tickets=[x.get("issue") for x in recs])
                     return end(recs, f"CI failed in the batch {everyone}: {r['reason']}")
                 git.fetch()
                 if not git.is_ancestor(git.origin_main, recs[0]["head_sha"]):

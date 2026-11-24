@@ -387,6 +387,29 @@ def test_runner_sizes_publish_into_the_workflow():
     assert runner["timeout_s"] == 14400  # defaults kept for the keys not set
 
 
+def test_direct_message_keys_read_back_and_publish():
+    core = ConfigMaps()
+    repository = WorkflowRepository(core, "symphony")
+    values = repository.read()["values"]
+    assert values["notify.direct_messages"] is True
+    assert json.loads(values["notify.direct_events"]) is None  # every event
+    payload = reviewed(repository, {"notify.direct_messages": False,
+                                    "notify.direct_events": json.dumps(["input_requested"])})
+    repository.publish(payload, "command-direct-messages", before_write=lambda: None)
+    config = parse_workflow(core.current.data["WORKFLOW.md"])
+    assert config.notify_direct_messages is False
+    assert config.notify_direct_events == ("input_requested",)
+    values = repository.read()["values"]
+    assert values["notify.direct_messages"] is False
+    assert json.loads(values["notify.direct_events"]) == ["input_requested"]
+    for bad in ({"notify.direct_events": json.dumps(["merged"])},
+                {"notify.direct_events": json.dumps("input_requested")},
+                {"notify.direct_messages": "no"}):
+        with pytest.raises(WorkflowError) as error:
+            repository.validate(repository.read()["revision"], bad)
+        assert error.value.status_code == 422
+
+
 def test_prompt_only_edit_preserves_front_matter_bytes_and_empty_body():
     core = ConfigMaps()
     repository = WorkflowRepository(core, "symphony")

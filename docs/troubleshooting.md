@@ -34,6 +34,7 @@ In local mode, the process writes the same events to its standard output. The en
 - [Docker is not available in the workspace](#docker-is-not-available-in-the-workspace)
 - [The merger does not review or merge](#the-merger-does-not-review-or-merge)
 - [Nobody answers a question on the pull request](#nobody-answers-a-question-on-the-pull-request)
+- [The agent does not get an answer to its question](#the-agent-does-not-get-an-answer-to-its-question)
 - [No retrospective or learnings pull request](#no-retrospective-or-learnings-pull-request)
 - [The assistant does not answer](#the-assistant-does-not-answer)
 - [The assistant does not create tickets](#the-assistant-does-not-create-tickets)
@@ -359,7 +360,16 @@ If a consumer does not report the new generation (`symphony admin config observe
 2. Check that `review_watch.answer_prompt` is set.
 3. Check that the GitHub App sends `issue_comment`, `pull_request_review` and `pull_request_review_comment` events.
 4. The watch does not answer comments that existed when it first saw the pull request. It answers only new comments from people.
-5. Search the daemon log for `answer_dispatch` and `review_watch_unavailable`.
+5. A comment that answered an agent's question (`symphony_ask`) is not answered again.
+6. Search the daemon log for `answer_dispatch` and `review_watch_unavailable`.
+
+## The agent does not get an answer to its question
+
+1. Find where the answer was given. [concepts](concepts.md#questions-to-people) lists what counts.
+2. With two or more open questions on the ticket, reply to the question's own comment, or answer in its Slack thread. A top-level comment, a reply to another comment and a pull request comment do not count then.
+3. A comment made before the question, a comment that Symphony wrote (recorded by id, whatever the account), and a comment by a bot or the GitHub App never count. A reply to a comment that Symphony wrote before this version does not count either: reply to the question's own comment.
+4. Answers on the ticket and on the pull request need the Linear webhook (event **Comment**) and the GitHub webhook (`issue_comment`, `pull_request_review`, `pull_request`). The daemon judges a ticket comment about 5 s after it arrives, at its next tick.
+5. Search the daemon and API logs for `question_answered`, and the logs of every process for `own_comment_unrecorded`.
 
 ## No retrospective or learnings pull request
 

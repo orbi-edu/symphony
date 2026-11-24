@@ -337,8 +337,10 @@ parked or in the train goes on to the end. The merger applies a change on its ne
 
 | Key | Type | Default | Effect |
 |---|---|---|---|
-| `notify.users.slack` | map of string to string | `{}` | GitHub login to Slack member ID (`U…`), for mentions in Slack notifications. A key may also be an e-mail: an agent's question mentions the person it names by the e-mail the tracker has for them. |
-| `notify.users.discord` | map of string to string | `{}` | GitHub login to Discord user ID (a number, for example `"123456789012345678"`), for mentions in Discord notifications. Quote the ID. Symphony also accepts an unquoted number. |
+| `notify.users.slack` | map of string to string | `{}` | GitHub login to Slack member ID (`U…`), for mentions in Slack notifications. A key may also be an e-mail or a tracker name: an agent's question mentions the person it names by the e-mail the tracker has for them, and a Linear assignee is found by e-mail, then by name. |
+| `notify.users.discord` | map of string to string | `{}` | GitHub login to Discord user ID (a number, for example `"123456789012345678"`), for mentions in Discord notifications. Quote the ID. Symphony also accepts an unquoted number. Keys as for `slack`. |
+| `notify.direct_messages` | boolean | `true` | Also send each notification about a ticket as a direct message to the ticket's assignee, and an agent's question to the person who decides, when `notify.users` maps them. `false` sends to the channel only. |
+| `notify.direct_events` | list of event names, or `null` | `null` | The events that get direct messages. `null` means every event. The names are the notification events ([internals](internals.md#notifications)); an unknown name is an error. |
 
 Rules:
 
@@ -351,11 +353,21 @@ notify:
   users:
     slack:
       example-login: U01234567
+      alice@example.com: U01234568
     discord:
       example-login: "123456789012345678"
+  direct_messages: true
+  direct_events: [input_requested, back_to_author, retries_exhausted]
 ```
 
 Symphony sends each notification to every configured channel: Slack, Discord, or both. With no channel configured, it sends nothing. See [Environment variables](#environment-variables).
+
+Direct messages come in addition to the channel message, which does not change:
+
+- Who: the assignee of the ticket the event is about (the tracker's assignee: a GitHub login, or the e-mail and name Linear has), and for a question also the person it names as the one who decides. Each person gets one direct message per event, even when both roles are theirs. A person `notify.users` does not map gets none, and nothing fails.
+- Where: on each service whose channel is configured and that has a bot token (`SLACK_BOT_TOKEN`, `DISCORD_BOT_TOKEN`). A webhook cannot send a direct message. Slack posts with `chat.postMessage` to the member ID, in the bot's DM (scope `chat:write`; turn on the App Home **Messages Tab** so people can read and reply). Discord opens the DM (`POST /users/@me/channels`) and posts in it; the person must share a server with the bot and accept direct messages from its members.
+- A question's direct message has the same buttons as the channel message. A click, or a reply in the direct message's thread, answers it like one in the channel (the assistant needs `im:history` and the `message.im` event for replies).
+- The 60-second dedup applies to each destination: the channel, and each person's direct message.
 
 ## `assistant`
 

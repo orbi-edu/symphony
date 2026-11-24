@@ -75,6 +75,12 @@ def human_comments(comments: list[dict]) -> list[dict]:
     return out
 
 
+def comment_ref(comment: dict) -> str:
+    """A comment's identity across webhook payloads and REST listings: GitHub's global node
+    id, unique across issue comments, review comments and reviews."""
+    return str(comment.get("node_id") or comment.get("html_url") or "")
+
+
 def latest_at(comments: list[dict]) -> str | None:
     """Newest creation timestamp, or None. Timestamps are ISO-8601 UTC from the code host,
     which sorts lexicographically — no parsing, so a malformed one cannot raise here."""

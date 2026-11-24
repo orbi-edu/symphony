@@ -7,6 +7,43 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.19] - 2026-11-24
+
+### Added
+
+- Notifications about a ticket now also reach its assignee as a direct message from the
+  Slack or Discord bot, when `notify.users` maps them (GitHub login, or the e-mail or name
+  Linear has); the channel message is unchanged. An agent's question goes by DM to the
+  person who decides and to the assignee, with the same buttons: a click or a reply in the
+  DM's thread answers it. `notify.direct_messages: false` keeps notifications in the
+  channel only, and `notify.direct_events` limits DMs to some events; the workflow API
+  reads and writes both. Slack needs only `chat:write`; Discord opens the DM with
+  `POST /users/@me/channels`.
+
+### Changed
+
+- An agent's question (`symphony_ask`) now takes its answer where people give it. While the
+  ticket has exactly one open question, a person's reply to any comment Symphony wrote on
+  the ticket, a new top-level comment on the ticket, and a comment or review on the ticket's
+  open pull request all answer it; before, only a reply to the question's own comment, Slack,
+  Tern and the CLI did. With two or more open questions, only a reply to a question's own
+  comment counts on the ticket. Symphony records the id of every comment it writes on the
+  tracker (the agent's included), and those never answer, even in the question's thread;
+  a person who runs Symphony with their own API key still answers from that account.
+  Comments that Symphony wrote before this version are not recorded, so a reply to one of
+  them does not count. Bots and the GitHub App never answer. A pull request comment that
+  answers is not answered again by the review watch. The answer note says `on the pull
+  request`, and the question on the ticket and in Slack says where to answer.
+- An agent's question in Slack reads as a message of its own. It starts with a divider, so
+  two questions in a row no longer run together. One header line follows: the ticket key and
+  title, linked, and who decides. Then the question exactly as written, the options as
+  buttons only (listed as text just when a button cuts one), and a one-line footer. The
+  notification text is the header and the start of the question. An answered or closed
+  question keeps its header. `symphony_ask` sends back to the agent a question over 1200
+  characters, sub-questions run together on one line, more than 5 options or an option over
+  60 characters. Its description asks for the decision first, short context and one
+  decision at a time.
+
 ## [0.2.18] - 2026-11-24
 
 ### Fixed

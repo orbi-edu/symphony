@@ -180,6 +180,10 @@ class Config:
     # `slack` and `discord`: GitHub login (casefolded) → that service's user id, for mentions
     # in notifications (internals §8).
     notify_users: dict = field(default_factory=lambda: {"slack": {}, "discord": {}})
+    # Each event about a ticket also goes as a DM to its assignee mapped in `notify.users`
+    # (and a question to who decides); `notify_direct_events` None means every event.
+    notify_direct_messages: bool = True
+    notify_direct_events: tuple[str, ...] | None = None
     # The chat assistant (`assistant:`; src/symphony/assistant). Off unless enabled. It answers
     # @mentions in these channel ids and every DM; `assistant_repositories` None means every
     # repository the tracker routes to (`default_repo`).
@@ -952,6 +956,16 @@ def parse_workflow(text: str, env: Mapping[str, str] | None = None) -> Config:
             # GitHub logins are case-insensitive; consumers look up `login.casefold()`.
             mapped[login.strip().casefold()] = user_id.strip()
         notify_users[service] = mapped
+    direct_events = _str_list(notify, "direct_events", None)
+    if direct_events is not None:
+        from .notify import EVENTS  # notify imports this module: resolved at call time
+
+        unknown = sorted(set(direct_events) - set(EVENTS))
+        if unknown:
+            raise ConfigError(
+                f"notify.direct_events has unknown events {', '.join(unknown)} "
+                f"(want: {', '.join(EVENTS)})"
+            )
 
     defaults = Config(tracker_kind=tracker["kind"])
     cfg = Config(
@@ -1045,6 +1059,8 @@ def parse_workflow(text: str, env: Mapping[str, str] | None = None) -> Config:
         answer_max_turns=_typed(review_watch, "answer_max_turns", int, defaults.answer_max_turns),
         answer_prompt=_typed(review_watch, "answer_prompt", str, defaults.answer_prompt),
         notify_users=notify_users,
+        notify_direct_messages=_typed(notify, "direct_messages", bool, defaults.notify_direct_messages),
+        notify_direct_events=direct_events,
         **_assistant(data),
         **_retention(data),
         **_backup(data),

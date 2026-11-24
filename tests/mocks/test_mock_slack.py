@@ -142,6 +142,23 @@ def test_post_message_success_form_and_json(mock):
     assert msgs[0]["ts"] == "1700000001.000001"  # deterministic
 
 
+def test_post_message_to_a_user_id_opens_the_bots_dm(mock):
+    url = f"{mock}/api/chat.postMessage"
+    auth = {"Authorization": f"Bearer {TOKEN}"}
+    httpx.post(f"{mock}/_mock/users", json={"id": "U0ALICE01", "name": "alice", "email": "a@x.io"})
+    first = httpx.post(url, headers=auth, json={"channel": "U0ALICE01", "text": "for you"}).json()
+    _check("chat.postMessage", first)
+    assert first["ok"] and first["channel"].startswith("D")
+    again = httpx.post(url, headers=auth, json={"channel": "U0ALICE01", "text": "again"}).json()
+    by_id = httpx.post(url, headers=auth, json={"channel": first["channel"], "text": "by id"}).json()
+    assert again["channel"] == by_id["channel"] == first["channel"]
+    unknown = httpx.post(url, headers=auth, json={"channel": "U0NOBODY01", "text": "x"}).json()
+    assert unknown == {"ok": False, "error": "channel_not_found"}
+    update = httpx.post(f"{mock}/api/chat.update", headers=auth,
+                        json={"channel": first["channel"], "ts": first["ts"], "text": "edited"}).json()
+    assert update["ok"]
+
+
 def test_auth_test_and_lookup_by_email(mock):
     auth = {"Authorization": f"Bearer {TOKEN}"}
     body = httpx.post(f"{mock}/api/auth.test", headers=auth).json()

@@ -198,7 +198,16 @@ The `auto` mode of a message selects `answer` when a question is open, `steer` w
 
 ### Questions to people
 
-The agent asks a person with the `symphony_ask` host tool, naming who decides (`to`: someone on the ticket; the ticket's author by default). The session goes to `waiting_input`. The daemon posts the question on the ticket, as a comment that mentions that person and numbers the options, and in Slack with one button per option (Discord gets the text). A person answers by replying to the comment (a number picks an option), with a button or a reply in the Slack thread, or in Tern and the CLI. The first answer wins; the comment and the Slack message then say who answered.
+The agent asks a person with the `symphony_ask` host tool, naming who decides (`to`: someone on the ticket; the ticket's author by default). The session goes to `waiting_input`. The daemon posts the question on the ticket, as a comment that mentions that person and numbers the options, and in Slack with one button per option (Discord gets the text). Both say where to answer. A number picks an option; any other text is the answer as written. A person answers in one of these places:
+
+| Where | What counts |
+|---|---|
+| The ticket | A reply to the question's comment. While the ticket has exactly one open question, also a reply to any other comment that Symphony wrote on the ticket (a progress note, a report), and a new top-level comment made after the question. |
+| The ticket's open pull request | While the ticket has exactly one open question, a comment or a review with a body, made after the question. Needs the GitHub webhook. The review watch does not answer that comment again. |
+| Slack | A button, or a reply in the question's thread. |
+| Tern and the CLI | An answer to the run while it waits (`symphony answer`). |
+
+With two or more open questions on a ticket, only a reply to a question's own comment counts on the ticket, and the pull request does not answer any of them. A comment that Symphony wrote never counts: Symphony records the id of each comment it writes on the tracker (the agent's, reports, the merger's, the questions), whatever account its API key belongs to. A person who runs Symphony with their own API key can thus still answer from that account. Comments by bots and by the GitHub App never count either. Symphony did not record the comments it wrote before this version: a reply to one of them does not count, and only a reply to the question's own comment does, as before. The first answer wins; the comment and the Slack message then say who answered and where.
 
 If nobody answers in `agent.input_timeout_ms`, the agent gets the instruction to continue on its best judgment and record the assumption in the Workpad. A run never waits for a person without a limit, but the question stays open: after `agent.ask_reminder_ms` (2 hours) the person is reminded once, on the ticket and in Slack, with the question again. A later answer still reaches the work: as a message to the run that went on without it, or, when no run works on the ticket, by sending the ticket back to Rework, whose next attempt reads it. An open question closes after seven days. The details are in [internals §3](internals.md).
 

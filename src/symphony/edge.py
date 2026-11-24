@@ -16,9 +16,10 @@ import urllib.parse
 
 import structlog
 
-from . import state
+from . import questions, state
 from .config import ConfigError, ConfigHolder, resolve_secret
 from .ghapp import InstallationCredential
+from .kv import RedisKV
 from .trackers.github import GitHubTracker
 from .trackers.linear import LinearTracker
 from .trackers.memory import MemoryTracker
@@ -164,7 +165,31 @@ def make_tracker(cfg):
     """The WORKFLOW's tracker, or `TrackerNotConfigured` when setup has not provided what it
     needs (credential, board scope). Reads the process environment at call time, so a
     credential that appears (local mode applies `secrets.env` at once) is used next tick."""
-    return ObservedTracker(_build_tracker(cfg), cfg.required_labels)
+    return ObservedTracker(_build_tracker(cfg, _comment_recorder(cfg)), cfg.required_labels)
+
+
+def _comment_recorder(cfg):
+    """What the tracker adapter calls with the id of each comment it writes, from any
+    process (daemon, runner, merger, assistant, reflector): `questions.record_own`, in the
+    Redis they share. None without `REDIS_URL` (a script or a test). Best effort: a comment
+    is never refused over it, and the failure is logged."""
+    url = os.environ.get("REDIS_URL", "")
+    if not url:
+        return None
+    client, ns = _redis(url), pod_namespace(cfg)
+
+    def record(comment_id: str) -> None:
+        try:
+            questions.record_own(client, ns, comment_id)
+        except Exception as exc:  # noqa: BLE001 — the comment exists; recording is advice
+            log.warning("own_comment_unrecorded", comment=comment_id, error=str(exc)[:200])
+
+    return record
+
+
+@functools.lru_cache(maxsize=4)
+def _redis(url: str):
+    return RedisKV(url=url).client
 
 
 class UnconfiguredTracker:
@@ -254,11 +279,11 @@ def _credential_for(app_id: str, installation_id: str, private_key: str) -> Inst
     )
 
 
-def _build_tracker(cfg):
+def _build_tracker(cfg, on_comment):
     if cfg.tracker_kind == "memory":
         # A memory board declared in WORKFLOW.md (`tracker.issues`) is seeded identically
         # in every process that mounts it — daemon, runner Job and API see one board.
-        tracker = MemoryTracker(cfg.active_states, cfg.terminal_states)
+        tracker = MemoryTracker(cfg.active_states, cfg.terminal_states, on_comment=on_comment)
         for item in getattr(cfg, "memory_issues", ()):
             tracker.add_issue(
                 item["id"],
@@ -310,6 +335,7 @@ def _build_tracker(cfg):
         terminal_states=cfg.terminal_states,
         assignee=cfg.provider.get("assignee"),
         default_repo=cfg.default_repo,
+        on_comment=on_comment,
     )
 
 

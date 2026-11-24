@@ -16,6 +16,7 @@ import os
 import re
 import shlex
 import time
+from collections.abc import Sequence
 
 from . import codehost, ghapp, kube
 from .edge import log, make_tracker, now_ms
@@ -311,7 +312,8 @@ class K8sEffects:
         except Exception as exc:  # noqa: BLE001 — visibility is not worth the daemon
             log.warning("ticket_report_failed", issue_id=issue_id, error=str(exc))
 
-    def notify(self, event: str, text: str, *, link: str | None = None) -> None:
+    def notify(self, event: str, text: str, *, link: str | None = None,
+               direct_to: Sequence[str] = ()) -> None:
         from . import notify  # never raises: a channel failure is logged there
 
-        notify.post(event, text, link=link)
+        notify.post(event, text, link=link, direct_to=direct_to)

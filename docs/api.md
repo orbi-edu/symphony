@@ -490,6 +490,13 @@ If the secret is not set, the route gives 503 `webhook_unconfigured`. A bad sign
 | `projects_v2_item` for an issue item | `daemon`, reason `github:projects_v2_item:<action>:<issue node id>`. Draft and pull request items wake nothing |
 | Other events | None |
 
+Before the wake, a new `issue_comment` on a pull request or a submitted `pull_request_review`
+by a person can answer an agent's open question on the pull request's ticket
+([concepts](concepts.md#questions-to-people)). `pull_request` events also record the pull
+request's branch, which links a public repository's pull request to its ticket. On the Linear
+route, a `Comment` `create` by a person on a ticket with an open question is queued for the
+daemon, which decides whether it answers.
+
 The `issues`, `issue_comment` (on issues), `sub_issues`, `issue_dependencies` and
 `projects_v2_item` events serve the GitHub tracker (`tracker.kind: github`). Subscribe the
 webhook to them when you use that tracker.

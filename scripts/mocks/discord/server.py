@@ -10,6 +10,9 @@ Served routes, under `/api` with or without a version (`/api/v10/...`), as Disco
   `message_reference` must name a known message (`fail_if_not_exists` defaults to true).
 - `PATCH /channels/{channel.id}/messages/{message.id}` (`update_message`): the bot's own
   messages only (else 403 `Cannot edit a message authored by another user`, 50005).
+- `POST /users/@me/channels` (`create_dm`, `discord-user.md`): `Authorization: Bot <token>`,
+  `{"recipient_id"}` a user of `/_mock/users` → the DM channel (type 1), the same one each
+  time, which that token can then post in; another id → 400 `Invalid Recipient(s)` (50033).
 - `GET /gateway/bot` and `GET /applications/@me` (with `flags`; `POST /_mock/application`
   `{"flags": int}` sets them, default `GATEWAY_MESSAGE_CONTENT`, `1 << 18`).
 - `POST /interactions/{interaction.id}/{interaction.token}/callback`: no bot token needed.
@@ -118,6 +121,7 @@ SPEC_URI = "urn:discord-openapi"
 WEBHOOK_ROUTE = "/webhooks/{webhook_id}/{webhook_token}"
 MESSAGES_ROUTE = "/channels/{channel_id}/messages"
 MESSAGE_ROUTE = "/channels/{channel_id}/messages/{message_id}"
+DM_ROUTE = "/users/@me/channels"
 CALLBACK_ROUTE = "/interactions/{interaction_id}/{interaction_token}/callback"
 MAX_CONTENT = 2000  # "the message contents (up to 2000 characters)"
 EPHEMERAL = 1 << 6
@@ -415,6 +419,30 @@ class DiscordMock:
                                     "channel_id": record["channel_id"], "body": body})
         self._save()
         return message
+
+    def create_dm(self, auth: str, body: dict) -> dict:
+        with self.lock:
+            token = self._bot_token(auth)
+            if token is None:
+                raise DiscordError(401, 0, "401: Unauthorized")
+            problem = best_match(validator(_request_pointer(DM_ROUTE, "application/json")).iter_errors(body))
+            if problem is not None:
+                raise _schema_error(problem)
+            recipient = str(body.get("recipient_id") or "")
+            user = next((u for u in self.state["users"] if u["id"] == recipient), None)
+            if user is None:
+                raise DiscordError(400, 50033, "Invalid Recipient(s)")
+            channel = next((c for c in self.state["channels"] if c.get("recipient") == recipient), None)
+            if channel is None:
+                self.state["counter"] += 1
+                channel = {"id": str(ID_BASE + self.state["counter"]),
+                           "name": f"dm-{user['username']}", "recipient": recipient}
+                self.state["channels"].append(channel)
+            if channel["id"] not in self.state["tokens"][token]:
+                self.state["tokens"][token].append(channel["id"])
+            self._save()
+            return {"id": channel["id"], "type": 1, "last_message_id": None, "flags": 0,
+                    "recipients": [_user(user)]}
 
     def gateway_bot(self, auth: str, host: str) -> dict:
         if self._bot_token(auth) is None:
@@ -774,7 +802,7 @@ def make_handler(mock: DiscordMock) -> type[BaseHTTPRequestHandler]:
                 return self._json(status, out)
             parts = _route(url.path) or []
             shape = tuple(p if p in ("webhooks", "channels", "messages", "gateway", "bot",
-                                     "applications", "@me", "interactions", "callback")
+                                     "applications", "@me", "interactions", "callback", "users")
                           else "{}" for p in parts)
             allowed = {
                 ("webhooks", "{}", "{}"): "POST",
@@ -783,6 +811,7 @@ def make_handler(mock: DiscordMock) -> type[BaseHTTPRequestHandler]:
                 ("gateway", "bot"): "GET",
                 ("applications", "@me"): "GET",
                 ("interactions", "{}", "{}", "callback"): "POST",
+                ("users", "@me", "channels"): "POST",
             }.get(shape)
             if allowed is None or verb != allowed:
                 if _in_spec(parts, verb):  # a real operation this mock does not serve
@@ -809,6 +838,8 @@ def make_handler(mock: DiscordMock) -> type[BaseHTTPRequestHandler]:
                 if shape[0] == "interactions":
                     mock.callback(parts[1], parts[2], body)
                     return self._json(204, None, ok)
+                if shape[0] == "users":
+                    return self._json(200, mock.create_dm(auth, body), ok)
                 if len(parts) == 4:
                     return self._json(200, mock.edit_message(parts[1], parts[3], auth, body), ok)
                 return self._json(200, mock.create_message(parts[1], auth, body, agent), ok)

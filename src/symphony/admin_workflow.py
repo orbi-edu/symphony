@@ -31,6 +31,7 @@ from .config import (
     _skills,
     parse_workflow,
 )
+from .notify import EVENTS
 from .prompt import validate_template
 
 _REQUEST_TIMEOUT = (3, 10)
@@ -163,6 +164,8 @@ _FIELDS = {
     "review_watch.answer_max_turns": _Field("answer_max_turns", "integer"),
     "review_watch.answer_prompt": _Field("answer_prompt", optional=True),
     "notify.users": _Field("notify_users", "json"),
+    "notify.direct_messages": _Field("notify_direct_messages", "boolean"),
+    "notify.direct_events": _Field("notify_direct_events", "json"),
     "assistant.enabled": _Field("assistant_enabled", "boolean"),
     "assistant.slack.channels": _Field("assistant_slack_channels", "json"),
     "assistant.discord.channels": _Field("assistant_discord_channels", "json"),
@@ -290,7 +293,8 @@ def _check_value(key: str, value: Any, namespace: str, *, submitted: bool) -> An
                 value = json.loads(value)
             except (ValueError, RecursionError):
                 raise _invalid(key, "Use valid JSON.") from None
-        if key in ("kubernetes.learning.reflect_on", "assistant.repositories") and value is None:
+        if key in ("kubernetes.learning.reflect_on", "assistant.repositories",
+                   "notify.direct_events") and value is None:
             return None
         if key in ("agent.max_concurrent_agents_by_state", "kubernetes.agent_images"):
             if not isinstance(value, Mapping) or len(value) > _MAX_ITEMS:
@@ -372,6 +376,12 @@ def _check_value(key: str, value: Any, namespace: str, *, submitted: bool) -> An
             if not isinstance(value, Mapping) or not set(value) <= {"slack", "discord"}:
                 raise _invalid(key, "Use a JSON object with `slack` and `discord` maps.")
             return {service: _string_map(key, section) for service, section in value.items()}
+        if key == "notify.direct_events":
+            # null: every event gets its DMs.
+            if not isinstance(value, (list, tuple)) or not all(
+                    isinstance(item, str) and item in EVENTS for item in value):
+                raise _invalid(key, "Use null or a JSON array of notification event names.")
+            return list(value)
         if key == "tracker.states":
             # role -> Linear state name.
             return _string_map(key, value)

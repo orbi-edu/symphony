@@ -694,3 +694,23 @@ def test_a_merger_outside_a_cluster_never_reaches_for_a_kubeconfig(monkeypatch):
     monkeypatch.setattr(kube, "get_clients", lambda: (seen.append("core") or "core", None))
     runtime = managed_providers("ns", {"KUBERNETES_SERVICE_HOST": "10.0.0.1"})
     assert seen == ["core"] and runtime.__self__.core == "core" and runtime.__self__.namespace == "ns"
+
+
+def test_a_pr_notification_goes_by_dm_to_its_tickets_assignee():
+    from symphony.merger import comments as cm
+    from symphony.merger.context import Merger
+
+    sent = []
+    tracker = FakeTracker()
+    tracker.assignees["ENG-12"] = {"name": "Alice", "email": "alice@example.com", "mention": ""}
+    m = Merger(store=None, gh=None, git=None, agents=None, team=None, repo="acme/app", states={},
+               tracker=tracker, notify_post=lambda *a, **kw: sent.append((a, kw)))
+    cm.say(m, "back_to_author", 12, "Fix the export", "bob", "https://example.com/pr/12",
+           ticket="ENG-12")
+    [((event, _text), kw)] = sent
+    assert event == "back_to_author" and kw["github_logins"] == ["bob"]
+    assert kw["direct_to"] == ["alice@example.com", "Alice"]
+    # No ticket, or a tracker that cannot answer: the channel message still goes, no DM.
+    tracker.assignee = lambda identifier: (_ for _ in ()).throw(RuntimeError("tracker down"))
+    m.notify("run_error", "boom", tickets=["ENG-12", None])
+    assert sent[-1][1]["direct_to"] == []

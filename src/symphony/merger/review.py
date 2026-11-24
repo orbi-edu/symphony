@@ -519,7 +519,7 @@ def ci_sent_back(m: Merger, rec: dict, failed: list[str]) -> None:
                                                      cm.ci_line("failed", rec["head_sha"], failed), rec["body"], drafted))
     m.store.unpark(n)
     cm.say(m, "back_to_author", n, rec.get("title", ""), rec["author"], rec.get("comment") or m.pr_url(n),
-           "CI failed", is_bot=cm.is_bot_author(rec))
+           "CI failed", is_bot=cm.is_bot_author(rec), ticket=rec.get("issue"))
     m.move_ticket(rec.get("issue"), "rework", f"The merger sent the PR back: {outcome}\n\n{rec.get('comment') or m.pr_url(n)}")
 
 

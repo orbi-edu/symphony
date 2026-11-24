@@ -206,16 +206,35 @@ Rules for the runner tools:
 - `symphony_ask` waits for `agent.input_timeout_ms` (default 15 minutes). If no person
   answers, the result is a fallback that says to proceed with the agent's best judgment and
   record the assumption in the Workpad. Thus the run never stops on a question.
+- `symphony_ask` refuses, with an error the agent can act on, a question over 1200
+  characters, three or more sub-questions inline on one line (`(1) … (2) … (3) …`), more
+  than 5 options, or an option over 60 characters: options become Slack buttons.
 - The question outlives the run (`questions.py`): a Redis hash
   `sym:<ns>:question:<call id>`, kept 14 days, and the set `sym:<ns>:questions` of those not
   finished. Each daemon tick moves each one a step: it posts the comment (on the ticket,
   mentioning the person `to` names through the profile link Linear turns into a
   mention) and the Slack message (`ask:<id>:<n>` buttons; the mention comes from
   `notify.users.slack`, whose keys may be e-mails); reminds once after
-  `agent.ask_reminder_ms`; and closes it unanswered after seven days. An answer is a reply
-  in the comment's thread (the Linear webhook queues it in `sym:<ns>:questions:inbox`;
-  Symphony's own replies are recorded and never count), a Slack button or thread reply (the
-  assistant; only people mapped in `notify.users`), or the waiting run itself (Tern, CLI).
+  `agent.ask_reminder_ms`; and closes it unanswered after seven days. The set
+  `sym:<ns>:questions:open:<issue id>` holds a ticket's open questions. The tracker adapter
+  that `edge.make_tracker` builds in every process (Linear, memory) records the id of each
+  comment it writes, the agent's `linear_graphql` comment mutations included, as
+  `sym:<ns>:comment-own:<comment id>` (14 days). An answer is a comment on the ticket: the
+  Linear webhook queues a comment that is not a bot's or an app's (`botActor`, `actor.type`)
+  in `sym:<ns>:questions:inbox` when it replies in a question's thread or the ticket has an
+  open question. The daemon judges each one at least 5 s after it arrived, so the process
+  that wrote it has recorded it. A recorded comment never answers, whoever its author is.
+  Otherwise it answers when it replies in the question's thread, or, with exactly one open
+  question on the ticket, when it is top-level or replies to a recorded comment, and was
+  made after the question. An answer is also a comment or a
+  review by a person (`User`) on the ticket's open pull request, after the question, with
+  exactly one open question: the GitHub webhook claims it before it wakes the daemon and
+  writes its node id in `answered:<issue id>`, which the review watch skips. The pull
+  request is the ticket's when the review watch recorded it (`pr_numbers`), its branch is
+  `symphony/<issue id>` (remembered from `pull_request` events, as `issue_comment` does not
+  carry it), or its title, body or branch names the ticket. A Slack button or thread reply
+  (the assistant; only people mapped in `notify.users`), or the waiting run itself (Tern,
+  CLI), also answers.
   `SET NX` makes the first one win. The daemon delivers it: an `answer` intent to the run
   still waiting on it, `steer` (or `follow_up`) to a later run of the ticket, else Rework
   for a ticket in review, nothing for an active or closed one (an active ticket's next
@@ -398,7 +417,7 @@ certification and the tests use it.
 
 ### Notifications
 
-- **Post:** `symphony.notify.post(event, text, *, link=None, github_logins=())`. The
+- **Post:** `symphony.notify.post(event, text, *, link=None, github_logins=(), direct_to=())`. The
   events are `input_requested`, `back_to_author`, `needs_maintainer`, `needs_approval`,
   `preview_ready`, `batch_split`, `main_red`, `main_green`, `run_error`,
   `retries_exhausted`, `not_queued` and `triage_opened`. Each configured channel gets each event:
@@ -411,8 +430,22 @@ certification and the tests use it.
 - **Discord format:** Discord markdown, at most 2000 characters. `allowed_mentions` allows only
   the mapped users. If Discord answers 429 with a short `retry_after`, `notify` waits and tries
   one more time.
+- **Direct messages:** `direct_to` holds `notify.users` keys; each mapped person also gets the
+  event as a DM, without a mention, once per event. The daemon passes the ticket's assignee
+  (`Issue.assignee_keys`: the e-mail when the tracker has it, then the name or login), the
+  merger the assignee of each PR's ticket (`TrackerAdapter.assignee`), and a question
+  (`post_question(direct_keys=…)`) the person who decides and the assignee. A DM needs the
+  channel of that service configured and its bot token:
+  - Slack: `chat.postMessage` with `channel` set to the member ID opens the bot's DM (scope
+    `chat:write`). A question's DM carries the option buttons; its `{channel, ts}` (the `D…`
+    id Slack answers with) is kept under `dms` in the question's `slack` record, so a click,
+    a reply in that DM's thread and the final edit work as in the channel.
+  - Discord: Create DM (`POST /users/@me/channels`, `{"recipient_id"}`), kept per process,
+    then Create Message there with `allowed_mentions: {"parse": []}`.
+  - `notify.direct_messages: false` turns DMs off; `notify.direct_events` lists the events
+    that get them (default: all). An unmapped key is skipped (debug log `notify_direct_unmapped`).
 - Without a configuration, `post` does nothing. The same event and text are sent at most once
-  in 60 s.
+  in 60 s to each destination (the channel, each person's DM).
 
 ## 9. Services, ports and variables
 

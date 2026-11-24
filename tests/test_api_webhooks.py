@@ -81,19 +81,78 @@ def test_unconfigured_secret_is_503(redis_client):
     assert github(client, "push", {}).status_code == 503
 
 
-def test_a_reply_to_an_agents_question_is_queued_for_the_daemon(api, redis_client):
+def test_a_persons_comment_on_a_ticket_with_a_question_is_queued_for_the_daemon(
+        api, redis_client):
     _, client = api
     questions.ask(redis_client, "test", qid="q1", issue_id="i1", identifier="ENG-1", sid="i1:1",
                   url=None, question="Which?", options=["A", "B"], to=None, now_ms=1)
     redis_client.set("sym:test:question-ref:linear:root", "q1")
     stamp = int(time.time() * 1000)
-    for parent in ("root", "unrelated"):
+    person = {"user": {"name": "Ana"}, "createdAt": "2026-08-07T09:00:00.000Z"}
+    comments = [
+        ({"id": "c-root", "issueId": "i9", "parentId": "root", **person}, {}),  # in the thread
+        ({"id": "c-top", "issueId": "i1", **person}, {}),  # the ticket has an open question
+        ({"id": "c-other", "issueId": "i2", **person}, {}),  # no question on that ticket
+        ({"id": "c-bot", "issueId": "i1", "botActor": {"id": "b1"}, **person}, {}),
+        ({"id": "c-app", "issueId": "i1", **person}, {"type": "OauthClient", "name": "app"}),
+    ]
+    for data, actor in comments:
         payload = {"action": "create", "type": "Comment", "webhookTimestamp": stamp,
-                   "data": {"id": f"c-{parent}", "parentId": parent, "body": "2",
-                            "user": {"name": "Ana"}}}
+                   "data": {"body": "2", **data}, **({"actor": actor} if actor else {})}
         assert linear(client, payload).status_code == 202
     queued = [json.loads(raw) for raw in redis_client.lrange("sym:test:questions:inbox", 0, -1)]
-    assert queued == [{"id": "c-root", "parent": "root", "body": "2", "author": "Ana"}]
+    assert all(abs(q.pop("seen") - stamp) < 60_000 for q in queued)  # when it arrived
+    at = questions.iso_ms("2026-08-07T09:00:00.000Z")
+    assert queued == [
+        {"id": "c-top", "issue": "i1", "parent": "", "body": "2", "author": "Ana", "at": at},
+        {"id": "c-root", "issue": "i9", "parent": "root", "body": "2", "author": "Ana", "at": at},
+    ]
+
+
+def _asked(redis_client, qid, issue_id, identifier):
+    """A question the daemon has already posted on the ticket."""
+    questions.ask(redis_client, "test", qid=qid, issue_id=issue_id, identifier=identifier,
+                  sid=f"{issue_id}:1", url=None, question="Keep the legend?",
+                  options=["Keep it", "Remove it"], to=None, now_ms=1)
+    redis_client.hset(f"sym:test:question:{qid}", "comment", f"comment-{qid}")
+
+
+def test_a_persons_comment_on_the_tickets_pull_request_answers_its_question(api, redis_client):
+    _, client = api
+    _asked(redis_client, "q1", "uuid-1", "ENG-1")
+    repo = {"full_name": "acme/app"}
+    opened = {"action": "opened", "number": 5, "repository": repo,
+              "pull_request": {"number": 5, "head": {"ref": "symphony/uuid-1"}}}
+    assert github(client, "pull_request", opened).status_code == 202
+
+    def comment(user, node):
+        return {"action": "created", "repository": repo,
+                "issue": {"number": 5, "title": "Remove a legend", "body": "", "state": "open",
+                          "pull_request": {}},
+                "comment": {"node_id": node, "body": "2", "user": user,
+                            "created_at": "2026-08-07T09:00:00Z"}}
+
+    github(client, "issue_comment", comment({"login": "symphony[bot]", "type": "Bot"}, "IC_1"))
+    assert questions.load(redis_client, "test", "q1")["state"] == "open"
+    response = github(client, "issue_comment", comment({"login": "alice", "type": "User"}, "IC_2"))
+    assert response.json() == {"woke": ["daemon"]}
+    rec = questions.load(redis_client, "test", "q1")
+    assert (rec["answer"], rec["by"], rec["via"]) == ("Remove it", "alice", "github")
+    assert json.loads(redis_client.get("answered:uuid-1")) == ["IC_2"]
+
+
+def test_a_review_on_the_tickets_pull_request_answers_its_question(api, redis_client):
+    _, client = api
+    _asked(redis_client, "q2", "uuid-2", "ENG-2")
+    review = {"action": "submitted", "repository": {"full_name": "acme/app"},
+              "pull_request": {"number": 8, "title": "ENG-2: layout", "state": "open",
+                               "head": {"ref": "eng-2-layout"}},
+              "review": {"node_id": "PRR_1", "body": "Keep it, please.",
+                         "user": {"login": "bob", "type": "User"},
+                         "submitted_at": "2026-08-07T09:00:00Z"}}
+    assert github(client, "pull_request_review", review).status_code == 202
+    rec = questions.load(redis_client, "test", "q2")
+    assert (rec["answer"], rec["by"], rec["via"]) == ("Keep it, please.", "bob", "github")
 
 
 @pytest.mark.parametrize(
