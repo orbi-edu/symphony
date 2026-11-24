@@ -6,6 +6,7 @@ The server is disposable, has no TCP listener, and never uses a configured REDIS
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -479,6 +480,74 @@ def test_a_zombie_does_not_block_the_generation_stop():
         kill_agent_generation(LocalSandbox(), uuid.uuid4().hex, 1)
     finally:
         zombie.wait(timeout=5)
+
+
+@pytest.mark.skipif(
+    not _every_process_environment_readable(),
+    reason="Workspace generation stopping needs Linux procfs with every process readable",
+)
+def test_a_process_turning_zombie_mid_scan_does_not_block_the_generation_stop(tmp_path):
+    """Any process in the workspace may exit while the stop scans /proc. One that was live
+    at one read and is a zombie at the next holds nothing, so the stop must still be confirmed."""
+    parent = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import os,time\n"
+            "pid = os.fork()\n"
+            "if pid == 0:\n"
+            "    time.sleep(60)\n"
+            "    os._exit(0)\n"
+            "print(pid, flush=True)\n"
+            "time.sleep(60)\n",
+        ],
+        env={
+            key: value
+            for key, value in os.environ.items()
+            if key not in ("SYMPHONY_ISSUE_ID", "SYMPHONY_DISPATCH_SEQ")
+        },
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    child = int(parent.stdout.readline())
+    # The stop script reads State with sed. This shim kills the child right after that read
+    # and waits until it is a zombie: the next step of the scan meets a fresh zombie.
+    flag = tmp_path / "fired"
+    shim = tmp_path / "sed"
+    shim.write_text(
+        "#!/bin/sh\n"
+        f'{shlex.quote(shutil.which("sed"))} "$@"\n'
+        "status=$?\n"
+        'eval "last=\\${$#}"\n'
+        f'if [ "$last" = /proc/{child}/status ] && [ ! -e {shlex.quote(str(flag))} ]; then\n'
+        f"    : > {shlex.quote(str(flag))}\n"
+        f"    kill -KILL {child}\n"
+        f"    until grep -q '^State:[[:space:]]*Z' /proc/{child}/status; do sleep 0.01; done\n"
+        "fi\n"
+        "exit $status\n"
+    )
+    shim.chmod(0o755)
+
+    class LocalSandbox:
+        def exec_script(self, script, timeout_s=None):
+            result = subprocess.run(
+                ["sh", "-c", script],
+                capture_output=True,
+                text=True,
+                timeout=timeout_s,
+                env={**os.environ, "PATH": f"{tmp_path}:{os.environ['PATH']}"},
+            )
+            return result.returncode, result.stdout
+
+    try:
+        kill_agent_generation(LocalSandbox(), uuid.uuid4().hex, 1)
+    finally:
+        try:
+            os.kill(child, 9)
+        except ProcessLookupError:
+            pass
+        parent.kill()
+        parent.wait(timeout=5)
 
 
 def test_standalone_provider_audit_shares_cursor_without_command_receipts(commands):
