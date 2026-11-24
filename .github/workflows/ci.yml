@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+    # `edited`: the stealth check reads the title and description too.
+    types: [opened, synchronize, reopened, edited]
   workflow_dispatch:
 
 permissions:
@@ -72,3 +74,34 @@ jobs:
       # SYMPHONY_E2E_MOCKED are unset.
       - name: pytest
         run: uv run pytest -rs
+
+  # This repository is public (.omp/skills/public-repo-stealth). The operator's denylist is
+  # a repository secret, so it is masked in this public log and absent on forks, where the
+  # check passes. A hit prints where it is, never the text.
+  stealth:
+    name: stealth
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - name: no operator names in the pull request
+        env:
+          DENY: ${{ secrets.STEALTH_DENYLIST }}
+          TITLE: ${{ github.event.pull_request.title }}
+          BODY: ${{ github.event.pull_request.body }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ -z "$DENY" ]; then echo "no denylist configured: skipped"; exit 0; fi
+          hit=0
+          check() { if printf '%s' "$2" | grep -qiE -- "$DENY"; then echo "::error::denylisted text in $1"; hit=1; fi; }
+          check "the title" "$TITLE"
+          check "the description" "$BODY"
+          check "the branch name" "$BRANCH"
+          # A bot's co-author trailer names the GitHub App, which every pull request page shows anyway.
+          check "the commit messages" "$(git log --format=%B "$BASE..$HEAD" | grep -vi '^co-authored-by:' || true)"
+          check "the added lines" "$(git diff "$BASE...$HEAD" | grep '^+' | grep -v '^+++' || true)"
+          exit "$hit"

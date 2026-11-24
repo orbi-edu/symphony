@@ -9,6 +9,7 @@ import time
 import pytest
 from tests.conftest import FakeKV
 
+from symphony import questions
 from symphony.hosttools import ASK_FALLBACK, ASK_TOOL, HostToolBroker, tool_definitions
 from symphony.sessions import EV_INPUT_RESOLVED, SessionStore
 from symphony.trackers.base import TrackerUnavailable
@@ -102,6 +103,29 @@ def test_the_ask_timeout_answers_with_the_fallback(broker_factory):
     broker, _, responses = broker_factory(timeout_s=0.05)
     broker._serve(ask_frame("h4"))
     assert responses.items == [("h4", ASK_FALLBACK, False)]
+
+
+def test_an_ask_outlives_its_timeout_and_names_who_decides(broker_factory, redis_client):
+    broker, _, _ = broker_factory(timeout_s=0.05)
+    broker._serve({**ask_frame("h8"), "arguments": {"question": "Which?", "to": "Victor"}})
+    rec = questions.load(redis_client, "test", "h8")
+    assert (rec["state"], rec["to"], rec["identifier"], rec["sid"]) == ("open", "Victor", "ENG-1",
+                                                                      "i1:1")
+
+
+def test_an_answer_in_tern_closes_the_question(broker_factory, redis_client):
+    broker, _, responses = broker_factory()
+    broker.handle(ask_frame("h9"))
+    wait_pending(broker, "h9")
+    broker.answer("h9", "yes", "alice")
+    assert responses.arrived.wait(5)
+    deadline = time.monotonic() + 5
+    while questions.load(redis_client, "test", "h9")["state"] != "answered":
+        assert time.monotonic() < deadline
+        time.sleep(0.01)
+    rec = questions.load(redis_client, "test", "h9")
+    assert (rec["answer"], rec["by"], rec["via"], rec["delivered"]) == ("yes", "alice",
+                                                                       "symphony", "answer")
 
 
 def test_an_empty_question_is_a_tool_error(broker_factory):

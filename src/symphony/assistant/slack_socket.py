@@ -109,6 +109,9 @@ class SlackSocketTransport:
         self._threads = _Recent()  # (channel, thread_ts) the bot posted in
         self._seen = _Recent()  # (channel, ts) already handed to the engine
         self.bot_user_id = ""
+        # Threads the bot started from another process (an agent's question, `questions.py`):
+        # their replies are routed too. Set by whoever builds the engine.
+        self._known_thread: Callable[[str, str], bool] = lambda _channel, _thread: False
         self.bot_id = ""
         self._hello = False
         self.connected = False
@@ -119,6 +122,10 @@ class SlackSocketTransport:
         env = os.environ if env is None else env
         app, bot = env.get("SLACK_APP_TOKEN", "").strip(), env.get("SLACK_BOT_TOKEN", "").strip()
         return cls(app, bot) if app and bot else None
+
+    def route_threads(self, known: Callable[[str, str], bool]) -> None:
+        """Also route replies in the threads `known(channel, thread_ts)` names."""
+        self._known_thread = known
 
     # lifecycle ------------------------------------------------------------------------
 
@@ -228,7 +235,8 @@ class SlackSocketTransport:
         thread_ts = event.get("thread_ts") or ""
         is_dm = event.get("channel_type") == "im"
         if kind == "message" and not is_dm and (
-                not thread_ts or (channel, thread_ts) not in self._threads):
+                not thread_ts or ((channel, thread_ts) not in self._threads
+                                  and not self._known_thread(channel, thread_ts))):
             return  # a channel message: only replies in threads the bot is in
         if not channel or not ts or not self._seen.add((channel, ts)):
             return  # `app_mention` and `message` both arrive for a mention in a thread

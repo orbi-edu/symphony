@@ -30,6 +30,7 @@ from .base import (
     TrackerUnavailable,
     classify_state,
     make_dispatchable,
+    pick_person,
 )
 
 GRAPHQL_TOOL = "github_graphql"
@@ -605,10 +606,21 @@ class GitHubTracker:
             changed = True
         return changed
 
-    def comment(self, issue: str, body: str) -> str:
+    def comment(self, issue: str, body: str, *, parent: str | None = None) -> str:
+        # Issue comments are flat: a reply is one more comment on the issue.
         node = self._require(issue)
         repo = node["repository"]["nameWithOwner"]
         return str(self._post_comment(repo, node["number"], body)["id"])
+
+    def person(self, issue: str, hint: str | None = None) -> dict | None:
+        node = self._require(issue)
+        repo = node["repository"]["nameWithOwner"]
+        ticket = self._rest("GET", f"/repos/{repo}/issues/{node['number']}") or {}
+        logins = [(ticket.get("user") or {}).get("login"),
+                  *((a or {}).get("login") for a in ticket.get("assignees") or []),
+                  *((c.get("user") or {}).get("login") for c in self._comments(node))]
+        return pick_person([{"name": login, "mention": f"@{login}"} for login in logins if login],
+                           hint)
 
     def _post_comment(self, repo: str, number: int, body: str) -> dict:
         return self._rest("POST", f"/repos/{repo}/issues/{number}/comments", json={"body": body})

@@ -391,3 +391,15 @@ def test_learnings_pr_sent_back_does_not_move_any_ticket(env):
     assert result is not None
     # No ticket was moved to Rework
     assert all(ident != "ENG-99" for ident, _ in env.tracker.moves)
+
+
+def test_a_public_repositorys_branch_names_its_ticket_by_opaque_id(env):
+    """A public repository's PR never names the ticket; its branch carries the ticket's id."""
+    from symphony.trackers.memory import MemoryTracker
+
+    env.m.tracker = MemoryTracker()
+    ticket = env.m.tracker.add_issue("9d140cfa-1dcc-4d74-b2f8-3c79b2a39ae7", "ENG-7")
+    pr = {"head_ref": f"symphony/{ticket.id}", "title": "Fix the importer", "body": ""}
+    assert env.m.ticket_of(pr) == "ENG-7"
+    assert env.m.ticket_of({**pr, "head_ref": "symphony/00000000-0000-4000-8000-000000000000"}) is None
+    assert env.m.ticket_of({**pr, "head_ref": "symphony/merger-policy"}) is None

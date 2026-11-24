@@ -17,6 +17,7 @@ It runs as the Deployment `symphony-assistant`. It dials out to Slack (Socket Mo
 - [Sandbox](#sandbox)
 - [Device control](#device-control)
 - [PR previews](#pr-previews)
+- [Agents' questions](#agents-questions)
 - [Plan mode](#plan-mode)
 - [Limits](#limits)
 - [Setup](#setup)
@@ -241,6 +242,10 @@ When the merger announces a preview build of a pull request ([merger.md](merger.
 One device per (repository, PR number). A second click by any allowed reviewer reuses the live lease and gets a fresh viewer. The device is released when the PR is merged or closed, a human approves it after the preview started, the head changes, 55 minutes have passed, or the lease is gone. A background loop checks every 60 seconds. A device acquired for a click that then fails (install, launch) is released at once. Live previews are recorded in Redis: an assistant that restarts releases the previews of the previous process.
 
 Previews are enabled when a Seiji server named `seiji` is configured and the GitHub App has `actions: read` and `pull_requests: read`.
+
+## Agents' questions
+
+An agent's question ([concepts](concepts.md#questions-to-people)) reaches Slack as a message with one button per option. The assistant process takes the answers: a click, or a reply in the message's thread (the thread of a question is routed even though the daemon posted it). Only people mapped in `notify.users` answer; others get a private refusal. The first answer wins and the clicker gets a private confirmation, or who answered first. A reply in a question's thread is an answer, never a message for the assistant.
 
 ## Plan mode
 

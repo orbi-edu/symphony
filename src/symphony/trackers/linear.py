@@ -28,6 +28,7 @@ from .base import (
     TrackerUnavailable,
     classify_state,
     make_dispatchable,
+    pick_person,
 )
 
 TERMINAL_STATE_TYPES = ("completed", "canceled", "duplicate")  # WorkflowState.type closed values
@@ -142,6 +143,15 @@ mutation SymphonyComment($input: CommentCreateInput!) {
 COMMENT_UPDATE_MUTATION = """
 mutation SymphonyCommentUpdate($id: String!, $input: CommentUpdateInput!) {
   commentUpdate(id: $id, input: $input) { success comment { id } }
+}
+"""
+PEOPLE_QUERY = """
+query SymphonyPeople($id: String!) {
+  issue(id: $id) {
+    creator { name displayName email url }
+    assignee { name displayName email url }
+    comments(first: 100) { nodes { user { name displayName email url } } }
+  }
 }
 """
 LABELS_QUERY = """
@@ -443,12 +453,22 @@ class LinearTracker:
             raise TrackerInputError(f"team {team['key']} has no state named {state_name!r}")
         return found["id"]
 
-    def comment(self, issue: str, body: str) -> str:
-        out = self._post(COMMENT_MUTATION, {"input": {"issueId": issue, "body": body}})
+    def comment(self, issue: str, body: str, *, parent: str | None = None) -> str:
+        data = {"issueId": issue, "body": body, **({"parentId": parent} if parent else {})}
+        out = self._post(COMMENT_MUTATION, {"input": data})
         payload = out.get("commentCreate") or {}
         if not payload.get("success"):
             raise RuntimeError("Linear did not create the comment")
         return payload["comment"]["id"]
+
+    def person(self, issue: str, hint: str | None = None) -> dict | None:
+        # Linear turns a profile URL in a comment into a mention of that person.
+        ticket = self._post(PEOPLE_QUERY, {"id": issue}).get("issue") or {}
+        users = [ticket.get("creator"), ticket.get("assignee"),
+                 *(c.get("user") for c in (ticket.get("comments") or {}).get("nodes") or [])]
+        return pick_person([{"name": u.get("name"), "display": u.get("displayName"),
+                             "email": u.get("email"), "mention": u.get("url") or ""}
+                            for u in users if u], hint)
 
     def upsert_workpad(self, issue: str, body: str) -> str:
         nodes = ((self._post(COMMENTS_QUERY, {"id": issue}).get("issue") or {}).get("comments")

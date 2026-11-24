@@ -124,3 +124,10 @@ def test_dispatch_uses_the_detected_runtime_of_an_unconfigured_repository(kv, cl
     tick(kv, tracker, cfg(), clock.now_ms(), FakeEffects(), owner="d1")
     assert kv.get(state.issue_key("i1"))["runtime"] == "dotnet9"
     json.dumps(kv.get(discovery.DISCOVERY_KEY))  # the stored doc is plain JSON
+
+
+def test_only_repositories_seen_as_public_count_as_public():
+    doc = {"items": [{"name": "Acme/Open", "private": False}, {"name": "acme/closed", "private": True},
+                     {"name": "acme/old-record"}]}  # discovered before visibility was read
+    assert discovery.public(doc) == {"acme/open"}
+    assert discovery.public(None) == frozenset()

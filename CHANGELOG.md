@@ -7,6 +7,28 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- An agent's question (`symphony_ask`) outlives the run that asked it. The daemon posts it on
+  the ticket, as a comment that mentions who decides (`to`, new: a person on the ticket; the
+  author by default) and numbers the options, and in Slack with one button per option. A
+  reply to the comment, a button, a reply in the Slack thread, Tern or the CLI answer it; the
+  first answer wins and both places say who answered. After `agent.ask_reminder_ms` (new,
+  2 hours; `0` turns it off) the person is reminded once with the question again. An answer
+  that comes after the agent's 15-minute wait still reaches the work: as a message to the
+  run that went on without it, or, with no run, by sending a ticket in review back to Rework.
+  `notify.users.slack` keys may be e-mails, so the person a ticket names can be mentioned.
+- Work on a public repository never names its ticket. Discovery records each repository's
+  visibility; the agent's prompt then gets a section that forbids ticket identifiers,
+  tracker and company names and anything copied from the ticket, and names the branch
+  `symphony/<ticket id>` (the tracker's opaque id), which the merger maps back to the
+  ticket. The retrospective opens no learnings pull request on a public repository: its
+  lessons come from the private ticket.
+- This repository's own guard: a mandatory `public-repo-stealth` skill
+  (`.omp/skills/`) and a `stealth` CI check that runs a denylist kept in the
+  `STEALTH_DENYLIST` secret over each pull request's title, description, branch, commit
+  messages and added lines.
+
 ### Fixed
 
 - Failure evidence of a runner Job now says when the cluster removed its pod: a `Runner pod`
@@ -21,6 +43,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and spent a retry. The scan now reads the environment first and checks the state only
   when that read fails; a live process whose environment cannot be read still fails the
   stop.
+- A run that died while waiting for an answer no longer leaves its session in
+  `waiting_input` for good (Tern kept showing it under "Needs input"): the daemon closes
+  attempt sessions their ticket no longer runs.
 
 ## [0.2.12] - 2026-11-21
 

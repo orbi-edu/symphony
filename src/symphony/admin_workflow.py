@@ -109,6 +109,7 @@ _FIELDS = {
     "agent.max_failed_attempts": _Field("max_failed_attempts", "integer", 0),
     "agent.stall_timeout_ms": _Field("stall_timeout_ms", "integer", -_MAX_INTEGER),
     "agent.input_timeout_ms": _Field("input_timeout_ms", "integer"),
+    "agent.ask_reminder_ms": _Field("ask_reminder_ms", "integer", 0),
     "engine.command": _Field("engine_command"),
     "engine.provider": _Field("engine_provider", optional=True),
     "engine.model": _Field("engine_model", optional=True),

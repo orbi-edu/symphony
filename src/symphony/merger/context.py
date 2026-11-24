@@ -3,6 +3,7 @@ ticket tracker, Slack, the team config, and the wait that wake-ups cut short."""
 
 from __future__ import annotations
 
+import re
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -19,6 +20,7 @@ from .policy import PATH, Policy, parse
 from .store import MergerStore
 
 log = structlog.get_logger()
+_OPAQUE_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
 def _now_ms() -> int:
@@ -44,6 +46,8 @@ class Merger:
     # The tracker's required labels (`tracker.required_labels`): a ticket the merger opens
     # carries them, with `repo:<owner/name>`, so the daemon can dispatch it.
     ticket_labels: tuple[str, ...] = ()
+    # Opaque ticket id (a public repository's branch) → identifier: one tracker read each.
+    _opaque: dict[str, str | None] = field(default_factory=dict, repr=False)
 
     @property
     def main(self) -> str:
@@ -71,14 +75,25 @@ class Merger:
             log.warning("merger_notify_failed", event=event, error=str(exc)[:300])
 
     def ticket_of(self, pr: dict) -> str | None:
-        """The ticket a PR implements: Symphony's branches and titles carry its identifier.
-        A learnings PR names a ticket in its title but must not be attributed to it."""
+        """The ticket a PR implements: Symphony's branches and titles carry its identifier,
+        or, in a public repository, the branch carries the ticket's opaque id
+        (`symphony/<id>`, `prompt.public_repository_guidance`). A learnings PR names a ticket
+        in its title but must not be attributed to it."""
         if self.tracker is None:
             return None
+        from ..prompt import PUBLIC_BRANCH_PREFIX
         from ..reflector import LEARNINGS_BRANCH_PREFIX
-        if (pr.get("head_ref") or "").startswith(LEARNINGS_BRANCH_PREFIX):
+        head = pr.get("head_ref") or ""
+        if head.startswith(LEARNINGS_BRANCH_PREFIX):
             return None
-        for text in (pr.get("head_ref", ""), pr.get("title", ""), pr.get("body", "")):
+        opaque = _OPAQUE_ID.fullmatch(head.removeprefix(PUBLIC_BRANCH_PREFIX))
+        if head.startswith(PUBLIC_BRANCH_PREFIX) and opaque:
+            ticket_id = opaque.group(0)
+            if ticket_id not in self._opaque:
+                found = self.tracker.fetch_issues_by_ids([ticket_id])
+                self._opaque[ticket_id] = found[0].identifier if found else None
+            return self._opaque[ticket_id]
+        for text in (head, pr.get("title", ""), pr.get("body", "")):
             identifier = self.tracker.identifier_in(text or "", repo=self.repo)
             if identifier:
                 return identifier

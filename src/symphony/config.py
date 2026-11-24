@@ -77,6 +77,9 @@ class Config:
     # How long `symphony_ask` waits for a human before the agent proceeds on its own
     # judgment (internals §3). The run never hangs on an absent human.
     input_timeout_ms: int = 900_000
+    # A question still unanswered this long after it was asked gets one reminder that
+    # mentions the person who decides, on the ticket and in Slack (`questions.py`). 0: none.
+    ask_reminder_ms: int = 7_200_000
     # engine block: the agent execution engine (replaces the retired codex: block)
     engine_command: str = "omp --mode rpc"
     # Optional fallback for the role model. The published TeamConfig wins at runtime
@@ -875,6 +878,7 @@ def parse_workflow(text: str, env: Mapping[str, str] | None = None) -> Config:
             agent, "max_failed_attempts", int, defaults.max_failed_attempts
         ),
         input_timeout_ms=_typed(agent, "input_timeout_ms", int, defaults.input_timeout_ms),
+        ask_reminder_ms=_typed(agent, "ask_reminder_ms", int, defaults.ask_reminder_ms),
         stall_timeout_ms=_typed(agent, "stall_timeout_ms", int, defaults.stall_timeout_ms),
         engine_command=_typed(engine, "command", str, defaults.engine_command),
         engine_provider=_typed(engine, "provider", str, None),
@@ -952,6 +956,8 @@ def parse_workflow(text: str, env: Mapping[str, str] | None = None) -> Config:
         raise ConfigError("hooks.timeout_ms must be positive")
     if cfg.input_timeout_ms <= 0:
         raise ConfigError("agent.input_timeout_ms must be positive")
+    if cfg.ask_reminder_ms < 0:
+        raise ConfigError("agent.ask_reminder_ms must be 0 (no reminder) or positive")
     if cfg.polling_interval_ms <= 0:
         raise ConfigError("polling.interval_ms must be positive")
     if bool(cfg.engine_provider) != bool(cfg.engine_model):

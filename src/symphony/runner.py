@@ -27,7 +27,7 @@ from .config import Config, bind_role_model, resolve_workspace
 from .hosttools import HostToolBroker, tool_definitions
 from .omp_rpc import CommandFailed, OmpClient, OmpError, ReadTimeout, RunWatcher, SilenceTimeout
 from .orchestrator import PARKED, mark_clean_continuation, mark_retry_after_failure
-from .prompt import PromptError, render_prompt
+from .prompt import PromptError, public_repository_guidance, render_prompt
 from .sessions import SessionStore, attempt_session_id
 from .teamconfig import TeamConfig, model_arg
 from .trackers.base import Issue, TrackerAdapter, TrackerUnavailable
@@ -676,6 +676,9 @@ def _turn_loop(
     resolved_runtime = entry.get('runtime')
     resolved_component = entry.get('component')
     resolved_component_path = entry.get('component_path')
+    # Where the work is public, the ticket is never named (`public_repository_guidance`).
+    public = sorted({r.lower() for r in entry.get("target_repos") or []}
+                    & discovery.public(kv.get(discovery.DISCOVERY_KEY)))
     ledger = UsageLedger()
     last_flush = env.now_ms()
     read_timeout_s = cfg.read_timeout_ms / 1000
@@ -717,7 +720,7 @@ def _turn_loop(
                 cfg.answer_prompt,
                 current,
                 entry.get("runs", attempt),
-                "",
+                public_repository_guidance(current, public) if public else "",
                 investigation_label=cfg.investigation_label,
                 runtime=resolved_runtime,
                 component=resolved_component,
@@ -732,6 +735,8 @@ def _turn_loop(
             mcp_guidance = env.mcp_guidance()
             if mcp_guidance:
                 guidance.append(mcp_guidance)
+            if public:
+                guidance.append(public_repository_guidance(current, public))
             # upstream §12.3: the template `attempt` counts RUNS (null on the very first
             # run), not just failures — continuations advance it too
             prompt_text = render_prompt(

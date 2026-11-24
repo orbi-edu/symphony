@@ -1,9 +1,9 @@
 """Repository discovery: the repositories the GitHub App reaches, and the workspace each needs.
 
 The daemon refreshes it in the background every `REFRESH_EVERY_MS` into `DISCOVERY_KEY`: for
-each installed repository, its default branch, whether it is archived, whether it carries a
-merger policy, and — from the file tree of the default branch — the runtime and, for a
-monorepo, the components it needs.
+each installed repository, its default branch, whether it is archived or public, whether it
+carries a merger policy, and — from the file tree of the default branch — the runtime and,
+for a monorepo, the components it needs.
 
 What WORKFLOW.md configures always wins. Dispatch uses a detection only for a repository the
 workflow says nothing about (`effective`): no `repo_runtimes` entry means the detected runtime,
@@ -146,6 +146,13 @@ def effective(cfg: Config, doc: dict | None) -> Config:
     return replace(cfg, repo_runtimes=runtimes, components=components)
 
 
+def public(doc: dict | None) -> frozenset[str]:
+    """The repositories (lower-case `owner/name`) discovery saw as public. One it has not seen
+    yet, or whose visibility it did not read, counts as private."""
+    return frozenset(str(item.get("name") or "").lower() for item in (doc or {}).get("items") or []
+                     if item.get("private") is False)
+
+
 def discover(http: httpx.Client, token: str, runtimes: frozenset[str]) -> list[dict]:
     """One pass over the installation: GET /installation/repositories, then per repository
     the recursive tree of its default branch and a few small files."""
@@ -169,6 +176,7 @@ def _inspect(http: httpx.Client, headers: dict, api: str, repo: dict,
     name = repo["full_name"].lower()
     branch = repo.get("default_branch") or "main"
     item = {"name": name, "default_branch": branch, "archived": bool(repo.get("archived")),
+            "private": bool(repo.get("private", True)),
             "merger_policy": False, "runtime": None, "components": {}, "truncated": False}
     if item["archived"]:
         return item
