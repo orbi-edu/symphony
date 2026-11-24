@@ -124,8 +124,16 @@ class TrackerAdapter(Protocol):
         unknown state name raises."""
         ...
 
-    def comment(self, issue: str, body: str) -> str:
-        """Add a comment; returns its id."""
+    def comment(self, issue: str, body: str, *, parent: str | None = None) -> str:
+        """Add a comment, as a reply to comment `parent` when given and the tracker threads
+        comments (else on the ticket); returns its id."""
+        ...
+
+    def person(self, issue: str, hint: str | None = None) -> dict | None:
+        """Someone on the ticket: the author, assignee or a commenter whose name or e-mail
+        matches `hint` (case-insensitive), or the ticket's author without one. `{name,
+        email, mention}` (`mention`: text that notifies them in a comment, "" when the
+        tracker has none); None when nobody matches."""
         ...
 
     def upsert_workpad(self, issue: str, body: str) -> str:
@@ -205,6 +213,30 @@ def make_dispatchable(
     callers that route no repository.
     """
     return issue_state_type == "active" and not has_nonterminal_blocker and target_repo is not None
+
+
+def pick_person(people: Sequence[dict], hint: str | None) -> dict | None:
+    """`TrackerAdapter.person` over `people` (author first, each `{name, email, mention}`,
+    plus an optional `display`): without a hint the first one; with one, an exact name,
+    display name, e-mail or e-mail user, else the first whose name starts with the hint."""
+    people = [p for p in people if p and (p.get("name") or p.get("email"))]
+    if not hint or not hint.strip():
+        return _person(people[0]) if people else None
+    wanted = hint.strip().lstrip("@").casefold()
+
+    def names(p: dict) -> set[str]:
+        email = (p.get("email") or "").casefold()
+        return {(p.get("name") or "").casefold(), (p.get("display") or "").casefold(), email,
+                email.split("@", 1)[0]} - {""}
+
+    found = (next((p for p in people if wanted in names(p)), None)
+             or next((p for p in people if (p.get("name") or "").casefold().startswith(wanted)), None))
+    return _person(found) if found else None
+
+
+def _person(p: dict) -> dict:
+    return {"name": p.get("name") or p.get("email") or "", "email": p.get("email") or "",
+            "mention": p.get("mention") or ""}
 
 
 class GitHubLike(Protocol):

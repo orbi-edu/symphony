@@ -169,6 +169,7 @@ The git credential helper is ready before `after_create` runs, so `git clone` ov
 | `agent.max_retry_backoff_ms` | integer | `300000` | The maximum wait before a retry after a failed attempt. |
 | `agent.max_failed_attempts` | integer | `8` | Failed attempts in a row before Symphony stops retrying. The ticket becomes `blocked`; the ticket and the channel (`retries_exhausted`) get the last failure, who acts and the next step. `symphony reevaluate` or any later edit of the ticket queues it again with a fresh count. A clean exit resets the count. `0` retries forever. |
 | `agent.input_timeout_ms` | integer | `900000` | How long `symphony_ask` waits for a person. Also how long an interrupted agent waits for a message. It must be positive. |
+| `agent.ask_reminder_ms` | integer | `7200000` | How long after a `symphony_ask` question the person who decides is reminded, once, on the ticket and in Slack, while it has no answer. `0` sends no reminder. The question stays open past the agent's wait ([concepts](concepts.md#questions-to-people)). |
 | `agent.stall_timeout_ms` | integer | `300000` | The silence that counts as a stall. Two windows in sequence stop the attempt. Zero or a negative value turns stall detection off. |
 
 > **Caution:** The engine sends no events while a tool runs. Set `agent.stall_timeout_ms` longer than the longest build or test command. The example `WORKFLOW.md` uses 30 minutes.
@@ -321,7 +322,7 @@ ended without recording an outcome is requeued on the next tick, not after the s
 
 | Key | Type | Default | Effect |
 |---|---|---|---|
-| `notify.users.slack` | map of string to string | `{}` | GitHub login to Slack member ID (`U…`), for mentions in Slack notifications. |
+| `notify.users.slack` | map of string to string | `{}` | GitHub login to Slack member ID (`U…`), for mentions in Slack notifications. A key may also be an e-mail: an agent's question mentions the person it names by the e-mail the tracker has for them. |
 | `notify.users.discord` | map of string to string | `{}` | GitHub login to Discord user ID (a number, for example `"123456789012345678"`), for mentions in Discord notifications. Quote the ID. Symphony also accepts an unquoted number. |
 
 Rules:

@@ -77,3 +77,31 @@ def render_prompt(
     if extra_guidance:
         rendered = f"{rendered}\n\n{extra_guidance}"
     return rendered
+
+
+# A branch name the merger maps back to the ticket without naming it (`Merger.ticket_of`).
+PUBLIC_BRANCH_PREFIX = "symphony/"
+
+
+def public_repository_guidance(issue: Issue, repos: list[str]) -> str:
+    """Appended to the prompt when the work touches a public repository: there the ticket is
+    never named, and the branch carries the ticket's opaque id instead of its identifier."""
+    names = ", ".join(f"`{repo}`" for repo in repos)
+    return (
+        f"## Public repositories: {names}\n\n"
+        "Everything you write there is public and permanent: code, tests, docs, commit "
+        "messages, the branch, the pull request and its comments. This section overrides "
+        "every instruction above about naming or linking the ticket.\n\n"
+        f"- Never write `{issue.identifier}`, any other ticket identifier, ticket URLs, the "
+        "tracker's or the company's name, people's names, hostnames, account numbers or "
+        "anything copied from the ticket, its comments or logs. Describe the problem in "
+        "generic terms, with neutral examples (`acme/app`, `ENG-12`, `example.com`).\n"
+        f"- Name the branch `{PUBLIC_BRANCH_PREFIX}{issue.id}`: Symphony links the pull "
+        "request to the ticket through it. Link the pull request from the ticket (the Workpad "
+        "or a comment there), never the ticket from the pull request. The title and "
+        "description say what changed and why, nothing else.\n"
+        "- Before every push and before you open or edit the pull request, follow the "
+        "repository's public-repo-stealth skill when it has one (`.omp/skills/`), and check "
+        "the diff, the commit messages, the branch and the pull request text for anything "
+        "this list forbids."
+    )

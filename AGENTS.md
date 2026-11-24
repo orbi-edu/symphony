@@ -132,9 +132,14 @@ real `omp` binary skip unless `SYMPHONY_REAL_OMP=1`.
 
 ### 4.7 This repository is public
 
-- Write everything here — code, tests, docs, commit messages, pull request text — in generic
-  terms. Never copy from a ticket, a log or a deployment the names of companies, people,
-  products, accounts, hostnames, ticket identifiers or account numbers.
+- Follow `.omp/skills/public-repo-stealth/SKILL.md` for every change. It is mandatory, and
+  the `stealth` CI check enforces it on every pull request.
+- Write everything here — code, tests, docs, commit messages, branch names, pull request text
+  and comments — in generic terms. Never copy from a ticket, a log or a deployment the names
+  of companies, people, products, accounts, hostnames, ticket identifiers or account numbers.
+- Never name a ticket: no identifier in the branch, the title, the description or a commit
+  (`Fixes ABC-123` and `Refs ABC-123` included). An agent's branch is `symphony/<ticket id>`,
+  the opaque id Symphony gives it; the ticket links to the pull request, not the reverse.
 - Examples use neutral values: `acme/app`, `ENG-12`, `alice`, `example.com`.
 - A ticket that sent you here (an investigation of a failed run, say) is private; describe the
   problem it shows, not the deployment it came from.
@@ -144,7 +149,8 @@ real `omp` binary skip unless `SYMPHONY_REAL_OMP=1`.
 - One commit has one purpose. Write the subject in the imperative mood, 72 characters or less,
   with a type prefix: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`.
 - The body says what changed and why. It does not repeat the diff.
-- A pull request links its issue, says how you verified the change, and lists the risks.
+- A pull request says how you verified the change and lists the risks. It never names its
+  ticket (§4.7).
 
 ## 6. When you are not sure
 

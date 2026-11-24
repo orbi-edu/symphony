@@ -130,6 +130,7 @@ def build(cfg_holder: ConfigHolder, client, namespace: str, env: Mapping[str, st
     republished WORKFLOW applies without a restart."""
     from ..admin_commands import AdminStore
     from ..assistant import tools
+    from ..assistant.answers import Answers
     from ..assistant.confirm import AUDIT_ACTION, Confirmer, Policy, ProposalStore
     from ..assistant.engine import Engine
     from ..assistant.facts import AUDIT_ACTION as FACT_AUDIT
@@ -327,6 +328,10 @@ def build(cfg_holder: ConfigHolder, client, namespace: str, env: Mapping[str, st
             notify_users=lambda: policy().notify_users,
         )
 
+    answers = Answers(client, namespace, notify_users=lambda: policy().notify_users)
+    slack = transports.get("slack")
+    if slack is not None and hasattr(slack, "route_threads"):
+        slack.route_threads(answers.thread_known)
     engine = Engine(outbounds=transports, agents=runner, policy=policy, confirmer=confirmer,
                     memory=MemoryStore(client, namespace), souls=souls, facts=facts,
                     sandbox_tool=sandbox_tool_fn, on_session_end=on_session_end_fn,
@@ -334,7 +339,7 @@ def build(cfg_holder: ConfigHolder, client, namespace: str, env: Mapping[str, st
                     mcp_guidance_fn=mcp.chat_prompt_guidance,
                     share_device_tool_fn=_viewer_for_click,
                     preview_handler=preview_mgr.handle if preview_mgr is not None else None,
-                    logger=log)
+                    answers=answers, logger=log)
     return engine, transports, preview_mgr
 
 

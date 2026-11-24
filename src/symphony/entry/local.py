@@ -72,7 +72,7 @@ from ..trackers.base import Issue
 from ..trackers.memory import MemoryTracker
 from ..workflow_file import file_workflow
 from .admin_token import bootstrap_token
-from .daemon import _lease_guard, run_loop
+from .daemon import _lease_guard, questions_step, run_loop
 
 DEFAULT_PORT = 8080
 DEFAULT_GATEWAY_PORT = 8090
@@ -140,9 +140,13 @@ class LockedMemoryTracker:
         with self._lock:
             return self._inner.move(issue, state_name)
 
-    def comment(self, issue: str, body: str) -> str:
+    def comment(self, issue: str, body: str, *, parent: str | None = None) -> str:
         with self._lock:
-            return self._inner.comment(issue, body)
+            return self._inner.comment(issue, body, parent=parent)
+
+    def person(self, issue: str, hint: str | None = None) -> dict | None:
+        with self._lock:
+            return self._inner.person(issue, hint)
 
     def upsert_workpad(self, issue: str, body: str) -> str:
         with self._lock:
@@ -460,6 +464,7 @@ class LocalStack:
                         admission_open=lambda: bool(authoritative() and not self.store.paused()),
                         wake_reasons=reasons,
                     )
+                    questions_step(self.kv, self.namespace, tracker, cfg)
                     log.info("tick", wakes=len(reasons), **result)
         except Exception as exc:  # noqa: BLE001 — a tick never brings the stack down
             log.error("tick_failed", error=str(exc))

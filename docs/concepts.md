@@ -198,7 +198,9 @@ The `auto` mode of a message selects `answer` when a question is open, `steer` w
 
 ### Questions to people
 
-The agent asks a person with the `symphony_ask` host tool. The session goes to `waiting_input`, and each configured notification channel (Slack, Discord) gets an `input_requested` notification. If nobody answers in `agent.input_timeout_ms`, the agent gets the instruction to continue on its best judgment and record the assumption in the Workpad. A run never waits for a person without a limit.
+The agent asks a person with the `symphony_ask` host tool, naming who decides (`to`: someone on the ticket; the ticket's author by default). The session goes to `waiting_input`. The daemon posts the question on the ticket, as a comment that mentions that person and numbers the options, and in Slack with one button per option (Discord gets the text). A person answers by replying to the comment (a number picks an option), with a button or a reply in the Slack thread, or in Tern and the CLI. The first answer wins; the comment and the Slack message then say who answered.
+
+If nobody answers in `agent.input_timeout_ms`, the agent gets the instruction to continue on its best judgment and record the assumption in the Workpad. A run never waits for a person without a limit, but the question stays open: after `agent.ask_reminder_ms` (2 hours) the person is reminded once, on the ticket and in Slack, with the question again. A later answer still reaches the work: as a message to the run that went on without it, or, when no run works on the ticket, by sending the ticket back to Rework, whose next attempt reads it. An open question closes after seven days. The details are in [internals §3](internals.md).
 
 The [architecture document](architecture.md#live-chat-and-steer) shows the sequence. [api.md](api.md) gives the routes.
 

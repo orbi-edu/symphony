@@ -250,3 +250,26 @@ def test_multiple_logins_only_mapped_appear(bot):
     text = bot.requests[0]["body"]["text"]
     assert "<@U1>" in text
     assert "charlie" not in text or "<@" not in text.split("charlie")[0][-10:]
+
+
+def test_a_question_has_a_button_per_option_mentions_by_email_and_can_be_edited(bot):
+    notify.configure({"slack": {"victor@example.com": "U7"}})
+    where = notify.post_question("ENG-1 needs an answer: Which?", qid="q1",
+                                 options=["Keep", "x" * 100], mention_keys=["victor@example.com"])
+    body = bot.requests[0]["body"]
+    assert where is None  # Slack's answer named no message: nothing to come back to
+    assert "<@U7>" in body["text"]
+    [buttons] = [b["elements"] for b in body["blocks"] if b["type"] == "actions"]
+    assert [b["action_id"] for b in buttons] == ["ask:q1:0", "ask:q1:1"]
+    assert buttons[0]["text"]["text"] == "1. Keep" and len(buttons[1]["text"]["text"]) == 75
+    assert notify.parse_question_action("ask:q1:1") == ("q1", 1)
+    bot.responses.append((200, {"ok": True, "channel": "C42", "ts": "5.0"}, 0.0))
+    again = notify.post_question("reminder", qid="q1", options=["Keep"],
+                                 thread={"channel": "C42", "ts": "5.0"})
+    assert again == {"channel": "C42", "ts": "5.0"}
+    assert bot.requests[1]["body"]["thread_ts"] == "5.0"
+    assert bot.requests[1]["body"]["reply_broadcast"] is True
+    assert notify.edit_question(again, ":white_check_mark: *Answered*", "<@here> took 1")
+    edit = bot.requests[2]
+    assert edit["path"] == "/api/chat.update" and "&lt;@here&gt; took 1" in edit["body"]["text"]
+    assert "blocks" in edit["body"] and all(b["type"] != "actions" for b in edit["body"]["blocks"])

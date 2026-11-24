@@ -14,7 +14,7 @@ import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from . import state
+from . import discovery, state
 from .config import Config
 from .endpoints import github_api_url
 from .trackers.base import GitHubLike, TrackerAdapter, TrackerUnavailable
@@ -303,6 +303,14 @@ def run_retrospective(
         return "skipped"
 
     identifier = entry.get("identifier") or issue_id
+    repo = str(getattr(github, "repo", "") or entry.get("target_repo") or "").lower()
+    if repo and repo in discovery.public(kv.get(discovery.DISCOVERY_KEY)):
+        # Lessons come from the ticket and its Workpad: private, never for a public AGENTS.md.
+        kv.put(state.retro_key(issue_id), {**(kv.get(state.retro_key(issue_id)) or {}),
+                                           "identifier": identifier, "target_repo": repo,
+                                           "status": "done", "outcome": "public-repository",
+                                           "at": now_ms})
+        return "public-repository"
     # Terminal cleanup removes issue:* before this Job finishes. Retain only the
     # provenance needed to interpret the outcome, never the entry's credentials,
     # failure text, workpad, trace data, or session paths.

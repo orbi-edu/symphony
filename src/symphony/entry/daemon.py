@@ -27,7 +27,7 @@ import uuid
 from collections.abc import Callable
 from contextlib import contextmanager
 
-from .. import discovery, ghapp, kube, metrics, orchestrator, provision, state, wake
+from .. import discovery, ghapp, kube, metrics, orchestrator, provision, questions, state, wake
 from ..admin_auth import authorize_command
 from ..admin_commands import AdminStore, process_commands
 from ..admin_workflow import WorkflowRepository
@@ -35,6 +35,7 @@ from ..config import Config, ConfigHolder, bind_role_model
 from ..edge import SetupGate, load_config, log, make_tracker, now_ms, pod_namespace, usable_tracker
 from ..effects import K8sEffects
 from ..kv import LeaseKV, RedisKV
+from ..sessions import SessionStore
 from ..teamconfig import TeamConfig
 
 HEALTH_PORT = int(os.environ.get("SYMPHONY_HEALTH_PORT", "8081"))
@@ -202,6 +203,28 @@ def await_workflow(holder: ConfigHolder, kv, owner: str, gate: SetupGate, *, pat
     return step, configured
 
 
+ORPHAN_IDLE_MS = 10 * 60 * 1000
+
+
+def questions_step(kv, ns: str, tracker, cfg) -> None:
+    """Agent questions (`questions.py`), and the attempts a dead runner left open. Both are
+    best effort: neither is worth a failed tick."""
+    def live_seq(issue_id: str) -> int | None:
+        entry = kv.get(state.issue_key(issue_id)) or {}
+        return entry.get("dispatch_seq") if entry.get("status") in ("claimed", "running") else None
+
+    try:
+        questions.tick(kv.client, ns, kv=kv, tracker=tracker, cfg=cfg, now_ms=now_ms())
+    except Exception as exc:  # noqa: BLE001
+        log.warning("questions_failed", error=str(exc)[:300])
+    try:
+        closed = SessionStore(kv.client, ns).end_orphans(live_seq, idle_ms=ORPHAN_IDLE_MS)
+        if closed:
+            log.info("orphan_sessions_closed", sessions=closed)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("orphan_sessions_failed", error=str(exc)[:300])
+
+
 def main() -> None:
     kv = RedisKV()
     stop = threading.Event()
@@ -329,6 +352,7 @@ def _run(kv, stop: threading.Event, owner: str, store_ns: str, events: list) -> 
                         wake_reasons=reasons,
                     )
                     refresher.start(cfg)
+                    questions_step(kv, ns, tracker, cfg)
                     log.info("tick", wakes=len(reasons), **result)
         except Exception as exc:  # noqa: BLE001 — a tick never brings the daemon down
             log.error("tick_failed", error=str(exc))

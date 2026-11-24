@@ -32,6 +32,7 @@ from typing import Protocol
 import structlog
 
 from ..merger.agents import HostTool
+from ..notify import QUESTION_ACTION_PREFIX
 from . import Action, Button, File, HistoryMessage, Inbound, Outbound, Ref, split_text
 from . import facts as team_facts
 from . import memory as mem
@@ -317,6 +318,7 @@ class Engine:
         mcp_guidance_fn: Callable[[str], str] | None = None,
         share_device_tool_fn: Callable[[str, str, str], HostTool | None] | None = None,
         preview_handler: Callable[[Action, Outbound], str] | None = None,
+        answers=None,  # answers.Answers: replies and buttons on agents' questions
         logger=None,
     ) -> None:
         self.outbounds = outbounds
@@ -344,6 +346,7 @@ class Engine:
         self.share_device_tool_fn = share_device_tool_fn
         # Handles preview:<…> button clicks; None when previews are disabled.
         self.preview_handler = preview_handler
+        self.answers = answers
         self.log = logger
         self._lock = threading.Lock()
         self._slots = threading.Condition(self._lock)
@@ -422,7 +425,15 @@ class Engine:
 
     def on_message(self, msg: Inbound) -> None:
         cfg = self.policy()
-        if self._stopping or msg.transport not in self.outbounds or not self.allowed(msg, cfg):
+        if self._stopping or msg.transport not in self.outbounds:
+            return
+        if (self.answers is not None and msg.thread != msg.message_id
+                and self.answers.thread_known(msg.channel, msg.thread)):
+            # An answer to an agent's question, not a message for the assistant.
+            out = self.outbounds[msg.transport]
+            self._spawn(lambda: self.answers.on_reply(msg, out))
+            return
+        if not self.allowed(msg, cfg):
             return
         named, text = mode(msg.text)
         if not text and not msg.files:
@@ -448,7 +459,9 @@ class Engine:
             return
 
         handler: Callable[[Action, Outbound], str] | None = None
-        if action.action_id.startswith("preview:") and self.preview_handler is not None:
+        if action.action_id.startswith(QUESTION_ACTION_PREFIX) and self.answers is not None:
+            handler = self.answers.on_click
+        elif action.action_id.startswith("preview:") and self.preview_handler is not None:
             handler = self.preview_handler
         elif action.action_id.startswith("device:") and self._device_handler is not None:
             handler = self._device_handler

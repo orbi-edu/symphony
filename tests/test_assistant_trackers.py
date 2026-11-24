@@ -93,6 +93,19 @@ def test_linear_prefixed_labels_join_their_workspace_group(linear):
     assert shape == [("component:api", None, "ENG"), ("repo:acme/app", "repo", None)]
 
 
+def test_linear_replies_thread_under_a_comment_and_people_carry_a_mention(linear):
+    made = linear.create_issue("Pick a layout", "", labels=[], state="Todo")
+    root = linear.comment(made["identifier"], "Which layout?")
+    reply = linear.comment(made["identifier"], "Still waiting", parent=root)
+    node = linear._post("query($id: String!) { comment(id: $id) { parent { id } } }",
+                        {"id": reply})["comment"]
+    assert node["parent"]["id"] == root
+    author = linear.person(made["identifier"])
+    assert author and author["mention"].startswith("http") and author["name"]
+    assert linear.person(made["identifier"], author["name"].upper()) == author
+    assert linear.person(made["identifier"], "nobody-here") is None
+
+
 # -- GitHub -----------------------------------------------------------------------------------
 @pytest.fixture(scope="module")
 def github(tmp_path_factory):

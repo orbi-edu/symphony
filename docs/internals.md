@@ -204,8 +204,26 @@ human questions go through `symphony_ask`.
 Rules for the runner tools:
 
 - `symphony_ask` waits for `agent.input_timeout_ms` (default 15 minutes). If no person
-  answers, the result is the fallback text "No human answered; proceed with your best judgment
-  and record the assumption in the Workpad." Thus the run never stops on a question.
+  answers, the result is a fallback that says to proceed with the agent's best judgment and
+  record the assumption in the Workpad. Thus the run never stops on a question.
+- The question outlives the run (`questions.py`): a Redis hash
+  `sym:<ns>:question:<call id>`, kept 14 days, and the set `sym:<ns>:questions` of those not
+  finished. Each daemon tick moves each one a step: it posts the comment (on the ticket,
+  mentioning the person `to` names through the profile link Linear turns into a
+  mention) and the Slack message (`ask:<id>:<n>` buttons; the mention comes from
+  `notify.users.slack`, whose keys may be e-mails); reminds once after
+  `agent.ask_reminder_ms`; and closes it unanswered after seven days. An answer is a reply
+  in the comment's thread (the Linear webhook queues it in `sym:<ns>:questions:inbox`;
+  Symphony's own replies are recorded and never count), a Slack button or thread reply (the
+  assistant; only people mapped in `notify.users`), or the waiting run itself (Tern, CLI).
+  `SET NX` makes the first one win. The daemon delivers it: an `answer` intent to the run
+  still waiting on it, `steer` (or `follow_up`) to a later run of the ticket, else Rework
+  for a ticket in review, nothing for an active or closed one (an active ticket's next
+  attempt reads the comment). Then the ticket thread and the Slack message say who
+  answered and where it went.
+- An attempt whose runner died leaves its session open. The daemon closes an implementation
+  session not updated for 10 minutes when its ticket's live attempt is another one; a
+  question it was waiting on stays open.
 - The runner always offers `symphony_create_issues` and `symphony_attach_evidence`, for every
   tracker. The tracker adapter does the work (see [section 16](#16-tracker-interface)).
 - `symphony_create_issues` makes each item a child of the current ticket. Each child gets the
