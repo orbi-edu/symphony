@@ -36,9 +36,11 @@ _VOLATILE = re.compile(
 
 
 def signature(summary: str, evidence: dict) -> str:
-    """The failure's identity across runs and tickets: the error text with ids, numbers
-    and hashes masked."""
-    text = " ".join(filter(None, [summary, evidence.get("error"), evidence.get("reason")]))
+    """The failure's identity across runs and tickets: the error text and the cause of a pod
+    disruption, with ids, numbers and hashes masked."""
+    disruption = evidence.get("disruption")
+    text = " ".join(filter(None, [summary, evidence.get("error"), evidence.get("reason"),
+                                  disruption and f"pod {disruption}"]))
     normalized = " ".join(_VOLATILE.sub("#", text.casefold()).split())
     return hashlib.sha256(normalized.encode()).hexdigest()[:12]
 
@@ -110,7 +112,8 @@ def _ticket(cfg: Config, issue: Issue, entry: dict, summary: str, evidence: dict
              f"{entry.get('attempt', '?')}, Job `{evidence.get('job') or 'unknown'}`",
              f"- **What failed:** {redact(summary)}",
              f"- **Signature:** `{sig}` — the same failure again adds an occurrence here"]
-    for name, label in (("reason", "Job"), ("container", "Runner container"), ("error", "Error")):
+    for name, label in (("reason", "Job"), ("container", "Runner container"), ("pod", "Runner pod"),
+                        ("error", "Error")):
         if evidence.get(name):
             facts.append(f"- **{label}:** {redact(str(evidence[name]))[:300]}")
     log_block = ("\n\n## Runner log (last lines)\n\n```\n" + "\n".join(lines) + "\n```") if lines else ""
