@@ -30,7 +30,7 @@ from ..edge import (
     pod_namespace,
     telemetry_env,
 )
-from ..effects import kill_agent_generation
+from ..effects import stop_workspace_generation
 from ..endpoints import overrides as endpoint_overrides
 from ..kube import PodSandbox
 from ..kv import RedisKV
@@ -276,8 +276,9 @@ def main() -> str:
         ensure_sandbox=ensure_sandbox,
         open_client=open_client,
         # SIGTERM already stopped the engine; this sweeps the generation's leftovers
-        # (tool subprocesses) and confirms nothing of it survives.
-        kill_agent=lambda wrapped: kill_agent_generation(wrapped, issue_id, seq),
+        # (tool subprocesses) and confirms nothing of it survives — or that the pod is
+        # gone or ended, so nothing can.
+        kill_agent=lambda wrapped: stop_workspace_generation(core, ns, wrapped, issue_id, seq),
         # start the idle clock: the reaper — the idle_timeout stand-in — takes it from here
         release_sandbox=lambda wrapped: kube.set_idle_since(core, ns, wrapped.name, now_ms()),
         wall_deadline_ms=runner_mod.compute_env_wall_deadline(started, cfg),
