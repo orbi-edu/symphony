@@ -222,9 +222,11 @@ On Kubernetes, these keys control the workspaces and the Jobs. Local mode ignore
 | `kubernetes.learning.learnings_label` | string | `symphony-learnings` | The label of learnings pull requests. |
 | `kubernetes.learning.decay_after_incorporations` | integer | `10` | A lesson that no retrospective used in this number of changes decays. |
 
-Runner and reflector Job pods carry the annotation
-`cluster-autoscaler.kubernetes.io/safe-to-evict: "false"`, so the cluster autoscaler does not
-remove their node during an attempt. See the sizing note in [install.md](install.md#2-prerequisites).
+Runner and reflector Job pods carry the annotations
+`cluster-autoscaler.kubernetes.io/safe-to-evict: "false"` and `karpenter.sh/do-not-disrupt: "true"`,
+so neither the cluster autoscaler nor Karpenter consolidation removes their node during an
+attempt. A workspace pod carries both annotations while an attempt uses it; a released
+workspace drops them. See the sizing note in [install.md](install.md#2-prerequisites).
 
 ### Repository discovery
 

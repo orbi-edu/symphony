@@ -54,7 +54,13 @@ This document tells you how to install Symphony on Kubernetes (k3s on a VM, or a
 
 Each workspace pod requests 2 CPUs and 4 GiB of memory by default (`kubernetes.sandbox`). Size the nodes for `agent.max_concurrent_agents` workspaces. Add up to 4 CPUs and 6 GiB for each merger.
 
-Each runner Job pod (one for each running ticket) and each reflector Job pod requests 0.25 CPU and 512 MiB of memory, and its memory limit is 512 MiB (`kubernetes.runner.cpu`, `kubernetes.runner.memory_mib`). A local-stack test process that holds the daemon, the API and a runner peaked at about 110 MiB, so the default leaves room for long attempts. Raise `memory_mib` if a runner ends with `OOMKilled`. Runner pods carry the annotation `cluster-autoscaler.kubernetes.io/safe-to-evict: "false"`: the cluster autoscaler does not remove their node while an attempt runs. A `kubectl drain` does not read this annotation and evicts the runner; drain a node when no runner runs on it.
+Each runner Job pod (one for each running ticket) and each reflector Job pod requests 0.25 CPU and 512 MiB of memory, and its memory limit is 512 MiB (`kubernetes.runner.cpu`, `kubernetes.runner.memory_mib`). A local-stack test process that holds the daemon, the API and a runner peaked at about 110 MiB, so the default leaves room for long attempts. Raise `memory_mib` if a runner ends with `OOMKilled`.
+
+Symphony marks runner pods, reflector pods and busy workspace pods with two annotations: `cluster-autoscaler.kubernetes.io/safe-to-evict: "false"` for the cluster autoscaler, and `karpenter.sh/do-not-disrupt: "true"` for Karpenter (EKS Auto Mode included). Karpenter reads only the second one. With them, neither autoscaler removes the node of an attempt in flight to consolidate. A workspace pod carries them while an attempt uses it; a released workspace drops them, so an idle workspace never holds a node. These annotations have limits:
+
+- A `kubectl drain` does not read them and evicts the pod. Drain a node when no attempt runs on it.
+- Karpenter's forceful disruption (node expiry, node repair, Spot interruption) still removes the pods.
+- A NodePool `terminationGracePeriod` limits how long a protected pod can block a drain. After it, Karpenter deletes the pod.
 
 ## 3. Minimal install on Kubernetes
 

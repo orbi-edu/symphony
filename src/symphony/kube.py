@@ -30,6 +30,11 @@ from .workspace import dns_name, workspace_key
 IDLE_ANNOTATION = "symphony.dev/idle-since"
 # The cluster autoscaler does not remove a node that runs a pod with this set to "false".
 SAFE_TO_EVICT_ANNOTATION = "cluster-autoscaler.kubernetes.io/safe-to-evict"
+# Karpenter (and EKS Auto Mode) reads only this one: consolidation does not evict a pod
+# with it set to "true". Forceful disruption (expiry, repair, Spot interruption) still does.
+DO_NOT_DISRUPT_ANNOTATION = "karpenter.sh/do-not-disrupt"
+# The annotations of a pod that an attempt uses; a released workspace drops them.
+BUSY_ANNOTATIONS = {SAFE_TO_EVICT_ANNOTATION: "false", DO_NOT_DISRUPT_ANNOTATION: "true"}
 
 # Secret/ConfigMap names, overridable so several installs can share a namespace.
 SECRET_TRACKER = os.environ.get("SYMPHONY_SECRET_TRACKER", "linear-api-key")
@@ -364,6 +369,8 @@ def _workspace_manifest(cfg, name: str, image: str) -> dict:
         "metadata": {
             "name": name,
             "labels": {"app": cfg.app_name, "component": "workspace"},
+            # Created for an attempt that starts at once; `set_idle_since` drops them on release.
+            "annotations": dict(BUSY_ANNOTATIONS),
         },
         "spec": {
             **spec_extra,
@@ -514,9 +521,16 @@ def delete_session_pvc(core, ns: str, pod_name: str) -> None:
 
 def set_idle_since(core, ns: str, name: str, at_ms: int | None) -> None:
     """Mark (or clear) the workspace as released. The reaper reads this annotation —
-    the K8s stand-in for modal.Sandbox's idle_timeout, which no pod has natively."""
+    the K8s stand-in for modal.Sandbox's idle_timeout, which no pod has natively.
+
+    A busy pod carries the eviction guards; a released one drops them in the same patch,
+    so an idle workspace never holds a node against a scale-down."""
     ApiException = _api_exception()
-    body = {"metadata": {"annotations": {IDLE_ANNOTATION: str(at_ms) if at_ms else None}}}
+    if at_ms:
+        annotations: dict = {IDLE_ANNOTATION: str(at_ms)} | dict.fromkeys(BUSY_ANNOTATIONS)
+    else:
+        annotations = {IDLE_ANNOTATION: None, **BUSY_ANNOTATIONS}
+    body = {"metadata": {"annotations": annotations}}
     try:
         core.patch_namespaced_pod(name, ns, body)
     except ApiException as exc:
@@ -590,7 +604,7 @@ def _job_manifest(
                     "labels": labels,
                     # A drain or scale-down would kill the attempt in flight; the daemon,
                     # not the platform, decides when a runner ends.
-                    "annotations": {SAFE_TO_EVICT_ANNOTATION: "false"},
+                    "annotations": dict(BUSY_ANNOTATIONS),
                 },
                 "spec": {
                     "restartPolicy": "Never",
