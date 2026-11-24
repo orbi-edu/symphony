@@ -205,57 +205,28 @@ def build(cfg_holder: ConfigHolder, client, namespace: str, env: Mapping[str, st
     repos = ReadOnlyRepos(workdir, mirrored, server_url=github_server_url(), token_for=token_for,
                           base_branch_for=lambda repo: policy().base_branch(repo), logger=log)
 
-    # Build a skill stager for the assistant: global sources + sources whose repos intersect
-    # the assistant's reachable repositories. Each role gets only its applicable skills.
-    skill_stager = None
+    # Skill staging for the assistant's agents, from the policy at each run (sources published
+    # after start must reach the next run): global sources, plus sources scoped to a repository
+    # the assistant can read.
+    from ..skills import deduplicate, resolve_sources, skills_meta, stage_skills_local
     _assist_sessions = SessionStore(client, namespace)
 
-    def _make_skill_stager():
-        cfg = policy()
-        if not cfg.skill_sources:
-            return None
-        from ..skills import deduplicate, resolve_sources, skills_meta, stage_skills_local
-
-        def _stager(agent_dir: str, role: str, meta: dict) -> None:
-            if not agent_dir:
-                return
-            current_cfg = policy()
-            if not current_cfg.skill_sources:
-                return
-            # The assistant has no single target repo. Apply global sources and sources
-            # whose repos intersect the assistant's reachable repositories.
-            assist_repos = repositories()
-            resolved = resolve_sources(
-                current_cfg.skill_sources, role, None,
-                env, now_ms,
-                cache_client=client, cache_ns=namespace,
-            )
-            # Also include repo-specific sources that match any reachable repo.
-            repo_specific = []
-            for src in current_cfg.skill_sources:
-                if src.repos and src.applies_to(role, None) is False:
-                    # Check intersection with reachable repos.
-                    for ar in assist_repos:
-                        if src.applies_to(role, ar):
-                            repo_specific_resolved = resolve_sources(
-                                [src], role, ar, env, now_ms,
-                                cache_client=client, cache_ns=namespace,
-                            )
-                            repo_specific.extend(repo_specific_resolved)
-                            break
-            all_resolved = resolved + repo_specific
-            skills = deduplicate(all_resolved, None)
-            stage_skills_local(agent_dir, skills)
-            sid = meta.get("sid")
-            if sid and all_resolved:
-                try:
-                    _assist_sessions.update(sid, skills=skills_meta(all_resolved))
-                except Exception:  # noqa: BLE001
-                    pass
-
-        return _stager
-
-    skill_stager = _make_skill_stager()
+    def skill_stager(agent_dir: str, role: str, meta: dict) -> None:
+        sources = policy().skill_sources
+        if not agent_dir or not sources:
+            return
+        readable = {r.lower() for r in repositories()}
+        chosen = [src for src in sources
+                  if src.is_global or readable & {r.lower() for r in src.repos}]
+        resolved = resolve_sources(chosen, role, None, env, now_ms,
+                                   cache_client=client, cache_ns=namespace)
+        stage_skills_local(agent_dir, deduplicate(resolved, None))
+        sid = meta.get("sid")
+        if sid and resolved:
+            try:
+                _assist_sessions.update(sid, skills=skills_meta(resolved))
+            except Exception:  # noqa: BLE001
+                pass
 
     runner = AssistRunner(
         SessionStore(client, namespace),
