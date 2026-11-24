@@ -7,6 +7,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.13] - 2026-11-24
+
 ### Added
 
 - An agent's question (`symphony_ask`) outlives the run that asked it. The daemon posts it on
