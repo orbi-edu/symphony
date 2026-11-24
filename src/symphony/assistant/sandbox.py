@@ -173,6 +173,15 @@ class AssistantSandbox:
         code, output = sandbox.exec_script(f"cd {shlex.quote(dest)} && {command}", timeout_s=float(limit))
         return code, truncate_output(output, sc.max_output_chars)
 
+    def readable(self) -> tuple[kube.PodSandbox, list[str]]:
+        """The thread's pod and the directories of its clones, for `share_file`. Raises
+        SandboxError before the first `sandbox_run`: there is nothing to share yet."""
+        with self._lock:
+            name, cloned = self._name, sorted(self._cloned)
+        if name is None:
+            raise SandboxError("this thread has no sandbox yet: make the file with sandbox_run first")
+        return kube.PodSandbox(self._core, self._ns, name), [f"/workspace/{r}" for r in cloned]
+
     def close(self) -> None:
         with self._lock:
             name, self._name = self._name, None

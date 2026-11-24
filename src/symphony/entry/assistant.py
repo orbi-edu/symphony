@@ -276,9 +276,12 @@ def build(cfg_holder: ConfigHolder, client, namespace: str, env: Mapping[str, st
 
     # -- sandbox: one workspace pod per chat thread (assistant/sandbox.py) ---------------------
     sandbox_tool_fn = None
+    share_file_tool_fn = None
+    evidence = None
     on_session_end_fn = None
     if core is not None and all(env.get(name) for name in GITHUB_APP_ENV):
         from ..assistant.sandbox import AssistantSandbox, sandbox_run_tool, sweep_orphans
+        from ..assistant.share import EVIDENCE_AUDIT, SHARE_AUDIT, Evidence, share_file_tool
         from ..ghapp import InstallationCredential
 
         sandboxes: dict[str, AssistantSandbox] = {}
@@ -305,6 +308,24 @@ def build(cfg_holder: ConfigHolder, client, namespace: str, env: Mapping[str, st
                 return None
             return sandbox_run_tool(lambda: sandbox_for(thread_key), repositories,
                                     lambda: notes.login)
+
+        evidence = Evidence(
+            ProposalStore(client, namespace, kind="evidence"),
+            tracker=tracker,
+            notify_users=lambda: policy().notify_users,
+            audit=lambda actor, target, reason: audit_store.audit_event(
+                actor=actor, action=EVIDENCE_AUDIT, target=target, reason=reason),
+            logger=log,
+        )
+
+        def share_file_tool_fn(thread_key: str, notes, out, channel: str, thread: str):
+            # Offered with sandbox_run (the engine asks only then), for the same asker.
+            return share_file_tool(
+                files=lambda: sandbox_for(thread_key).readable(), login=lambda: notes.login,
+                out=out, channel=channel, thread=thread,
+                audit=lambda actor, target, reason: audit_store.audit_event(
+                    actor=actor, action=SHARE_AUDIT, target=target, reason=reason),
+                evidence=evidence, logger=log)
 
         def on_session_end_fn(thread_key: str) -> None:
             with sandboxes_lock:
@@ -359,7 +380,8 @@ def build(cfg_holder: ConfigHolder, client, namespace: str, env: Mapping[str, st
         slack.route_threads(answers.thread_known)
     engine = Engine(outbounds=transports, agents=runner, policy=policy, confirmer=confirmer,
                     memory=MemoryStore(client, namespace), souls=souls, facts=facts,
-                    sandbox_tool=sandbox_tool_fn, on_session_end=on_session_end_fn,
+                    sandbox_tool=sandbox_tool_fn, share_file_tool=share_file_tool_fn,
+                    evidence=evidence, on_session_end=on_session_end_fn,
                     server_url=github_server_url(), reachable=repositories,
                     mcp_guidance_fn=mcp.chat_prompt_guidance,
                     share_device_tool_fn=_viewer_for_click,

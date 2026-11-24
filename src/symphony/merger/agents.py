@@ -49,6 +49,10 @@ class AgentFailed(Exception):
     pass
 
 
+class HostToolError(Exception):
+    """A valid call the host could not carry out; the message tells the agent what to do."""
+
+
 @dataclass
 class HostTool:
     name: str
@@ -57,7 +61,8 @@ class HostTool:
     terminal: bool = False
     # Extra validation beyond the schema: an error message, or None when the call is fine.
     check: Callable[[dict], str | None] | None = None
-    # The text answered for a valid call (given the call's index in its tool's list).
+    # The text answered for a valid call (given the call's index in its tool's list). Raising
+    # HostToolError answers its message as a tool error.
     answer: Callable[[dict, int], str] | None = None
 
     def definition(self) -> dict:
@@ -495,8 +500,11 @@ class _Run:
         else:
             index = len(self.calls[name])
             self.calls[name].append(args)
-            text = tool.answer(args, index) if tool.answer else "recorded"
-            is_error = False
+            try:
+                text = tool.answer(args, index) if tool.answer else "recorded"
+                is_error = False
+            except HostToolError as exc:
+                text, is_error = str(exc), True
         self.reply({"type": "host_tool_result", "id": frame["id"],
                     "result": {"content": [{"type": "text", "text": text}]}, "isError": is_error})
         if not is_error and tool.terminal:

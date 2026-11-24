@@ -47,6 +47,8 @@ STANDALONE_ACTIONS = frozenset({
     "admin.mcp.test",
     "mcp.viewer",
     "assistant.tickets_created",
+    "assistant.file_shared",
+    "assistant.evidence_attached",
     "assistant.team_fact_pr",
     "assistant.memory_read",
     "assistant.memory_forget",

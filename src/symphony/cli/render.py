@@ -732,6 +732,8 @@ _ACTION_LABEL = {
     "admin.mcp.remove": "MCP: remove server", "admin.mcp.headers": "MCP: set headers",
     "admin.mcp.test": "MCP: test server", "assistant.tickets_created": "assistant: tickets created",
     "mcp.viewer": "MCP: viewer link",
+    "assistant.file_shared": "assistant: file shared",
+    "assistant.evidence_attached": "assistant: file attached to ticket",
     "assistant.team_fact_pr": "assistant: team fact PR", "assistant.memory_read": "assistant: read memory",
     "assistant.memory_forget": "assistant: forget memory item", "assistant.memory_wipe": "assistant: wipe memory",
     "backup.export": "backup: download", "backup.restore": "backup: restore",

@@ -92,14 +92,15 @@ class _Records:
 
 class ProposalStore:
     def __init__(self, client, namespace: str, kind: str = "proposal") -> None:
-        """`kind` names the key space: `proposal` (tickets) or `fact` (team facts)."""
+        """`kind` names the key space: `proposal` (tickets), `fact` (team facts) or
+        `evidence` (a shared file to attach to a ticket, `share.py`)."""
         self.client = client
         self.prefix = f"sym:{namespace}:assistant:{kind}:"
 
-    def save(self, doc: dict) -> str:
+    def save(self, doc: dict, ttl_s: int = PROPOSAL_TTL_S) -> str:
         pid = secrets.token_hex(8)
         self.client.set(self.prefix + pid, json.dumps({**doc, "id": pid, "status": "open"}),
-                        ex=PROPOSAL_TTL_S)
+                        ex=ttl_s)
         return pid
 
     def get(self, pid: str) -> dict | None:

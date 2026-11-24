@@ -664,6 +664,7 @@ local ACTION = {
 	["admin.mcp.put"] = "saved an MCP server", ["admin.mcp.remove"] = "removed an MCP server",
 	["admin.mcp.headers"] = "changed MCP server headers", ["admin.mcp.test"] = "tested an MCP server",
 	["assistant.tickets_created"] = "assistant: tickets created",
+	["assistant.file_shared"] = "assistant: shared a file", ["assistant.evidence_attached"] = "assistant: attached a file to a ticket",
 	["assistant.team_fact_pr"] = "assistant: opened a team fact PR", ["assistant.memory_read"] = "read the assistant's memory",
 	["assistant.memory_forget"] = "removed an assistant memory item", ["assistant.memory_wipe"] = "wiped a person's assistant memory",
 	["setup.tracker"] = "set up the tracker", ["setup.github_app"] = "set up the GitHub App",

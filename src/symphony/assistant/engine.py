@@ -12,7 +12,8 @@
   transport's `message_limit` continues in more messages.
 - **Proposals:** a planner's `propose_tickets` is stored and posted with buttons; a click goes
   to `confirm.Confirmer`. A `propose_team_fact` is posted the same way; its click goes to
-  `facts.FactConfirmer`.
+  `facts.FactConfirmer`. A `share_file` with `ticket` posts an Attach button; its click goes
+  to `share.Evidence`.
 - **Soul and memory:** a new session's instructions get the soul file (`soul.py`) after the
   built-in rules, and each asker's memory (`memory.py`) once per session. What `remember` and
   `forget` did ends the answer ("I'll remember: …", "I forgot: …").
@@ -167,9 +168,19 @@ SANDBOX_INSTRUCTIONS = (
     "use the sandbox for builds, tests, and multi-step analysis."
 )
 
+# Appended when share_file is offered (with the sandbox).
+SHARE_FILE_INSTRUCTIONS = (
+    "To deliver a file you made in the sandbox (a video, screenshot, PDF, HTML page, "
+    "spreadsheet, document), post it with share_file: the person gets the file itself. Never "
+    "paste a whole HTML page or a binary as text, and never tell the person to save text as a "
+    "file, when the file can be shared. If share_file says the file is too large, make it "
+    "smaller (720p, a higher CRF, or parts) and share it again."
+)
+
 
 def instructions(role: str, *, transport: str, is_dm: bool, repos: list[str],
                  soul: Soul | None = None, has_sandbox: bool = False,
+                 has_share_file: bool = False,
                  mcp_guidance: str = "", openable: list[str] | None = None) -> str:
     """The session's instructions: the built-in role and safety rules, then the soul."""
     where = f"a {transport.capitalize()} {'direct message' if is_dm else 'thread'}"
@@ -181,6 +192,8 @@ def instructions(role: str, *, transport: str, is_dm: bool, repos: list[str],
     ]
     if has_sandbox:
         lines.append(SANDBOX_INSTRUCTIONS)
+    if has_share_file:
+        lines.append(SHARE_FILE_INSTRUCTIONS)
     if role == "planner":
         lines.append(PLANNER_SPEC_INSTRUCTIONS)
     if repos:
@@ -307,6 +320,8 @@ class Engine:
         souls=None,  # soul.SoulReader
         facts: team_facts.FactConfirmer | None = None,
         sandbox_tool: Callable[[str, object], HostTool | None] | None = None,
+        share_file_tool: Callable[[str, object, Outbound, str, str], HostTool | None] | None = None,
+        evidence=None,  # share.Evidence: Attach / Dismiss clicks on a shared file
         on_session_end: Callable[[str], None] | None = None,
         server_url: str = "https://github.com",
         reachable: Callable[[], list[str]] | None = None,
@@ -333,6 +348,9 @@ class Engine:
         # (thread key, the thread's TurnNotes) -> the sandbox tool, or None when it is off;
         # the tool reads the current turn's asker from the notes at call time.
         self.sandbox_tool = sandbox_tool
+        # (thread key, notes, outbound, channel, thread) -> share_file, or None when it is off.
+        self.share_file_tool = share_file_tool
+        self.evidence = evidence
         self.on_session_end = on_session_end  # (thread key) -> called when a session ends
         self.server_url = server_url
         self.clock = clock
@@ -467,6 +485,8 @@ class Engine:
             handler = self._device_handler
         elif action.action_id.startswith("fact:") and self.facts is not None:
             handler = self.facts.handle
+        elif action.action_id.startswith("evidence:") and self.evidence is not None:
+            handler = self.evidence.handle
         else:
             handler = self.confirmer.handle
 
@@ -567,6 +587,7 @@ class Engine:
             }
             session_tools = self._tools(th, cfg)
             has_sandbox = any(t.name == "sandbox_run" for t in session_tools)
+            has_share_file = any(t.name == "share_file" for t in session_tools)
             th.agent = self.agents.open(th.sid, turn.role, meta,
                                         lambda actor, text: self._from_tern(th, actor, text),
                                         tools=session_tools)
@@ -578,6 +599,7 @@ class Engine:
             openable = [r for r in (self.reachable() if self.reachable else []) if r not in repos]
             parts += [instructions(turn.role, transport=th.transport, is_dm=th.is_dm, repos=repos,
                                    soul=soul, has_sandbox=has_sandbox,
+                                   has_share_file=has_share_file,
                                    mcp_guidance=guidance, openable=openable), context]
         parts.append(self._memory(th, cfg, turn))
         prompt = "\n\n".join(p for p in (*parts, prompt) if p)
@@ -623,6 +645,11 @@ class Engine:
             sb_tool = self.sandbox_tool(_thread_key(th), th.notes)
             if sb_tool is not None:
                 tools.append(sb_tool)
+                if self.share_file_tool is not None:
+                    share = self.share_file_tool(_thread_key(th), th.notes,
+                                                 self.outbounds[th.transport], th.channel, th.thread)
+                    if share is not None:
+                        tools.append(share)
         # share_device only for a role whose servers bring chat guidance (a device lab).
         if self.share_device_tool_fn is not None and self.mcp_guidance_fn is not None \
                 and self.mcp_guidance_fn(th.role):

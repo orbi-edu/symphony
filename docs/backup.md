@@ -36,6 +36,7 @@ Not in the backup:
 | Family | Why |
 |---|---|
 | `sym:<ns>:ratelimit:*` | API rate limit counters; they live one minute |
+| `sym:<ns>:assistant:evidence:*` | Files the assistant shared that wait for an "Attach" click; they live one hour |
 | `issue:*` | Ticket tracking; reconcile rebuilds it from the tracker |
 | `dispatch:*`, `toolcall:*`, `subissue:*`, `telemetry:*` | Records of live runs. A restore leaves the live ones in place; old ones would be stale |
 | `lock:orchestrator` | The daemon lease. A restored lease would block the live daemon |

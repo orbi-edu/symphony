@@ -13,6 +13,20 @@ Served Web API methods (POST or GET, `application/x-www-form-urlencoded` or
 - `auth.test`
 - `users.lookupByEmail` (scope `users:read.email`)
 - `apps.connections.open` (Socket Mode, below)
+- The external file upload (scope `files:write`; the spec predates it, so the arguments come
+  from `slack-files.getUploadURLExternal.md`, `slack-files.completeUploadExternal.md` and
+  `slack-working-with-files.md`):
+  - `files.getUploadURLExternal` (`filename`, `length`; a form body only: a JSON body's
+    arguments are ignored, so it answers `missing_argument`, as is a `length` of 0) →
+    `upload_url` on this mock and a `file_id`.
+  - `POST /upload/v1/<id>`: the raw bytes (multipart is not modelled) → `200 OK - <n>`. A body
+    whose size is not the declared `length` → 400 and nothing is stored (the docs say only that
+    a non-200 answer is a failure); an unknown or used URL → 404.
+  - `files.completeUploadExternal` (`files` `[{id, title?}]`, `channel_id`, `thread_ts`,
+    `initial_comment`, …): a file not uploaded, or already completed (it "can only be called
+    once") → `file_not_found`; an unknown `channel_id` → `channel_not_found`; `thread_ts`
+    without `channel_id` → `invalid_arguments`. Answers the `files` with `permalink`.
+  The bytes are served at `GET /files/<file_id>` like any file.
 
 Another method of the spec → 501 `not_served_by_mock`; a name not in the spec → 404.
 
@@ -58,6 +72,9 @@ Control (`/_mock/*`, JSON):
   `POST /_mock/tokens` `{"token": "xoxb-…"}`; `POST /_mock/app_tokens` `{"token": "xapp-…"}`;
   `POST /_mock/webhooks` `{"path": "/services/…", "channel": "C…"}`
 - `GET /_mock/ephemerals`, `GET /_mock/updates` — `chat.postEphemeral` and `chat.update` calls
+- `GET /_mock/uploads` — `{calls, uploads}`: the upload steps in order (`method`, `file_id`)
+  and each upload (`file_id`, `filename`, `length`, `received`, `completed`, `channel`,
+  `thread_ts`, `title`, `initial_comment`)
 - `GET /_mock/state` — fixtures.
 
 State (messages + fixtures) is persisted to `<state>/slack.json` after every change and loaded at start.
@@ -84,6 +101,18 @@ SPEC_PATH = Path(__file__).resolve().parent.parent / "specs" / "slack_web_openap
 METHODS = ("chat.postMessage", "chat.update", "chat.postEphemeral", "conversations.replies",
            "auth.test", "users.lookupByEmail")
 SOCKET_METHOD = "apps.connections.open"
+# Argument types from the method pages (see the module docstring); `json`: a JSON body counts.
+UPLOAD_METHODS = {
+    "files.getUploadURLExternal": {
+        "json": False, "required": ("filename", "length"),
+        "types": {"filename": "string", "length": "integer", "snippet_type": "string",
+                  "alt_txt": "string"}},
+    "files.completeUploadExternal": {
+        "json": True, "required": ("files",),
+        "types": {"files": "array", "channel_id": "string", "thread_ts": "string",
+                  "channels": "string", "initial_comment": "string", "blocks": "string",
+                  "username": "string", "icon_url": "string", "icon_emoji": "string"}},
+}
 
 TEAM_ID = "T0MOCKTEAM"
 BOT_ID = "B0MOCKBOT1"
@@ -120,6 +149,8 @@ def _seed() -> dict:
         "ratelimit": {"enabled": False, "retry_after": 30},
         "files": {},  # file_id -> bytes content (base64-encoded in JSON)
         "files_scope_blocked": False,  # simulate missing files:read scope
+        "uploads": {},  # file_id -> an external upload (files.getUploadURLExternal)
+        "upload_calls": [],  # the upload steps in order
     }
 
 
@@ -396,6 +427,120 @@ class SlackMock:
                         "thread_ts": root, "parent_user_id": out[0]["user"], "ts": m["ts"]})
         return {"ok": True, "messages": out[:limit], "has_more": len(out) > limit}
 
+    # external file upload -----------------------------------------------------------
+
+    def upload_api(self, method: str, token: str | None, raw: dict, *, host: str) -> dict:
+        try:
+            if not token:
+                raise _Reject("not_authed")
+            if token not in self.state["tokens"]:
+                raise _Reject("invalid_auth")
+            args = self._upload_args(method, raw)
+            with self.lock:
+                if method == "files.getUploadURLExternal":
+                    return self._get_upload_url(args, host)
+                return self._complete_upload(args)
+        except _Reject as exc:
+            return {"ok": False, "error": exc.error}
+
+    def _upload_args(self, method: str, raw: dict) -> dict:
+        meta = UPLOAD_METHODS[method]
+        args: dict[str, Any] = {}
+        for name, value in raw.items():
+            if name == "token":
+                continue
+            kind = meta["types"].get(name)
+            if kind is None:
+                raise _Reject("invalid_arg_name")
+            if kind == "integer":
+                if isinstance(value, str) and value.isdigit():
+                    value = int(value)
+                if not isinstance(value, int) or isinstance(value, bool):
+                    raise _Reject("invalid_form_data")
+            elif kind == "array":
+                if isinstance(value, str):
+                    try:
+                        value = json.loads(value)
+                    except ValueError:
+                        raise _Reject("invalid_form_data") from None
+                if not isinstance(value, list):
+                    raise _Reject("invalid_arguments")
+            elif not isinstance(value, str):
+                raise _Reject("invalid_form_data")
+            args[name] = value
+        for name in meta["required"]:
+            if args.get(name) in (None, "", 0, []):  # "Typically only occurs when the length provided is 0"
+                raise _Reject("missing_argument")
+        return args
+
+    def _get_upload_url(self, args: dict, host: str) -> dict:
+        self.state["counter"] += 1
+        file_id = f"F0MOCK{self.state['counter']:06d}"
+        upload_id = uuid.uuid4().hex
+        self.state["uploads"][file_id] = {
+            "file_id": file_id, "upload_id": upload_id, "filename": args["filename"],
+            "length": args["length"], "received": None, "completed": False, "channel": None,
+            "thread_ts": None, "title": None, "initial_comment": None}
+        self.state["upload_calls"].append({"method": "files.getUploadURLExternal", "file_id": file_id})
+        self._save()
+        return {"ok": True, "upload_url": f"http://{host}/upload/v1/{upload_id}", "file_id": file_id}
+
+    def upload_bytes(self, upload_id: str, body: bytes) -> tuple[int, str]:
+        """`POST <upload_url>`: the raw bytes of the file."""
+        import base64 as _b64
+        with self.lock:
+            rec = next((u for u in self.state["uploads"].values() if u["upload_id"] == upload_id), None)
+            if rec is None or rec["received"] is not None:
+                return 404, "upload_not_found"
+            if len(body) != rec["length"]:
+                return 400, f"length mismatch: {len(body)} bytes for a declared length of {rec['length']}"
+            rec["received"] = len(body)
+            self.state["files"][rec["file_id"]] = _b64.b64encode(body).decode()
+            self.state["upload_calls"].append({"method": "upload", "file_id": rec["file_id"]})
+            self._save()
+            return 200, f"OK - {len(body)}"
+
+    def _complete_upload(self, args: dict) -> dict:
+        files = args["files"]
+        if any(not isinstance(f, dict) or not isinstance(f.get("id"), str) for f in files):
+            raise _Reject("invalid_arguments")
+        channel = None
+        if args.get("channel_id"):
+            channel = self._channel(args["channel_id"])
+            if channel is None:
+                raise _Reject("channel_not_found")
+        thread_ts = args.get("thread_ts")
+        if thread_ts is not None:
+            if channel is None:  # "provide only one channel when using thread_ts"
+                raise _Reject("invalid_arguments")
+            try:
+                jsonschema.validate(thread_ts, self.spec["definitions"]["defs_ts"])
+            except jsonschema.ValidationError:
+                raise _Reject("invalid_form_data") from None
+        records = []
+        for f in files:
+            rec = self.state["uploads"].get(f["id"])
+            if rec is None or rec["received"] is None or rec["completed"]:
+                raise _Reject("file_not_found")
+            records.append((rec, f))
+        out = []
+        for rec, f in records:
+            title = f.get("title") or rec["filename"]
+            rec.update(completed=True, channel=channel["id"] if channel else None,
+                       thread_ts=thread_ts, title=title,
+                       initial_comment=args.get("initial_comment"))
+            name = rec["filename"]
+            out.append({
+                "id": rec["file_id"], "name": name, "title": title, "size": rec["received"],
+                "user": BOT_USER_ID,
+                "url_private": f"https://files.slack.com/files-pri/{TEAM_ID}-{rec['file_id']}/{name}",
+                "permalink": f"https://mock-workspace.slack.com/files/{BOT_USER_ID}/{rec['file_id']}/{name}",
+            })
+            self.state["upload_calls"].append({"method": "files.completeUploadExternal",
+                                               "file_id": rec["file_id"]})
+        self._save()
+        return {"ok": True, "files": out}
+
     # Socket Mode ------------------------------------------------------------------
 
     def connections_open(self, token: str | None, host: str) -> dict:
@@ -647,6 +792,10 @@ class SlackMock:
                 return 200, {"messages": copy.deepcopy(st["messages"])}
             if verb == "GET" and name in ("ephemerals", "updates"):
                 return 200, {name: copy.deepcopy(st[name])}
+            if verb == "GET" and name == "uploads":
+                uploads = [{k: v for k, v in u.items() if k != "upload_id"}
+                           for u in st["uploads"].values()]
+                return 200, {"calls": copy.deepcopy(st["upload_calls"]), "uploads": uploads}
             if verb == "GET" and name == "state":
                 return 200, {k: v for k, v in st.items() if k != "messages"}
             if verb != "POST":
@@ -747,6 +896,9 @@ def make_handler(mock: SlackMock) -> type[BaseHTTPRequestHandler]:
                 token = auth[len("Bearer "):].strip() if auth.startswith("Bearer ") else None
                 status, data = mock.file_download(file_id, token)
                 return self._send(status, data, "application/octet-stream")
+            if verb == "POST" and url.path.startswith("/upload/v1/"):
+                status, text = mock.upload_bytes(url.path[len("/upload/v1/"):].strip("/"), body)
+                return self._send(status, text.encode(), "text/plain")
             if url.path.startswith("/services/"):
                 retry = mock.rate_limited()
                 if retry is not None:
@@ -755,7 +907,7 @@ def make_handler(mock: SlackMock) -> type[BaseHTTPRequestHandler]:
                 status, text = mock.webhook(url.path, body, ctype)
                 return self._send(status, text.encode(), "text/html")
             method = url.path.removeprefix("/api/").lstrip("/")
-            if method not in METHODS and method != SOCKET_METHOD:
+            if method not in METHODS and method != SOCKET_METHOD and method not in UPLOAD_METHODS:
                 if f"/{method}" in mock.spec["paths"]:  # a real method this mock does not serve
                     return self._json(501, {"ok": False, "error": "not_served_by_mock"})
                 return self._json(404, {"ok": False, "error": "unknown_method"})
@@ -764,6 +916,7 @@ def make_handler(mock: SlackMock) -> type[BaseHTTPRequestHandler]:
                 return self._json(429, {"ok": False, "error": "ratelimited"},
                                   {"Retry-After": str(retry)})
             raw: dict[str, Any] = {k: v[-1] for k, v in parse_qs(url.query).items()}
+            query = dict(raw)
             form = True
             if body:
                 if ctype.startswith("application/json"):
@@ -787,8 +940,12 @@ def make_handler(mock: SlackMock) -> type[BaseHTTPRequestHandler]:
                 token = None  # slack-apps.connections.open.md: the header only
             elif isinstance(raw.get("token"), str) and form:
                 token = raw["token"]  # Slack ignores `token` inside JSON bodies
+            host = self.headers.get("Host") or f"127.0.0.1:{self.server.server_port}"
+            if method in UPLOAD_METHODS:
+                if not form and not UPLOAD_METHODS[method]["json"]:
+                    raw = query  # a JSON body's arguments are ignored by a form-only method
+                return self._json(200, mock.upload_api(method, token, raw, host=host))
             if method == SOCKET_METHOD:
-                host = self.headers.get("Host") or f"127.0.0.1:{self.server.server_port}"
                 return self._json(200, mock.connections_open(token, host))
             self._json(200, mock.web_api(method, token, raw, form=form))
 

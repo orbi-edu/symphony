@@ -117,6 +117,19 @@ class Outbound(Protocol):
         """The last `limit` messages of a thread, oldest first (Slack
         `conversations.replies`). A transport that cannot read history returns []."""
 
+    def upload(self, channel: str, thread: str, name: str, data: bytes, *, title: str,
+               comment: str = "") -> str:
+        """Post a file in the thread, with `comment` as its message; returns its permalink
+        ("" when the vendor gives none). Raises `FileTooLarge` over the vendor's limit."""
+
+
+class FileTooLarge(ValueError):
+    """A file over what the chat vendor accepts in one upload."""
+
+    def __init__(self, size: int, limit: int) -> None:
+        super().__init__(f"{size} bytes is over the {limit} byte limit")
+        self.size, self.limit = size, limit
+
 
 @runtime_checkable
 class Transport(Outbound, Protocol):
