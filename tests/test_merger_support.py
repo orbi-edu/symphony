@@ -581,6 +581,7 @@ def make_merger(redis_client, tmp_path, world: World, gh: FakeGitHub, agents: Sc
         pause=pause or (lambda s: gh.tick()),
         clock=clock,
         ticket_labels=("symphony",),
+        label_filter_active=False,  # existing tests run without the filter
     )
     m.notes = notes
     return m

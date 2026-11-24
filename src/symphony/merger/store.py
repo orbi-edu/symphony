@@ -116,6 +116,8 @@ class MergerStore:
         self._held: dict[str, tuple[str, int]] = {}
         self._held_lock = threading.Lock()
         self._beat: threading.Thread | None = None
+        # The effective label filter (`{"active", "labels"}`), set by the merger's builder.
+        self.label_filter: dict | None = None
 
     def _k(self, name: str) -> str:
         return self.prefix + name
@@ -426,6 +428,7 @@ class MergerStore:
             },
             "batch": self.batch() or {},
             "queue": self.queue(),
+            **({"label_filter": self.label_filter} if self.label_filter is not None else {}),
         }
 
     def counts(self) -> dict[str, int]:

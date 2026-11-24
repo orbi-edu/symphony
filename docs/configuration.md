@@ -24,6 +24,7 @@ This document is the reference for all three. [providers.md](providers.md) expla
 - [`telemetry`](#telemetry)
 - [`review_watch`](#review_watch)
 - [`triage`](#triage)
+- [`merger`](#merger)
 - [`notify`](#notify)
 - [`assistant`](#assistant)
 - [`retention`](#retention)
@@ -317,6 +318,20 @@ ended without recording an outcome is requeued on the next tick, not after the s
 | `triage.enabled` | boolean | `false` | Open investigations for failed runs. |
 | `triage.repo` | string | — | `owner/name` the investigations work on, usually Symphony's own repository. Required when enabled. |
 | `triage.max_per_day` | integer | `3` | New investigations per UTC day. Later new signatures are only logged (`triage_capped`). |
+
+## `merger`
+
+The label filter decides which pull requests the merger takes in
+([merger.md](merger.md#only-labeled-prs)). It is on by default: the merger reviews only pull
+requests with one of `labels` or `review-bypass`. It gates intake only; a PR already reviewed,
+parked or in the train goes on to the end. The merger applies a change on its next reconcile
+(about 60 s), with no restart. Unknown keys in this section are an error.
+
+| Key | Type | Default | Effect |
+|---|---|---|---|
+| `merger.label_filter.enabled` | boolean | `true` | Review only labeled pull requests. `false` reviews every pull request. |
+| `merger.label_filter.labels` | list of strings | `["symphony", "symphony-learnings"]` | A pull request with any one of these labels is a candidate. Required (nonempty) when enabled. |
+| `merger.label_filter.repos` | map of `owner/name` to boolean | `{}` | Per-repository override of `enabled`: `true` turns the filter on for that repository, `false` turns it off. Keys are lowercased. |
 
 ## `notify`
 

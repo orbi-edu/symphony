@@ -72,6 +72,40 @@ The merger sends these notification events (`symphony.notify.post`, to Slack and
 `main_red`, `main_green`, `run_error`. The daemon sends the ticket-side events
 (`retries_exhausted`, `not_queued`, `triage_opened`).
 
+## Only labeled PRs
+
+By default, the merger reviews only pull requests that carry at least one of the labels in
+`merger.label_filter.labels` (default `["symphony", "symphony-learnings"]`) or the
+`review-bypass` label. The merger ignores a pull request without any of these labels: it does
+not review it, add labels or comments to it, or revive its CI, and the PR is not in the queue
+of `GET /v1/merger` or the Tern Merger tab.
+
+Set `merger.label_filter.enabled: false` in WORKFLOW.md (or Admin › Workflow) to review every
+pull request, as in earlier versions. The merger re-reads the workflow on its reconcile (every
+~60 s) and applies the change to its running repositories, with no restart.
+
+| Key | Type | Default | Effect |
+|---|---|---|---|
+| `merger.label_filter.enabled` | boolean | `true` | When true, only labeled PRs are candidates. |
+| `merger.label_filter.labels` | list of strings | `["symphony", "symphony-learnings"]` | The labels that make a PR eligible (any one suffices). Must be nonempty when enabled. |
+| `merger.label_filter.repos` | object (repo → boolean) | `{}` | Per-repository override of `enabled`: `true` forces the filter on, `false` forces it off, regardless of the global setting. Keys are `owner/name`, lowercased. |
+
+The filter applies to intake only. A pull request already reviewed, in the train, parked or
+waiting approval keeps going to the end. Turning the filter on never pulls a PR out of the
+train.
+
+The merger status payload (`GET /v1/merger`) includes the effective filter for each repository:
+
+```json
+{"label_filter": {"active": true, "labels": ["symphony", "symphony-learnings"]}}
+```
+
+The Tern Merger tab shows it in the **Takes** column of the Mergers table: `labeled:` with the
+labels, or `every PR` when the filter is off for that repository.
+
+Each change of a repository's effective filter logs `merger_label_filter_changed` (`repo`,
+`active`, `labels`).
+
 ## Stage 1: review
 
 ```mermaid
@@ -109,6 +143,8 @@ A pull request is eligible when all of these are true:
 - The merger did not review this head before, and did not park it.
 - It is not in the train.
 - It has no active skip.
+- While the [label filter](#only-labeled-prs) is active for the repository, it has one of its
+  labels or `review-bypass`.
 
 | Skip reason | The skip ends when |
 |---|---|

@@ -216,6 +216,12 @@ class Config:
     # `skills.sources`: central skill repositories fetched and staged for agents (`skills.py`).
     # Each entry is a frozen SkillSource; an empty tuple means no central skills.
     skill_sources: tuple = ()
+    # `merger.label_filter`: when active for a repo, the Merger only takes in PRs that carry
+    # one of `labels` (or the review-bypass label). `repos` maps lowercase owner/name to a
+    # per-repo override of `enabled`.
+    merger_label_filter_enabled: bool = True
+    merger_label_filter_labels: tuple[str, ...] = ("symphony", "symphony-learnings")
+    merger_label_filter_repos: dict = field(default_factory=dict)
     prompt_body: str = ""
 
     @property
@@ -752,6 +758,35 @@ def _skills(data: dict) -> dict:
         ))
     return {"skill_sources": tuple(sources)}
 
+
+def _merger(data: dict) -> dict:
+    """The `merger:` section — `label_filter` limits which PRs the Merger takes in."""
+    section = _section(data, "merger", {"label_filter"})
+    lf = _section(section, "label_filter", {"enabled", "labels", "repos"})
+    defaults = Config.__dataclass_fields__
+    repos_raw = lf.get("repos")
+    if repos_raw is None:
+        repos_raw = {}
+    if not isinstance(repos_raw, dict):
+        raise ConfigError("merger.label_filter.repos must be a mapping of owner/name to boolean")
+    repos: dict[str, bool] = {}
+    for key, value in repos_raw.items():
+        if not isinstance(key, str) or not _REPO.fullmatch(key.strip()):
+            raise ConfigError(f"merger.label_filter.repos: {key!r} is not a valid owner/name")
+        if not isinstance(value, bool):
+            raise ConfigError(f"merger.label_filter.repos.{key} must be a boolean")
+        repos[key.strip().lower()] = value
+    return {
+        "merger_label_filter_enabled": _typed(
+            lf, "enabled", bool, defaults["merger_label_filter_enabled"].default
+        ),
+        "merger_label_filter_labels": _str_list(
+            lf, "labels", defaults["merger_label_filter_labels"].default
+        ),
+        "merger_label_filter_repos": repos,
+    }
+
+
 def parse_workflow(text: str, env: Mapping[str, str] | None = None) -> Config:
     env = env if env is not None else {}
     data, body = _split_front_matter(text)
@@ -1014,6 +1049,7 @@ def parse_workflow(text: str, env: Mapping[str, str] | None = None) -> Config:
         **_retention(data),
         **_backup(data),
         **_skills(data),
+        **_merger(data),
         prompt_body=body,
     )
 
@@ -1062,6 +1098,20 @@ def parse_workflow(text: str, env: Mapping[str, str] | None = None) -> Config:
                 "review_watch.answer_prompt is required when review_watch.enabled is true"
             )
         validate_template(cfg.answer_prompt)
+    for label in cfg.merger_label_filter_labels:
+        if not label.strip() or len(label) > 256:
+            raise ConfigError(
+                f"merger.label_filter.labels entries must be nonempty labels of at most 256 characters: {label!r}"
+            )
+    # The repos map is validated in `_merger`; an override that forces the filter on needs
+    # labels too, or that repository would take in nothing but `review-bypass`.
+    if not cfg.merger_label_filter_labels and (
+        cfg.merger_label_filter_enabled or any(cfg.merger_label_filter_repos.values())
+    ):
+        raise ConfigError(
+            "merger.label_filter.labels must be nonempty while the filter is enabled "
+            "(merger.label_filter.enabled or a merger.label_filter.repos entry set to true)"
+        )
     if cfg.telemetry_capture_content not in TELEMETRY_CAPTURE_MODES:
         raise ConfigError("telemetry.capture_content must be " + ", ".join(TELEMETRY_CAPTURE_MODES))
     if cfg.telemetry_endpoint:
