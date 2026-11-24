@@ -1,11 +1,15 @@
 """Runner turn loop over Oh My Pi RPC (FR-005, FR-006, FR-013, FR-017)."""
 
+from types import SimpleNamespace
+
 import pytest
+from kubernetes.client.rest import ApiException
 from tests.conftest import FakeClock, FakeKV
 from tests.omp_fakes import FakeEngine, FakeSandbox, assistant, runner_env
 
 from symphony import state
 from symphony.config import parse_workflow
+from symphony.effects import stop_workspace_generation
 from symphony.runner import fencing_ok, new_bridge_token, run_attempt
 from symphony.trackers.memory import MemoryTracker
 
@@ -241,6 +245,46 @@ def test_run_failure_consumes_the_attempt_and_records_the_reason(env_factory):
     entry = kv.get(state.issue_key("i1"))
     assert entry["attempt"] == 2
     assert "529 overloaded" in entry["failure_summary"]
+
+
+class _WorkspaceCore:
+    """The pod lookup of a Kubernetes core API: `phase=None` is a pod that no longer exists."""
+
+    def __init__(self, phase):
+        self.phase = phase
+
+    def read_namespaced_pod(self, name, ns):
+        if self.phase is None:
+            raise ApiException(status=404)
+        return SimpleNamespace(status=SimpleNamespace(phase=self.phase))
+
+
+class _UnreachableSandbox(FakeSandbox):
+    def exec_script(self, script, timeout_s=None):
+        return -1, "exec failed"
+
+
+@pytest.mark.parametrize("phase", ["Failed", "Succeeded"])
+def test_an_ended_workspace_confirms_the_generation_stop(env_factory, phase):
+    """A pod that ended mid-attempt (deadline, eviction) runs nothing: the teardown
+    completes and the ticket gets the engine's failure, not a runner crash."""
+    def script(engine):
+        engine.run(stop_reason="error", error="stream ended unexpectedly")
+
+    env, kv, _, _, _ = env_factory(scripted=script)
+    core, sandbox = _WorkspaceCore(phase), _UnreachableSandbox()
+    env.ensure_sandbox = lambda issue, bound: sandbox
+    env.kill_agent = lambda sb: stop_workspace_generation(core, "test", sb, "i1", 1)
+    assert run_attempt(env, "i1", 1, 1) == "failed"
+    assert "stream ended unexpectedly" in kv.get(state.issue_key("i1"))["failure_summary"]
+
+
+@pytest.mark.parametrize("phase", ["Running", "Pending", "Unknown", None])
+def test_an_unreachable_live_or_vanished_workspace_fails_the_generation_stop_closed(phase):
+    """A pod object that is gone (`None`) proves nothing: a forced deletion or a lost node
+    removes it before its containers are known to have stopped."""
+    with pytest.raises(RuntimeError, match="termination could not be confirmed"):
+        stop_workspace_generation(_WorkspaceCore(phase), "test", _UnreachableSandbox(), "i1", 1)
 
 
 def test_preflight_rejection_terminates_instead_of_hanging(env_factory):

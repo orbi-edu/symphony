@@ -429,6 +429,19 @@ def get_workspace(core, ns: str, name: str):
         raise
 
 
+def workspace_ended(pod) -> bool:
+    """A workspace pod that has ended (`Failed`, `Succeeded`) runs no process. A live,
+    `Unknown` or missing pod (`None`) is no proof: a forced deletion or an unreachable node
+    can remove the object before its containers stop."""
+    return pod is not None and ((pod.status and pod.status.phase) or "") in ("Failed", "Succeeded")
+
+
+def workspace_stopped(pod) -> bool:
+    """The daemon's sweep: nothing left to stop in a workspace pod that has ended or that it
+    can no longer find (it has no exec to run there either way)."""
+    return pod is None or workspace_ended(pod)
+
+
 def create_workspace(core, ns: str, cfg, name: str, runtime: str | None = None) -> bool:
     """Create the workspace pod (and its session PVC) and wait for it to run.
 
