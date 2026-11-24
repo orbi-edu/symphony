@@ -299,6 +299,54 @@ def build_router(control: Control, auth: Authenticator) -> APIRouter:
         await run_in_threadpool(control._audit, caller, "admin.mcp.test", f"mcp:{name}", outcome)
         return result
 
+    # -- Skills ------------------------------------------------------------------
+    @router.get("/skills")
+    def list_skills(_: Caller = admin):
+        """Configured skill sources and their current resolution status."""
+        from ..admin_workflow import WorkflowError as WFErr
+        from ..config import ConfigHolder
+        from ..skills import resolve_sources
+        holder = ConfigHolder()
+        try:
+            if s.workflow is not None:
+                doc = s.workflow.read()
+                holder.update(doc.get("text", ""))
+        except (WFErr, Exception):
+            pass
+        cfg = holder.config
+        if cfg is None or not cfg.skill_sources:
+            return {"sources": []}
+        import os
+        import time
+        sources_out = []
+        for src in cfg.skill_sources:
+            entry: dict = {
+                "repo": src.repo,
+                "path": src.path,
+                "ref": src.ref,
+                "roles": list(src.roles) if src.roles else None,
+                "repos": list(src.repos) if src.repos else None,
+                "scope": "repos" if src.repos else "global",
+                "sha": None,
+                "skills": [],
+                "error": None,
+            }
+            try:
+                resolved = resolve_sources(
+                    [src], "implementer", None, os.environ,
+                    lambda: int(time.time() * 1000),
+                    cache_client=s.client, cache_ns=s.namespace,
+                )
+                if resolved:
+                    rs = resolved[0]
+                    entry["sha"] = rs.sha or None
+                    entry["skills"] = [sk.name for sk in rs.skills]
+                    entry["error"] = rs.error
+            except Exception as exc:
+                entry["error"] = str(exc)
+            sources_out.append(entry)
+        return {"sources": sources_out}
+
     return router
 
 

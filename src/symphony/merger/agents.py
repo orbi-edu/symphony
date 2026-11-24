@@ -295,6 +295,7 @@ class AgentRunner:
         command_timeout_s: float = 30.0,
         providers: Callable[[str, str], object | None] | None = None,
         mcp: McpLaunch | None = None,
+        skill_stager: Callable[[str, str, dict], None] | None = None,
     ) -> None:
         self.sessions = sessions
         self.session_root = session_root
@@ -308,6 +309,7 @@ class AgentRunner:
         # A6: each agent gets its role's MCP servers through the gateway, with its own token.
         # The `--tools` allowlist stays; omp adds the MCP tools to it.
         self.mcp = mcp
+        self.skill_stager = skill_stager
         self.pod = socket.gethostname()
 
     def environment(self, spec: AgentSpec, session_dir: str) -> dict:
@@ -362,6 +364,12 @@ class AgentRunner:
                 self.sessions.close(spec.sid, "failed")
                 raise AgentFailed(f"{spec.sid}: MCP servers could not be staged: "
                                   f"{getattr(exc, 'code', type(exc).__name__)}") from None
+        # Stage central skills into the agent dir when configured.
+        if self.skill_stager is not None:
+            try:
+                self.skill_stager(env.get("PI_CODING_AGENT_DIR", ""), spec.role, spec.meta)
+            except Exception:  # noqa: BLE001 — skill staging never fails a run
+                pass
         try:
             proc = self._spawn(self.argv(spec, session_dir), spec.cwd, env,
                                os.path.join(session_dir, "omp.stderr"))

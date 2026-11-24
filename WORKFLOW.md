@@ -244,6 +244,18 @@ assistant:
   turn_timeout_s: 600
   ticket_state: Backlog      # the state of created tickets ("Create and start": the first active state)
   ticket_labels: []          # extra labels; never a required label: "Create and start" adds those
+
+# Central skill sources: instructions fetched from other repositories and staged for agents.
+# Each source is a directory holding one sub-directory per skill (each with SKILL.md).
+# Global sources apply to every repository; `repos:` scopes a source to specific repositories.
+# The target repository's own `.omp/skills/` always wins over central sources.
+# skills:
+#   sources:
+#     - repo: acme/agent-skills       # a repository the GitHub App can reach
+#       path: skills                   # directory with skill sub-directories; default "skills"
+#       ref: main                      # optional; default: the repo's default branch
+#       roles: [implementer, reviewer, assistant]  # optional; default: every role
+#       repos: [acme/app]             # optional; default: every repository (a GLOBAL source)
 ---
 You are an autonomous software engineer working on **{{ issue.identifier }}**{% if attempt %} (run {{ attempt }}){% endif %}: {{ issue.title }}.
 

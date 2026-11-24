@@ -6,9 +6,25 @@ external review service is necessary. The merger runs as the `symphony-merger` D
 
 [Watch the 5-minute merger deep dive](media/symphony-merger.mp4) ([captions](media/symphony-merger.vtt)).
 
-One merger serves one repository (`SYMPHONY_MERGER_REPO`). To serve several repositories, run
-one merger for each repository in the same namespace. Each merger keeps its own state, wake
-list and sessions.
+One merger process serves every repository that has a merger policy (a `.symphony/merger.md`
+file). It discovers repositories from three sources:
+
+1. `SYMPHONY_MERGER_REPO` (comma-separated list, optional).
+2. The default repository in `WORKFLOW.md` (`kubernetes.default_repo`).
+3. Every non-archived repository the daemon's discovery marks `merger_policy: true`.
+
+A reconcile loop (every ~60 s) starts loops for new repositories and stops those that
+disappear. Each repository keeps its own `Merger`, `MergerStore`, train lease, wake target
+and coordinator heartbeat, so `GET /v1/merger` and the Tern Merger tab list every served
+repository.
+
+Up to `SYMPHONY_MERGER_CONCURRENCY` (default 8) agent review steps run at once across all
+repositories — a process-wide semaphore around the expensive part of a review. Idle polling
+never holds a slot. `SYMPHONY_MERGER_REVIEWERS` (default 2) sets the number of review workers
+per repository. The train and main-watch of each repository are not limited by the semaphore.
+
+A repository whose build fails (the GitHub App cannot reach it, or git fails) is skipped and
+retried on the next reconcile. It does not make the pod unhealthy.
 
 The merger has two stages:
 

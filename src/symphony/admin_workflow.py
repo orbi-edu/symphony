@@ -173,6 +173,7 @@ _FIELDS = {
     "kubernetes.learning.decay_after_incorporations": _Field(
         "decay_after_incorporations", "integer"
     ),
+    "skills.sources": _Field("skill_sources", "json"),
 }
 
 

@@ -367,6 +367,7 @@ class AssistRunner(AgentRunner):
         environ: dict | None = None,
         silence_s: float = 1200.0,
         command_timeout_s: float = 30.0,
+        skill_stager: Callable[[str, str, dict], None] | None = None,
     ) -> None:
         super().__init__(sessions, session_root=session_root, omp_bin=omp_bin, spawn=spawn,
                          silence_s=silence_s, command_timeout_s=command_timeout_s,
@@ -377,6 +378,7 @@ class AssistRunner(AgentRunner):
         self.repos = repos
         self.mcp = mcp
         self.environ = environ if environ is not None else os.environ
+        self.skill_stager = skill_stager
 
     def commits(self) -> dict[str, str]:
         return self.repos.commits() if self.repos is not None else {}
@@ -409,6 +411,12 @@ class AssistRunner(AgentRunner):
             # No MCP servers, but still no project or user omp config.
             mcp_servers.write_private_file(os.path.join(agent_dir, "config.yml"),
                                            mcp_servers.AGENT_CONFIG)
+        # Stage central skills into the agent dir when configured.
+        if self.skill_stager is not None:
+            try:
+                self.skill_stager(agent_dir, role, {})
+            except Exception:  # noqa: BLE001 — skill staging never fails a session
+                pass
         return {**env, "PI_CODING_AGENT_DIR": agent_dir}, token
 
     def open(self, sid: str, role: str, meta: dict, on_intent: Callable[[str, str], None],

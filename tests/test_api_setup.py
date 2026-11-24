@@ -199,13 +199,14 @@ def test_a_fresh_install_is_not_set_up(setup):
     by_id = {s["id"]: s for s in body["steps"]}
     assert [s["id"] for s in body["steps"]] == [
         "tracker", "github_app", "repositories", "models", "notifications", "assistant",
-        "webhooks"]
+        "webhooks", "skills"]
     assert {i: by_id[i]["status"] for i in by_id} == {
         "tracker": "todo", "github_app": "todo", "repositories": "todo",
         "models": "error", "notifications": "skipped", "assistant": "skipped",
-        "webhooks": "skipped"}
+        "webhooks": "skipped", "skills": "skipped"}
     assert by_id["models"]["error"]["code"] == "model_credential_missing"
-    assert all(s["required"] is (s["id"] not in ("notifications", "assistant", "webhooks"))
+    assert all(s["required"] is (s["id"] not in ("notifications", "assistant", "webhooks",
+                                                  "skills"))
                for s in body["steps"])
     assert env.client.put("/v1/setup/repositories", headers=env.viewer,
                           json={"default_repo": "acme/app"}).status_code == 403

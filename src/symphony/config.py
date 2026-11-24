@@ -213,6 +213,9 @@ class Config:
     backup_s3: dict | None = None
     backup_dir: str | None = None
     backup_keep: int = 7
+    # `skills.sources`: central skill repositories fetched and staged for agents (`skills.py`).
+    # Each entry is a frozen SkillSource; an empty tuple means no central skills.
+    skill_sources: tuple = ()
     prompt_body: str = ""
 
     @property
@@ -683,6 +686,72 @@ def _backup(data: dict) -> dict:
     return out
 
 
+_SKILL_SOURCE_KEYS = frozenset({"repo", "path", "ref", "roles", "repos"})
+
+
+def _skills(data: dict) -> dict:
+    """The ``skills:`` section — central skill sources (``skills.py``)."""
+    section = data.get("skills")
+    if section is None:
+        return {}
+    if not isinstance(section, dict):
+        raise ConfigError("section 'skills' must be a mapping")
+    unknown = sorted(set(map(str, section)) - {"sources"})
+    if unknown:
+        raise ConfigError(f"skills has unknown keys {', '.join(unknown)}")
+    raw_sources = section.get("sources")
+    if raw_sources is None:
+        return {}
+    if not isinstance(raw_sources, list):
+        raise ConfigError("skills.sources must be a list")
+    if len(raw_sources) > 50:
+        raise ConfigError("skills.sources may have at most 50 entries")
+    from .skills import SkillSource
+    sources: list[SkillSource] = []
+    for i, entry in enumerate(raw_sources):
+        where = f"skills.sources[{i}]"
+        if not isinstance(entry, dict):
+            raise ConfigError(f"{where} must be a mapping")
+        extra = sorted(set(map(str, entry)) - _SKILL_SOURCE_KEYS)
+        if extra:
+            raise ConfigError(f"{where} has unknown keys {', '.join(extra)}")
+        repo = entry.get("repo")
+        if not isinstance(repo, str) or not _REPO.fullmatch(repo.strip()):
+            raise ConfigError(f"{where}.repo must be owner/name")
+        path = entry.get("path", "skills")
+        if not isinstance(path, str) or not path.strip():
+            raise ConfigError(f"{where}.path must be a nonempty string")
+        if ".." in path.split("/") or path.startswith("/"):
+            raise ConfigError(f"{where}.path must be a relative path without ..")
+        ref = entry.get("ref")
+        if ref is not None and (not isinstance(ref, str) or not ref.strip()):
+            raise ConfigError(f"{where}.ref must be a nonempty string or null")
+        roles_raw = entry.get("roles")
+        if roles_raw is not None:
+            if not isinstance(roles_raw, list) or not all(isinstance(r, str) for r in roles_raw):
+                raise ConfigError(f"{where}.roles must be a list of strings")
+            bad = [r for r in roles_raw if r not in teamconfig.ROLES]
+            if bad:
+                raise ConfigError(
+                    f"{where}.roles contains unknown roles {', '.join(bad)}; "
+                    f"known: {', '.join(teamconfig.ROLES)}"
+                )
+        repos_raw = entry.get("repos")
+        if repos_raw is not None:
+            if not isinstance(repos_raw, list) or not all(isinstance(r, str) for r in repos_raw):
+                raise ConfigError(f"{where}.repos must be a list of strings")
+            bad_repos = [r for r in repos_raw if not _REPO.fullmatch(r)]
+            if bad_repos:
+                raise ConfigError(f"{where}.repos entries must be owner/name")
+        sources.append(SkillSource(
+            repo=repo.strip(),
+            path=path.strip().rstrip("/"),
+            ref=ref.strip() if ref else None,
+            roles=tuple(roles_raw) if roles_raw else (),
+            repos=tuple(repos_raw) if repos_raw else (),
+        ))
+    return {"skill_sources": tuple(sources)}
+
 def parse_workflow(text: str, env: Mapping[str, str] | None = None) -> Config:
     env = env if env is not None else {}
     data, body = _split_front_matter(text)
@@ -944,6 +1013,7 @@ def parse_workflow(text: str, env: Mapping[str, str] | None = None) -> Config:
         **_assistant(data),
         **_retention(data),
         **_backup(data),
+        **_skills(data),
         prompt_body=body,
     )
 

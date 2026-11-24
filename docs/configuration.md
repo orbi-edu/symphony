@@ -386,6 +386,30 @@ assistant:
 
 Only a person mapped in [`notify.users`](#notify) can create tickets from a proposal.
 
+## `skills`
+
+Central skill sources fetched from other repositories and staged for agents. See
+[skills.md](skills.md) for the full reference.
+
+| Key | Type | Default | Effect |
+|---|---|---|---|
+| `skills.sources` | list | `[]` | Skill source definitions. Each entry has `repo` (required), `path`, `ref`, `roles` and `repos`. |
+| `skills.sources[].repo` | `owner/name` | — | The source repository. The GitHub App must be installed on it. |
+| `skills.sources[].path` | relative path | `"skills"` | Directory holding one sub-directory per skill (each with `SKILL.md`). |
+| `skills.sources[].ref` | string | repo default branch | Branch or tag to fetch. |
+| `skills.sources[].roles` | list of role names | all roles | Restrict to these roles. |
+| `skills.sources[].repos` | list of `owner/name` | all (global) | Restrict to agents working on these target repositories. |
+
+```yaml
+skills:
+  sources:
+    - repo: acme/agent-skills
+      path: skills
+      ref: main
+      roles: [implementer, reviewer, assistant]
+      repos: [acme/app]
+```
+
 ## `retention`
 
 How long Redis keeps what ended. The lease holder publishes the values on each tick, so every

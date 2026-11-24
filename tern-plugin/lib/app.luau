@@ -35,6 +35,7 @@ local PATHS = {
 	tokens = "/v1/admin/tokens",
 	catalog = "/v1/admin/catalog",
 	mcp = "/v1/admin/mcp",
+	skills = "/v1/admin/skills",
 	repos = "/v1/repos",
 	infra = "/v1/infra",
 	telemetry = "/v1/telemetry?limit=50",
@@ -102,6 +103,8 @@ local function needs(state: any): { string }
 			return { "mcp" }
 		elseif t == "assistant" then
 			return { "assistant", "assistant_person" }
+		elseif t == "skills" then
+			return { "skills" }
 		end
 		return { "config" }
 	end

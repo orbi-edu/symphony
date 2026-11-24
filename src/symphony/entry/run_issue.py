@@ -239,6 +239,23 @@ def main() -> str:
         if installation is not None:
             install_credential_helper(wrapped, installation.token())
         prepare_provider(wrapped, core, ns, bound, stage_mcp)
+        # Stage central skills from configured sources into the workspace pod.
+        try:
+            from ..skills import deduplicate, resolve_sources, skills_meta, stage_skills_workspace
+            if bound.skill_sources:
+                repos = runner_mod.target_repos(issue)
+                resolved = resolve_sources(
+                    bound.skill_sources, "implementer",
+                    repos[0] if repos else None,
+                    os.environ, now_ms,
+                    cache_client=kv.client, cache_ns=ns,
+                )
+                skills = deduplicate(resolved, repos[0] if repos else None)
+                stage_skills_workspace(wrapped, skills)
+                if resolved:
+                    env.sessions.update(sid=f"{issue_id}:{seq}", skills=skills_meta(resolved))
+        except Exception as exc:  # noqa: BLE001 — skill staging never fails a run
+            log.warning("skill_staging_failed", error=str(exc))
         if created:
             run_hook(wrapped, "after_create", bound, log=lambda e, **kw: log.warning(e, **kw))
         run_hook(wrapped, "before_run", bound, log=lambda e, **kw: log.warning(e, **kw))

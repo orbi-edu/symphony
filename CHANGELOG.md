@@ -7,6 +7,28 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Skill sources (`skills.sources`): directories of skills in repositories the GitHub App
+  reaches, delivered to the agents besides the skills of the repository they work in. A
+  source without `repos:` is global; with `repos:` it reaches only those repositories;
+  `roles:` limits it to some roles (the assistant's planner and researcher included).
+  Sources resolve to a commit (cached ten minutes), are staged into each agent's user
+  skills directory (the workspace pod, the merger's and the assistant's agents) and the
+  session records which skills and commit it got. Admin › Skills in Tern, `GET
+  /v1/admin/skills`, an optional Skills setup step (`symphony setup skills`, Tern Setup).
+  `docs/skills.md`.
+
+### Changed
+
+- One merger serves every repository with a `.symphony/merger.md` policy on its default
+  branch (from discovery), plus `kubernetes.default_repo` and `SYMPHONY_MERGER_REPO`
+  (now a list). It starts and stops repositories as policies come and go; each keeps its
+  own train, lease and review workers. At most `SYMPHONY_MERGER_CONCURRENCY` (default 8)
+  reviews run at once across repositories. The merger Deployment requests 2 CPU / 4 GiB
+  (limits 8 CPU / 16 GiB). A repository other than the default one keeps its mirror under
+  `repos/<owner>__<name>/` in the merger's volume.
+
 ## [0.2.13] - 2026-11-24
 
 ### Added

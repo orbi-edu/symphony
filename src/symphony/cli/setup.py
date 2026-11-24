@@ -181,6 +181,8 @@ def _summaries(step_id: str, d: dict) -> str:
             else:
                 parts.append(f"{names[source]}: no signed delivery yet")
         return "; ".join(parts)
+    if step_id == "skills":
+        return skills_summary(d)
     return ""
 
 
@@ -785,6 +787,31 @@ class Wizard:
         if doc is not None:
             self.say(webhooks_text(doc, self.style))
 
+
+
+def skills_summary(d: dict) -> str:
+    sources = d.get("sources") or []
+    if not sources:
+        return "No skill sources configured."
+    repos = [s.get("repo", "?") for s in sources]
+    return f"{_plural(len(repos), 'source')}: {', '.join(repos)}"
+
+
+def put_skills(api: Api, body: dict) -> dict:
+    return api.raw("PUT", "/v1/setup/skills", json_body=body).body
+
+
+def skills_text(doc: dict, style: Style) -> str:
+    sources = doc.get("sources") or []
+    if not sources:
+        return style("No skill sources configured.", "dim")
+    lines = [style(f"Skills: {_plural(len(sources), 'source')}.", "green")]
+    for s in sources:
+        repo = s.get("repo", "?")
+        path = s.get("path", "skills")
+        scope = "global" if not s.get("repos") else f"for {', '.join(s['repos'])}"
+        lines.append(f"  {repo} ({path}) — {scope}")
+    return "\n".join(lines)
 
 def terminal_wizard(api: Api) -> int:
     """The wizard on the real terminal."""
