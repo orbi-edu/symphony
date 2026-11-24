@@ -7,6 +7,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.14] - 2026-11-24
+
 ### Added
 
 - Skill sources (`skills.sources`): directories of skills in repositories the GitHub App
@@ -17,7 +19,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   skills directory (the workspace pod, the merger's and the assistant's agents) and the
   session records which skills and commit it got. Admin › Skills in Tern, `GET
   /v1/admin/skills`, an optional Skills setup step (`symphony setup skills`, Tern Setup).
-  `docs/skills.md`.
+  `docs/skills.md`. Each skill arrives as its whole folder: supporting text files at any
+  depth (templates, scripts) keep their paths and executable bit.
 
 ### Changed
 
