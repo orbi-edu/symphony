@@ -7,6 +7,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.19] - 2026-11-24
+
 ### Added
 
 - Notifications about a ticket now also reach its assignee as a direct message from the
