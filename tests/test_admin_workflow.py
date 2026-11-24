@@ -308,6 +308,10 @@ def test_credential_patterns_are_checked_in_decoded_structured_values():
         {"hooks.before_run": "export API_KEY=literalcredentialvalue"},
         {"kubernetes.namespace": "another-namespace"},
         {"kubernetes.sandbox.memory_mib": True},
+        {"kubernetes.runner.memory_mib": 0},
+        {"kubernetes.runner.memory_mib": 256.5},
+        {"kubernetes.runner.cpu": 0},
+        {"kubernetes.runner.cpu": "1"},
         {"agent.max_concurrent_agents_by_state": '{" Rework ": 1, "rework": 2}'},
         {"kubernetes.image_pull_secrets": '[{"name":"secret","password":"private"}]'},
         {"kubernetes.runner.wallclock_guard_s": 14400},
@@ -333,6 +337,27 @@ def test_complete_validation_rejects_existing_invalid_limits_not_just_patch():
         repository.validate("10", {"engine.model": "acme-2"})
     assert error.value.status_code == 422
     assert error.value.diagnostics[0]["key"] == "agent.max_concurrent_agents_by_state"
+
+
+def test_complete_validation_rejects_existing_invalid_runner_sizes():
+    core = ConfigMaps(
+        POLICY.replace("engine:", "kubernetes:\n  runner: {memory_mib: -1}\nengine:")
+    )
+    repository = WorkflowRepository(core, "symphony")
+    with pytest.raises(WorkflowError) as error:
+        repository.validate("10", {"engine.model": "acme-2"})
+    assert error.value.status_code == 422
+    assert error.value.diagnostics[0]["key"] == "kubernetes.runner.memory_mib"
+
+
+def test_runner_sizes_publish_into_the_workflow():
+    core = ConfigMaps()
+    repository = WorkflowRepository(core, "symphony")
+    payload = reviewed(repository, {"kubernetes.runner.cpu": 0.5, "kubernetes.runner.memory_mib": 1024})
+    repository.publish(payload, "command-runner", before_write=lambda: None)
+    runner = parse_workflow(core.current.data["WORKFLOW.md"]).runner
+    assert (runner["cpu"], runner["memory_mib"]) == (0.5, 1024)
+    assert runner["timeout_s"] == 14400  # defaults kept for the keys not set
 
 
 def test_prompt_only_edit_preserves_front_matter_bytes_and_empty_body():

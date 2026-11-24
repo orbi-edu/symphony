@@ -101,7 +101,17 @@ class Config:
             "idle_timeout_s": 1800,
         }
     )
-    runner: dict = field(default_factory=lambda: {"timeout_s": 14400, "wallclock_guard_s": 12600})
+    # Runner and reflector Job pods: `cpu` is the CPU request (no limit), `memory_mib` the
+    # memory request and limit. A request keeps the pod out of BestEffort, which the
+    # kubelet evicts first.
+    runner: dict = field(
+        default_factory=lambda: {
+            "timeout_s": 14400,
+            "wallclock_guard_s": 12600,
+            "cpu": 0.25,
+            "memory_mib": 512,
+        }
+    )
     agent_runtime: str = "node"  # sandbox image family: node | dotnet9 | dotnet10 | polyglot (edge registry)
     # Explicit image override for the workspace pod (replaces the Modal port's
     # snapshot_image): when set, it wins over the agent_images/agent_runtime lookup.

@@ -54,6 +54,8 @@ This document tells you how to install Symphony on Kubernetes (k3s on a VM, or a
 
 Each workspace pod requests 2 CPUs and 4 GiB of memory by default (`kubernetes.sandbox`). Size the nodes for `agent.max_concurrent_agents` workspaces. Add up to 4 CPUs and 6 GiB for each merger.
 
+Each runner Job pod (one for each running ticket) and each reflector Job pod requests 0.25 CPU and 512 MiB of memory, and its memory limit is 512 MiB (`kubernetes.runner.cpu`, `kubernetes.runner.memory_mib`). A local-stack test process that holds the daemon, the API and a runner peaked at about 110 MiB, so the default leaves room for long attempts. Raise `memory_mib` if a runner ends with `OOMKilled`. Runner pods carry the annotation `cluster-autoscaler.kubernetes.io/safe-to-evict: "false"`: the cluster autoscaler does not remove their node while an attempt runs. A `kubectl drain` does not read this annotation and evicts the runner; drain a node when no runner runs on it.
+
 ## 3. Minimal install on Kubernetes
 
 The minimal install needs two Secrets that you make yourself. Setup fills in everything else.
