@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 
 import httpx
 import pytest
@@ -25,6 +26,17 @@ from symphony.workspace import LocalSandbox
 
 TICKET = "ticket-uuid"
 TEAM = "team-1"
+
+
+def _invalid_id(spec: dict) -> httpx.Response | None:
+    """Linear takes only version 4 UUIDs as a client-supplied id."""
+    try:
+        ok = uuid.UUID(spec["id"]).version == 4
+    except ValueError:
+        ok = False
+    return None if ok else httpx.Response(400, json={"errors": [{
+        "message": "Argument Validation Error",
+        "extensions": {"code": "INVALID_INPUT", "userPresentableMessage": "id must be a UUID"}}]})
 
 
 class FakeLinear:
@@ -68,6 +80,8 @@ class FakeLinear:
             data = {"issues": {"nodes": [found] if found else []}}
         elif "SymphonyCreateIssue" in query:
             spec = v["input"]
+            if rejected := _invalid_id(spec):
+                return rejected
             if spec["id"] in self.issues:
                 return httpx.Response(200, json={"errors": [{"message": "duplicate id"}]})
             if self.refuse_creates:
@@ -79,6 +93,8 @@ class FakeLinear:
             self.issues[spec["id"]] = issue
             data = {"issueCreate": {"success": True, "issue": issue}}
         elif "SymphonyBlocks" in query:
+            if rejected := _invalid_id(v["input"]):
+                return rejected
             if self.refuse_relations:
                 self.refuse_relations -= 1
                 return httpx.Response(200, json={"data": {"issueRelationCreate": {
