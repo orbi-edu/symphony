@@ -416,3 +416,42 @@ def test_numbers_pick_options():
     options = ["Keep it", "Change it"]
     assert [questions.choice(t, options) for t in ("2", " 1. ", "#2", "opção 1", "3", "2 maybe")] \
         == ["Change it", "Keep it", "Change it", "Keep it", "3", "2 maybe"]
+
+
+def test_the_linear_adapter_records_every_comment_it_writes(tmp_path, monkeypatch, redis_client):
+    """Against the Linear mock: Symphony's comments and the agent's `linear_graphql` ones are
+    recorded; a comment by the same account that Symphony did not write is not."""
+    srv = linear_mock.serve(0, tmp_path / "state")
+    threading.Thread(target=srv.serve_forever, args=(0.05,), daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_port}"
+    monkeypatch.setenv("LINEAR_API_URL", f"{base}/graphql")
+    try:
+        linear = LinearTracker(
+            api_key=DEFAULT_API_KEY, project_slug="", team_key="ENG", active_states=["Todo"],
+            terminal_states=["Done"],
+            on_comment=lambda cid: questions.record_own(redis_client, NS, cid))
+        ticket = linear.create_issue("Layout", "", labels=[])["identifier"]
+        note = linear.comment(ticket, "I will ask for an explicit decision here.")
+        agent = linear.execute_agent_tool("linear_graphql", {
+            "query": "mutation Note($input: CommentCreateInput!) "
+                     "{ commentCreate(input: $input) { success comment { id } } }",
+            "variables": {"input": {"issueId": linear._ticket(ticket)["id"], "body": "Progress."}},
+        })["commentCreate"]["comment"]["id"]
+        me = linear._post("query { viewer { id } }", {})["viewer"]["id"]
+        same_account = httpx.post(f"{base}/_mock/issues/{ticket}/comments",
+                                  json={"body": "Remove it", "as": me}).json()["id"]
+        assert questions.is_own(redis_client, NS, note)
+        assert questions.is_own(redis_client, NS, agent)
+        assert not questions.is_own(redis_client, NS, same_account)
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_every_process_tracker_records_symphonys_comments(redis_client, monkeypatch):
+    """`edge.make_tracker`, which every process uses, records in the shared Redis."""
+    path = redis_client.connection_pool.connection_kwargs["path"]
+    monkeypatch.setenv("REDIS_URL", f"unix://{path}")
+    tracker = edge.make_tracker(cfg(namespace=NS))
+    tracker.add_issue("i1", "ENG-1")
+    assert questions.is_own(redis_client, NS, tracker.comment("i1", "A report."))
