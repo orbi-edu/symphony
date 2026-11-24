@@ -113,6 +113,32 @@ def test_an_ask_outlives_its_timeout_and_names_who_decides(broker_factory, redis
                                                                       "i1:1")
 
 
+@pytest.mark.parametrize(("arguments", "says"), [
+    ({"question": "Which layout? " + "context " * 200}, "too long for a person to read on Slack"),
+    ({"question": "Before I go on: (1) keep the table? (2) move the button? (3) drop CSV?"},
+     "put each on its own line"),
+    ({"question": "Which?", "options": ["a", "b", "c", "d", "e", "f"]}, "6 options, at most 5"),
+    ({"question": "Which?", "options": ["Keep", "x" * 61]}, "an option is over 60 characters"),
+])
+def test_a_question_hard_to_read_on_slack_is_sent_back_to_the_agent(
+        broker_factory, redis_client, arguments, says):
+    broker, store, responses = broker_factory()
+    broker._serve({**ask_frame("h10"), "arguments": arguments})
+    [(call_id, text, is_error)] = responses.items
+    assert call_id == "h10" and is_error and says in text
+    assert questions.load(redis_client, "test", "h10") is None  # nothing was posted
+    assert broker.pending_request() is None
+
+
+def test_sub_questions_one_per_line_are_accepted(broker_factory, redis_client):
+    broker, _, responses = broker_factory(timeout_s=0.05)
+    question = "Which parts change?\n1. the table\n2. the button\n3. the CSV export"
+    broker._serve({**ask_frame("h11"), "arguments": {"question": question,
+                                                    "options": ["All", "Only the table"]}})
+    assert responses.items == [("h11", ASK_FALLBACK, False)]
+    assert questions.load(redis_client, "test", "h11")["question"] == question
+
+
 def test_an_answer_in_tern_closes_the_question(broker_factory, redis_client):
     broker, _, responses = broker_factory()
     broker.handle(ask_frame("h9"))

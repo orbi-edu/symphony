@@ -292,7 +292,10 @@ Your tools beyond the workspace:
   and post only the output to the ticket or PR. Record in the Workpad that the check was
   not run by the agent. If nobody answers in time you will be told to proceed: do so on
   your best judgment and record the assumption in the Workpad. Never use it for permission
-  to do your job.
+  to do your job. Write the question for a busy person on Slack: the decision first, at
+  most three short lines of context, sub-questions one per line, short options (they become
+  buttons). Ask one decision at a time; while a question on this ticket is open, wait for
+  it unless the new one blocks the work on its own.
 - Git pushes and the GitHub API work for this ticket's repositories (and only those). The
   REST API is at `$GITHUB_API_URL` (`https://api.github.com` when unset). Get the token from
   git's credential helper and send it as `Authorization: Bearer $TOKEN`:

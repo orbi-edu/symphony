@@ -374,8 +374,13 @@ def _advance(client, ns: str, qid: str, *, kv, tracker, cfg, sessions: SessionSt
         return True
     if "stakeholder" not in rec:
         rec["stakeholder"] = tracker.person(rec["issue_id"], rec.get("to") or None) or {}
-        rec["assignee"] = tracker.assignee(rec["issue_id"]) or {}
-        _set(client, ns, qid, stakeholder=rec["stakeholder"], assignee=rec["assignee"])
+        found = tracker.fetch_issues_by_ids([rec["issue_id"]])
+        issue = found[0] if found else None
+        rec["title"] = (issue.title or "") if issue else ""
+        rec["assignee"] = {k: v for k, v in (("name", issue.assignee),
+                                             ("email", issue.assignee_email)) if v} if issue else {}
+        _set(client, ns, qid, stakeholder=rec["stakeholder"], assignee=rec["assignee"],
+             title=rec["title"])
     if not rec.get("comment"):
         comment = tracker.comment(rec["issue_id"], _ticket_question(rec, cfg))
         _own(client, ns, rec, comment)
@@ -383,9 +388,7 @@ def _advance(client, ns: str, qid: str, *, kv, tracker, cfg, sessions: SessionSt
         _remember(client, ns, "linear", comment, qid)
         rec["comment"] = comment
     if not rec.get("posted"):
-        where = notify.post_question(_slack_question(rec), qid=qid, options=rec["options"],
-                                     mention_keys=_mention_keys(rec), direct_keys=_direct_keys(rec),
-                                     link=rec.get("url") or None)
+        where = notify.post_question(rec["question"], **_slack_question(rec))
         _set(client, ns, qid, posted="1", slack=where or {})
         _remember_slack(client, ns, where, qid)
         log.info("question_posted", question=qid, issue_id=rec["issue_id"], slack=bool(where))
@@ -397,7 +400,7 @@ def _advance(client, ns: str, qid: str, *, kv, tracker, cfg, sessions: SessionSt
         for where in (rec.get("slack"), rec.get("slack_reminder")):
             if where:
                 notify.edit_question(where, ":hourglass: *Closed without an answer*",
-                                     f"{rec['identifier']}: {rec['question']}")
+                                     question=rec["question"])
         return True
     if cfg.ask_reminder_ms and not rec.get("reminded_at") and age >= cfg.ask_reminder_ms:
         _remind(client, ns, rec, tracker, age)
@@ -451,10 +454,14 @@ def _ticket_question(rec: dict, cfg) -> str:
     return "\n\n".join(parts)
 
 
-def _slack_question(rec: dict) -> str:
-    name = (rec.get("stakeholder") or {}).get("name")
-    text = f"{rec['identifier']} needs an answer{f' from {name}' if name else ''}: {rec['question']}"
-    return f"{text}\n\n{_options(rec)}" if rec.get("options") else text
+def _slack_question(rec: dict) -> dict:
+    """`notify.post_question`'s arguments besides the question: the header names the ticket
+    and who decides, so the text is the question alone."""
+    return {"qid": rec["id"], "options": rec["options"], "ticket": rec["identifier"],
+            "title": rec.get("title") or "",
+            "decider": (rec.get("stakeholder") or {}).get("name") or "",
+            "mention_keys": _mention_keys(rec), "direct_keys": _direct_keys(rec),
+            "link": rec.get("url") or None}
 
 
 def _remind(client, ns: str, rec: dict, tracker, age_ms: int) -> None:
@@ -466,12 +473,9 @@ def _remind(client, ns: str, rec: dict, tracker, age_ms: int) -> None:
                 "with an option's number or in your own words.")
         _own(client, ns, rec, tracker.comment(rec["issue_id"], body, parent=rec["comment"]))
     if rec.get("slack"):
-        name = (rec.get("stakeholder") or {}).get("name")
-        where = notify.post_question(
-            f"Still waiting for an answer{f' from {name}' if name else ''} ({hours} h): "
-            f"{rec['identifier']}: {rec['question']}",
-            qid=rec["id"], options=rec["options"], mention_keys=_mention_keys(rec),
-            direct_keys=_direct_keys(rec), link=rec.get("url") or None, thread=rec["slack"])
+        where = notify.post_question(rec["question"], **_slack_question(rec),
+                                     heading=f"Still waiting for an answer ({hours} h)",
+                                     thread=rec["slack"])
         if where:
             _set(client, ns, rec["id"], slack_reminder=where)
             _remember_slack(client, ns, {"dms": where.get("dms")}, rec["id"])
@@ -515,8 +519,7 @@ def _announce(client, ns: str, rec: dict, tracker) -> None:
     for where in (rec.get("slack"), rec.get("slack_reminder")):
         if where:
             notify.edit_question(where, ":white_check_mark: *Answered*",
-                                 f"{rec['identifier']}: {rec['question']}\n"
-                                 f"{rec['by']}, {via}: {rec['answer']}")
+                                 f"{rec['by']}, {via}: {rec['answer']}", question=rec["question"])
     if rec.get("comment"):
         said = (f"Answer received from {rec['by']}. " if rec["via"] == "linear" else
                 f"**Answered** by {rec['by']} {via}: {rec['answer']}\n\n")

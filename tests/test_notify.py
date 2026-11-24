@@ -252,27 +252,72 @@ def test_multiple_logins_only_mapped_appear(bot):
     assert "charlie" not in text or "<@" not in text.split("charlie")[0][-10:]
 
 
-def test_a_question_has_a_button_per_option_mentions_by_email_and_can_be_edited(bot):
+QUESTION = ("Keep the old export layout?\n\nThe new one moves the button below the table.\n"
+            "1. Desktop too?\n2. Mobile too?")
+
+
+def test_a_question_reads_as_a_message_of_its_own_and_its_edit_keeps_the_header(bot):
     notify.configure({"slack": {"victor@example.com": "U7"}})
-    where = notify.post_question("ENG-1 needs an answer: Which?", qid="q1",
-                                 options=["Keep", "x" * 100], mention_keys=["victor@example.com"])
+    bot.responses.append((200, {"ok": True, "channel": "C42", "ts": "1.0"}, 0.0))
+    where = notify.post_question(
+        QUESTION, qid="q1", options=["Keep", "Change"], ticket="ENG-12",
+        title="Redesign the export page " + "x" * 100, decider="Victor",
+        mention_keys=["victor@example.com"], link="https://example.com/ENG-12")
     body = bot.requests[0]["body"]
+    # A divider first: two questions in a row (Slack collapses the sender) stay apart.
+    assert [b["type"] for b in body["blocks"]] == ["divider", "section", "section", "actions",
+                                                   "context"]
+    header = body["blocks"][1]["text"]["text"]
+    title = ("Redesign the export page " + "x" * 100)[:79] + "…"
+    assert header == (":raising_hand: *Agent is waiting for an answer* · "
+                      f"<https://example.com/ENG-12|ENG-12 · {title}> · <@U7>")
+    # The question as written, paragraphs and lines kept; the options are the buttons only.
+    assert body["blocks"][2]["text"]["text"] == QUESTION
+    buttons = body["blocks"][3]["elements"]
+    assert [(b["action_id"], b["text"]["text"]) for b in buttons] == [
+        ("ask:q1:0", "1. Keep"), ("ask:q1:1", "2. Change")]
+    [footer] = body["blocks"][4]["elements"]
+    assert "\n" not in footer["text"]
+    assert body["text"] == f"{header}\n{QUESTION}"
+    assert where == {"channel": "C42", "ts": "1.0", "header": header}
+    assert notify.edit_question(where, ":white_check_mark: *Answered*", "Victor, in Slack: Keep",
+                                question=QUESTION)
+    edit = bot.requests[1]
+    assert edit["path"] == "/api/chat.update"
+    blocks = edit["body"]["blocks"]
+    assert [b["type"] for b in blocks] == ["divider", "section", "section", "section"]
+    assert [b["text"]["text"] for b in blocks[1:]] == [
+        header, QUESTION, ":white_check_mark: *Answered*\nVictor, in Slack: Keep"]
+    assert edit["body"]["text"].startswith(header)
+
+
+def test_options_a_button_cuts_are_listed_once_under_the_question(bot):
+    where = notify.post_question("Which <one>?", qid="q1", options=["Keep", "x" * 100],
+                                 ticket="ENG-12", decider="Victor & co")
     assert where is None  # Slack's answer named no message: nothing to come back to
-    assert "<@U7>" in body["text"]
+    body = bot.requests[0]["body"]
+    header, question = (b["text"]["text"] for b in body["blocks"][1:3])
+    assert header == ":raising_hand: *Agent is waiting for an answer* · ENG-12 · Victor &amp; co"
+    assert question == "Which &lt;one&gt;?\n\n1. Keep\n2. " + "x" * 100
     [buttons] = [b["elements"] for b in body["blocks"] if b["type"] == "actions"]
-    assert [b["action_id"] for b in buttons] == ["ask:q1:0", "ask:q1:1"]
     assert buttons[0]["text"]["text"] == "1. Keep" and len(buttons[1]["text"]["text"]) == 75
     assert notify.parse_question_action("ask:q1:1") == ("q1", 1)
+
+
+def test_a_reminder_replies_in_the_thread_and_the_notification_text_is_short(bot):
     bot.responses.append((200, {"ok": True, "channel": "C42", "ts": "5.0"}, 0.0))
-    again = notify.post_question("reminder", qid="q1", options=["Keep"],
-                                 thread={"channel": "C42", "ts": "5.0"})
-    assert again == {"channel": "C42", "ts": "5.0"}
-    assert bot.requests[1]["body"]["thread_ts"] == "5.0"
-    assert bot.requests[1]["body"]["reply_broadcast"] is True
+    long = "Which one? " + "y" * 300
+    again = notify.post_question(long, qid="q1", options=["Keep"], ticket="ENG-12",
+                                 heading="Still waiting for an answer (2 h)",
+                                 thread={"channel": "C42", "ts": "1.0", "header": "h"})
+    body = bot.requests[0]["body"]
+    assert (body["thread_ts"], body["reply_broadcast"]) == ("1.0", True)
+    assert again["header"].startswith(":raising_hand: *Still waiting for an answer (2 h)* · ENG-12")
+    assert body["text"] == f"{again['header']}\n{long[:149]}…"
     assert notify.edit_question(again, ":white_check_mark: *Answered*", "<@here> took 1")
-    edit = bot.requests[2]
-    assert edit["path"] == "/api/chat.update" and "&lt;@here&gt; took 1" in edit["body"]["text"]
-    assert "blocks" in edit["body"] and all(b["type"] != "actions" for b in edit["body"]["blocks"])
+    edit = bot.requests[1]["body"]
+    assert edit["blocks"][-1]["text"]["text"].endswith("&lt;@here&gt; took 1")
+    assert all(b["type"] != "actions" for b in edit["blocks"])
 
 
 # Direct messages -------------------------------------------------------------------------
@@ -348,10 +393,11 @@ def test_a_question_dm_carries_the_buttons_and_is_edited_with_the_channel_messag
     bot.responses += [(200, {"ok": True, "channel": "C42", "ts": "1.0"}, 0.0),
                       (200, {"ok": True, "channel": "D7", "ts": "2.0"}, 0.0),
                       (200, {"ok": True, "channel": "D1", "ts": "3.0"}, 0.0)]
-    where = notify.post_question("ENG-1 needs an answer: Which?", qid="q1", options=["A", "B"],
+    where = notify.post_question("Which?", qid="q1", options=["A", "B"], ticket="ENG-1",
                                  mention_keys=["victor@example.com"],
                                  direct_keys=["victor@example.com", "alice", "Victor"])
-    assert where == {"channel": "C42", "ts": "1.0",
+    header = where["header"]
+    assert where == {"channel": "C42", "ts": "1.0", "header": header,
                      "dms": [{"channel": "D7", "ts": "2.0"}, {"channel": "D1", "ts": "3.0"}]}
     channel, *dms = [r["body"] for r in bot.requests]
     assert [d["channel"] for d in dms] == ["U7", "U1"]
@@ -359,7 +405,7 @@ def test_a_question_dm_carries_the_buttons_and_is_edited_with_the_channel_messag
         [buttons] = [b["elements"] for b in body["blocks"] if b["type"] == "actions"]
         assert [b["action_id"] for b in buttons] == ["ask:q1:0", "ask:q1:1"]
         assert "thread_ts" not in body
-    assert "<@U7>" in channel["text"] and "<@" not in dms[0]["text"]
+        assert body["blocks"] == channel["blocks"]  # the DM reads the same
     assert notify.edit_question(where, ":white_check_mark: *Answered*", "A")
     edits = [r["body"] for r in bot.requests if r["path"] == "/api/chat.update"]
     assert [(e["channel"], e["ts"]) for e in edits] == [("C42", "1.0"), ("D7", "2.0"), ("D1", "3.0")]

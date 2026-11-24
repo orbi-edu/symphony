@@ -32,6 +32,15 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   them does not count. Bots and the GitHub App never answer. A pull request comment that
   answers is not answered again by the review watch. The answer note says `on the pull
   request`, and the question on the ticket and in Slack says where to answer.
+- An agent's question in Slack reads as a message of its own. It starts with a divider, so
+  two questions in a row no longer run together. One header line follows: the ticket key and
+  title, linked, and who decides. Then the question exactly as written, the options as
+  buttons only (listed as text just when a button cuts one), and a one-line footer. The
+  notification text is the header and the start of the question. An answered or closed
+  question keeps its header. `symphony_ask` sends back to the agent a question over 1200
+  characters, sub-questions run together on one line, more than 5 options or an option over
+  60 characters. Its description asks for the decision first, short context and one
+  decision at a time.
 
 ## [0.2.18] - 2026-11-24
 

@@ -581,6 +581,9 @@ def _send_slack_blocks(token: str, channel: str, mention: str, *, event: str, te
 QUESTION_ACTION_PREFIX = "ask:"
 _BUTTON_TEXT_MAX = 75  # Slack's limit for a button's plain_text
 _BUTTONS_MAX = 25  # elements in one actions block
+_TITLE_MAX = 80  # the ticket title in a question's header
+_FALLBACK_QUESTION_MAX = 150  # the question in a notification's text
+_QUESTION_FOOTER = "Answer with a button, in this thread, on the ticket or in a comment on the PR."
 
 
 def question_action(qid: str, index: int) -> str:
@@ -597,75 +600,118 @@ def parse_question_action(action_id: str) -> tuple[str, int] | None:
 
 
 def post_question(
-    text: str, *, qid: str, options: Sequence[str], mention_keys: Sequence[str] = (),
+    question: str, *, qid: str, options: Sequence[str], ticket: str, title: str = "",
+    decider: str = "", heading: str = "", mention_keys: Sequence[str] = (),
     direct_keys: Sequence[str] = (), link: str | None = None,
     thread: Mapping[str, str] | None = None,
 ) -> dict | None:
-    """Post an agent's question: in Slack (bot token and channel) with one button per option
-    and an invitation to answer in the thread, at the top of the channel or, with `thread`
-    (`{channel, ts}`), as a reply also shown in the channel. Discord, when configured, gets
-    the text without buttons. `mention_keys` are `notify.users` keys (a GitHub login or an
-    e-mail); `direct_keys` (who decides, the ticket's assignee) also get the question as a DM,
-    buttons included, under `post`'s rules. Returns `{channel, ts, dms}`: Slack's channel
-    message (left out when Slack did not take it) and `dms`, the Slack DMs `[{channel, ts}]`;
-    None when Slack took neither. Never raises."""
-    _safely("discord", "input_requested", _post, "discord", "input_requested", text, link=link,
-            github_logins=mention_keys)
-    _safely("discord", "input_requested", _post_direct, "discord", "input_requested", text,
-            link=link, keys=direct_keys)
+    """Post an agent's question: in Slack (bot token and channel) at the top of the channel
+    or, with `thread` (`{channel, ts}`), as a reply also shown there. The message is a divider
+    (consecutive messages of the app stay apart), a header line (`heading`, default the
+    event's title · the ticket and its `title`, linked · who decides: the user `mention_keys`
+    maps, else `decider`), the question as written, one button per option and a one-line
+    footer. The options are also listed as text only when a button had to cut one. Discord,
+    when configured, gets the text and the options without buttons. `direct_keys` (who
+    decides, the ticket's assignee) also get it as a DM, buttons included, under `post`'s
+    rules. Returns `{channel, ts, header, dms}`: Slack's channel message (left out when Slack
+    did not take it), its header for `edit_question`, and `dms`, the Slack DMs
+    `[{channel, ts}]`; None when Slack took neither. Never raises."""
+    discord_text = "\n\n".join(part for part in (
+        heading, " · ".join(p for p in (ticket, title.strip(), decider) if p), question.strip(),
+        "\n".join(f"{i}. {o.strip()}" for i, o in enumerate(options, 1))) if part)
+    _safely("discord", "input_requested", _post, "discord", "input_requested", discord_text,
+            link=link, github_logins=mention_keys)
+    _safely("discord", "input_requested", _post_direct, "discord", "input_requested",
+            discord_text, link=link, keys=direct_keys)
     token = os.environ.get("SLACK_BOT_TOKEN", "").strip()
     channel = (thread or {}).get("channel") or os.environ.get("SLACK_CHANNEL", "").strip()
     if not token or not channel:
         return None
     mention = " ".join(f"<@{uid}>" for uid in _user_ids("slack", mention_keys))
-    message = format_message("input_requested", text, link=link, mention=mention)
-    payload: dict = {"channel": channel, "text": message,
-                     "blocks": _question_blocks(message, qid, options), "unfurl_links": False}
+    header = question_header(ticket=ticket, title=title, link=link, who=mention or _escape(decider),
+                             heading=heading)
+    payload: dict = {"channel": channel, "text": _question_fallback(header, question),
+                     "blocks": _question_blocks(header, question, qid, options),
+                     "unfurl_links": False}
     if thread and thread.get("ts"):
         payload.update(thread_ts=thread["ts"], reply_broadcast=True)
     body = _slack_call(token, "chat.postMessage", payload)
-    out: dict = {"channel": body.get("channel") or channel, "ts": body["ts"]} if body.get("ts") else {}
+    out: dict = ({"channel": body.get("channel") or channel, "ts": body["ts"], "header": header}
+                 if body.get("ts") else {"header": header})
     # A DM starts its own thread (the reply `thread` names is the channel's): the answer can
     # be a button or a reply in that DM thread.
-    dm_message = format_message("input_requested", text, link=link)
     dms = []
+    dm_payload = {k: v for k, v in payload.items() if k not in ("thread_ts", "reply_broadcast")}
     for uid in _direct_ids("slack", "input_requested", direct_keys):
-        sent = _slack_call(token, "chat.postMessage", {
-            "channel": uid, "text": dm_message, "unfurl_links": False,
-            "blocks": _question_blocks(dm_message, qid, options)})
+        sent = _slack_call(token, "chat.postMessage", {**dm_payload, "channel": uid})
         if sent.get("ts"):
             # Slack answers with the DM's own channel id (`D…`): replies there carry it.
             dms.append({"channel": sent.get("channel") or uid, "ts": sent["ts"]})
     if dms:
         out["dms"] = dms
-    return out or None
+    return out if out.get("ts") or dms else None
 
 
-def _question_blocks(message: str, qid: str, options: Sequence[str]) -> list[dict]:
-    blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": message[:3000]}}]
-    buttons = [
-        {"type": "button", "action_id": question_action(qid, i), "value": str(i),
-         "text": {"type": "plain_text", "text": _button_text(i, option)}}
-        for i, option in enumerate(options[:_BUTTONS_MAX])
-    ]
-    if buttons:
-        blocks.append({"type": "actions", "elements": buttons})
-    blocks.append({"type": "context", "elements": [
-        {"type": "mrkdwn", "text": "Answer with a button, in this thread, on the ticket or in a comment on the PR."}]})
+def question_header(*, ticket: str, title: str = "", link: str | None = None, who: str = "",
+                    heading: str = "") -> str:
+    """`:raising_hand: *<heading>* · <link|KEY · title> · <who>` (Slack mrkdwn; `who` is
+    already mrkdwn, a mention or an escaped name)."""
+    emoji, default = EVENTS["input_requested"]
+    title = title.strip()
+    if len(title) > _TITLE_MAX:
+        title = title[:_TITLE_MAX - 1].rstrip() + "…"
+    label = _escape(" · ".join(p for p in (ticket, title) if p))
+    where = f"<{_escape(link)}|{label}>" if link and label else label
+    return " · ".join(p for p in (f"{emoji} *{heading or default}*", where, who) if p)
+
+
+def _question_fallback(header: str, question: str) -> str:
+    """The notification text: the header and the start of the question."""
+    text = question.strip()
+    if len(text) > _FALLBACK_QUESTION_MAX:
+        text = text[:_FALLBACK_QUESTION_MAX - 1].rstrip() + "…"
+    return f"{header}\n{_escape(text)}"
+
+
+def _section(text: str) -> dict:
+    return {"type": "section", "text": {"type": "mrkdwn", "text": text[:3000]}}
+
+
+def _question_blocks(header: str, question: str, qid: str, options: Sequence[str]) -> list[dict]:
+    shown = list(options[:_BUTTONS_MAX])
+    labels = [_button_text(i, option) for i, option in enumerate(shown)]
+    body = _escape(question.strip())  # newlines and blank lines as written
+    if len(shown) < len(options) or any(
+            label != f"{i + 1}. {option.strip()}" for i, (label, option) in
+            enumerate(zip(labels, shown, strict=True))):
+        # A button could not show it all: the full options, once, under the question.
+        body += "\n\n" + "\n".join(f"{i}. {_escape(o.strip())}" for i, o in enumerate(options, 1))
+    blocks: list[dict] = [{"type": "divider"}, _section(header), _section(body)]
+    if labels:
+        blocks.append({"type": "actions", "elements": [
+            {"type": "button", "action_id": question_action(qid, i), "value": str(i),
+             "text": {"type": "plain_text", "text": label}}
+            for i, label in enumerate(labels)]})
+    blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": _QUESTION_FOOTER}]})
     return blocks
 
 
-def edit_question(where: Mapping, head: str, text: str) -> bool:
+def edit_question(where: Mapping, head: str, text: str = "", *, question: str = "") -> bool:
     """Replace a question posted by `post_question` (its channel message and its DMs), buttons
-    removed: `head` is Slack mrkdwn written by Symphony, `text` is shown as written (escaped).
-    True when every one of them was edited."""
+    removed: the divider and header kept, then `question` as written and the outcome (`head`,
+    Slack mrkdwn written by Symphony, and `text`, shown as written). True when every one of
+    them was edited."""
     token = os.environ.get("SLACK_BOT_TOKEN", "").strip()
     refs = [ref for ref in (where, *(where.get("dms") or ()))
             if ref.get("channel") and ref.get("ts")]
     if not token or not refs:
         return False
-    message = f"{head}\n{_escape(text.strip())}"[:3000]
-    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": message}}]
+    header = where.get("header") or ""
+    outcome = f"{head}\n{_escape(text.strip())}" if text.strip() else head
+    blocks = [{"type": "divider"}, *([_section(header)] if header else []),
+              *([_section(_escape(question.strip()))] if question.strip() else []),
+              _section(outcome)]
+    message = "\n".join(p for p in (header, outcome) if p)[:3000]
     edited = [bool(_slack_call(token, "chat.update", {
         "channel": ref["channel"], "ts": ref["ts"], "text": message, "blocks": blocks,
     }).get("ok")) for ref in refs]

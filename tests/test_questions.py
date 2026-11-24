@@ -34,19 +34,23 @@ class Slack:
     def __init__(self):
         self.posts: list[dict] = []
         self.edits: list[tuple[dict, str, str]] = []
+        self.edited_questions: list[str] = []
         self.dm_channel: str | None = None
 
-    def post(self, text, *, qid, options, mention_keys=(), direct_keys=(), link=None, thread=None):
+    def post(self, text, *, qid, options, ticket, title="", decider="", heading="",
+             mention_keys=(), direct_keys=(), link=None, thread=None):
         where = {"channel": "C1", "ts": f"{len(self.posts) + 1}.0"}
         if self.dm_channel and direct_keys:
             where["dms"] = [{"channel": self.dm_channel, "ts": f"{len(self.posts) + 1}.5"}]
-        self.posts.append({"text": text, "qid": qid, "options": list(options),
+        self.posts.append({"text": text, "qid": qid, "options": list(options), "ticket": ticket,
+                           "title": title, "decider": decider, "heading": heading,
                            "mention_keys": list(mention_keys), "direct_keys": list(direct_keys),
                            "thread": thread, **where})
         return where
 
-    def edit(self, where, head, text):
+    def edit(self, where, head, text="", *, question=""):
         self.edits.append((where, head, text))
+        self.edited_questions.append(question)
         return True
 
 
@@ -139,7 +143,9 @@ def test_a_question_is_posted_on_the_ticket_and_in_slack_naming_who_decides(worl
     [post] = world["slack"].posts
     assert post["qid"] == "q1" and post["options"] == ["Keep it", "Change it"]
     assert post["mention_keys"] == ["victor@example.com", "Victor"]
-    assert "from Victor" in post["text"]
+    # The header names the ticket and who decides: the text is the question alone.
+    assert (post["text"], post["ticket"], post["title"], post["decider"], post["heading"]) == (
+        "Which layout?", "ENG-1", "title ENG-1", "Victor", "")
     world["tick"]()  # nothing is posted twice
     assert len(comments(world)) == 1 and len(world["slack"].posts) == 1
 
@@ -156,7 +162,8 @@ def test_a_reply_on_the_ticket_answers_the_waiting_run(world):
     assert ack["parent"] == comments(world)[0]["id"]
     assert ack["body"].startswith("Answer received from Victor. The agent was waiting")
     head, text = world["slack"].edits[0][1:]
-    assert "Answered" in head and "Victor, on the ticket: Change it" in text
+    assert "Answered" in head and text == "Victor, on the ticket: Change it"
+    assert world["slack"].edited_questions == ["Which layout?"]
 
 
 def test_symphonys_own_replies_never_count_as_answers(world):
@@ -225,6 +232,7 @@ def test_the_person_is_reminded_once_after_the_reminder_delay(world):
     assert len(reminders) == 1 and "https://t.example/victor" in reminders[0]["body"]
     [_, again] = world["slack"].posts
     assert again["thread"] == {"channel": "C1", "ts": "1.0"} and again["options"]
+    assert again["heading"] == "Still waiting for an answer (2 h)" and again["text"] == "Which layout?"
 
 
 def test_no_reminder_when_it_is_off(world):
@@ -433,7 +441,7 @@ def test_the_question_goes_by_dm_to_who_decides_and_the_assignee(world):
     assert post["mention_keys"] == ["victor@example.com", "Victor"]
     assert post["direct_keys"] == ["victor@example.com", "Victor", "alice@example.com", "Alice"]
     rec = questions.load(world["client"], NS, "q1")
-    assert rec["assignee"] == {"name": "Alice", "email": "alice@example.com", "mention": ""}
+    assert rec["assignee"] == {"name": "Alice", "email": "alice@example.com"}
     assert rec["slack"]["dms"] == [{"channel": "D1", "ts": "1.5"}]
     # The reminder's DM is a thread of its own too.
     world["now"][0] += 3 * HOUR

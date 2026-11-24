@@ -206,6 +206,9 @@ Rules for the runner tools:
 - `symphony_ask` waits for `agent.input_timeout_ms` (default 15 minutes). If no person
   answers, the result is a fallback that says to proceed with the agent's best judgment and
   record the assumption in the Workpad. Thus the run never stops on a question.
+- `symphony_ask` refuses, with an error the agent can act on, a question over 1200
+  characters, three or more sub-questions inline on one line (`(1) … (2) … (3) …`), more
+  than 5 options, or an option over 60 characters: options become Slack buttons.
 - The question outlives the run (`questions.py`): a Redis hash
   `sym:<ns>:question:<call id>`, kept 14 days, and the set `sym:<ns>:questions` of those not
   finished. Each daemon tick moves each one a step: it posts the comment (on the ticket,
