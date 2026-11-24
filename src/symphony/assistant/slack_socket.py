@@ -9,6 +9,8 @@
   thread the bot posted in. The bot's own messages and other bots' messages are ignored.
   Interactive: `block_actions` button clicks.
 - Web API calls use the bot token (`xoxb-…`) and wait out `429 Retry-After`.
+- Files (`share_file`) go up with the external upload: `files.getUploadURLExternal`, the
+  bytes to the returned URL, then `files.completeUploadExternal` (scope `files:write`).
 """
 
 from __future__ import annotations
@@ -36,6 +38,7 @@ log = structlog.get_logger()
 SECTION_LIMIT = 3000  # characters in one section block
 MAX_RETRY_AFTER_S = 60.0
 HTTP_TIMEOUT_S = 15.0
+UPLOAD_TIMEOUT_S = 120.0  # the bytes of one file, up to 25 MB
 # Message subtypes that are still a person writing.
 _PERSON_SUBTYPES = (None, "file_share", "thread_broadcast")
 _REMEMBER = 5000  # threads and message ids kept for routing and dedup
@@ -381,15 +384,44 @@ class SlackSocketTransport:
                                is_bot=bool(m.get("bot_id")) or m.get("user") == self.bot_user_id)
                 for m in messages[-limit:] if isinstance(m, dict)]
 
+    def upload(self, channel: str, thread: str, name: str, data: bytes, *, title: str,
+               comment: str = "") -> str:
+        """The external upload (`slack-files.getUploadURLExternal.md`, `slack-working-with-
+        files.md`, scope `files:write`): ask for an upload URL with the file's name and length,
+        POST the bytes there (no token: the URL is the grant), then share the file in the
+        thread with `files.completeUploadExternal`."""
+        ticket = self._call("files.getUploadURLExternal",
+                            {"filename": name, "length": len(data)}, form=True)
+        try:
+            response = self._http.post(ticket["upload_url"], content=data, timeout=UPLOAD_TIMEOUT_S,
+                                       headers={"Content-Type": "application/octet-stream"})
+        except httpx.TimeoutException as exc:
+            raise SlackError("files.upload", "timeout") from exc
+        if response.status_code != 200:  # "a non-200 response indicates a failure"
+            raise SlackError("files.upload", f"http_{response.status_code}")
+        body: dict[str, Any] = {"files": [{"id": ticket["file_id"], "title": title}],
+                                "channel_id": channel}
+        if thread:
+            body["thread_ts"] = thread
+        if comment:
+            body["initial_comment"] = comment
+        shared = self._call("files.completeUploadExternal", body)
+        files = shared.get("files") or [{}]
+        return str(files[0].get("permalink") or "")
+
     # Web API --------------------------------------------------------------------------
 
     def _call(self, method: str, body: dict, *, token: str | None = None,
-              http_get: bool = False) -> dict:
+              http_get: bool = False, form: bool = False) -> dict:
+        """`form`: an `application/x-www-form-urlencoded` body, for a method that takes no
+        JSON (its arguments in a JSON body are ignored)."""
         url = f"{self._api_url or slack_api_url()}/{method}"
         headers = {"Authorization": f"Bearer {token or self._bot_token}"}
         for _ in range(5):
             if http_get:
                 response = self._http.get(url, params=body, headers=headers)
+            elif form:
+                response = self._http.post(url, data=body, headers=headers)
             else:
                 response = self._http.post(url, json=body, headers=headers)
             data = response.json() if response.content else {}

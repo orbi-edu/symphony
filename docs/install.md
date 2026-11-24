@@ -458,6 +458,7 @@ In the same Slack app as the notifications bot:
    | `groups:history` | Read a thread in a private channel |
    | `mpim:history` | Read a thread in a group DM |
    | `files:read` | Optional. Download attached images so the assistant can see them ([assistant.md](assistant.md#attachments)). Without it, file names still appear but the images are not read |
+   | `files:write` | Post files the assistant made in its sandbox (`share_file`, [assistant.md](assistant.md#sharing-files)): `files.getUploadURLExternal` and `files.completeUploadExternal`. Without it, `share_file` fails with `missing_scope` |
 
 4. Open **Event Subscriptions** and turn it on. Subscribe to the bot events `app_mention`, `message.im` and `message.channels`. With Socket Mode, no request URL is needed.
 5. Open **Interactivity & Shortcuts** and turn it on, for the proposal buttons. No request URL is needed.
@@ -470,7 +471,7 @@ In the same Slack app as the notifications bot:
 In the same Discord application as the notifications bot:
 
 1. Open **Bot**. Turn on **Message Content Intent**. Without it, setup fails with `message_content_intent_missing`.
-2. Invite the bot with the scope `bot`. Give it the permissions **View Channels**, **Send Messages** and **Send Messages in Threads** in each channel where it answers.
+2. Invite the bot with the scope `bot`. Give it the permissions **View Channels**, **Send Messages**, **Send Messages in Threads** and **Attach Files** (for `share_file`) in each channel where it answers.
 3. Copy the channel IDs (Developer Mode, then **Copy Channel ID**).
 
 The bot token stays `DISCORD_BOT_TOKEN`. The assistant connects to the Gateway with the intents `GUILDS`, `GUILD_MESSAGES`, `DIRECT_MESSAGES` and `MESSAGE_CONTENT`.

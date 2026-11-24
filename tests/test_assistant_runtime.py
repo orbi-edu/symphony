@@ -112,6 +112,25 @@ def test_the_planner_proposes_once_per_turn(runner):
     agent.close("completed")
 
 
+def test_a_host_tool_error_answers_as_a_tool_error(runner):
+    from symphony.merger.agents import HostTool, HostToolError, _obj
+
+    def refuse(args, index):
+        raise HostToolError("refused: make it smaller")
+
+    run, spawn, store = runner
+    agent = run.open("assist:slack:C1:t4:1", "assistant", {}, lambda actor, text: None,
+                     tools=[HostTool("share_file", "d", _obj([], {}), answer=refuse)])
+    proc = spawn.spawned[0][3]
+    proc.push({"type": "host_tool_call", "id": "h1", "toolName": "share_file", "arguments": {}})
+    proc.run("It was too large.")
+    agent.ask("send it", lambda t: None, 10)
+    [answer] = [m for m in proc.sent if m.get("type") == "host_tool_result" and m["id"] == "h1"]
+    assert answer["isError"] is True
+    assert answer["result"]["content"][0]["text"] == "refused: make it smaller"
+    agent.close("completed")
+
+
 def test_a_tern_follow_up_reaches_the_engine(runner):
     run, spawn, store = runner
     got = []

@@ -7,6 +7,21 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- The assistant can send a file it made in its sandbox: `share_file(path, title, comment?)`
+  posts a video, screenshot, PDF, HTML page, spreadsheet or document in the thread, so the
+  person gets the file instead of pasted text. It is offered with `sandbox_run`, to the same
+  mapped people, and reads only files under the thread's repository clones or `/tmp`, after
+  `realpath`. It refuses `.git`, the credential files (`.git-credentials`, `.netrc`, `.npmrc`,
+  `.config/gh`, `.ssh`, `.aws`, `.kube`), any file holding a credential, and files over
+  25 MB, with advice for a smaller video. Slack uses the external upload and needs the bot
+  scope `files:write`; Discord posts a multipart message and needs **Attach Files**. Each
+  share is audited as `assistant.file_shared`. With `ticket`, the thread also gets
+  Attach / Dismiss buttons: a click by a mapped person attaches the file (up to 10 MB, kept
+  one hour) to that ticket through the tracker, once, audited as
+  `assistant.evidence_attached`. The Slack and Discord mocks serve the upload calls.
+
 ## [0.2.19] - 2026-11-24
 
 ### Added

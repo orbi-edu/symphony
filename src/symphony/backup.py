@@ -12,8 +12,9 @@
 
 The backup holds the keys under `sym:<ns>:` and `admin:<ns>:`, and the `state` families
 without a namespace prefix that the daemon cannot rebuild (`CORE_KEPT`). It leaves out the
-API rate limit counters (`sym:<ns>:ratelimit:*`, a minute long) and the `state` families that
-reconcile rebuilds from the tracker or that live only while a process runs (`CORE_SKIPPED`).
+API rate limit counters (`sym:<ns>:ratelimit:*`, a minute long), the files the assistant keeps
+for an "Attach" click (`sym:<ns>:assistant:evidence:*`, an hour long) and the `state` families
+that reconcile rebuilds from the tracker or that live only while a process runs (`CORE_SKIPPED`).
 The `state` keys carry no namespace: Symphony runs one Redis per namespace
 (`deploy/redis.yaml` is in the namespaced kustomization), so the header's namespace names them.
 
@@ -115,7 +116,9 @@ def kept_core(key: str) -> bool:
 
 
 def _volatile(namespace: str) -> tuple[str, ...]:
-    return (f"sym:{namespace}:ratelimit:",)
+    # Rate limit counters live a minute; a file waiting for an "Attach" click lives an hour
+    # and may be megabytes (`assistant/share.py`).
+    return (f"sym:{namespace}:ratelimit:", f"sym:{namespace}:assistant:evidence:")
 
 
 def _kept(namespace: str) -> frozenset[str]:

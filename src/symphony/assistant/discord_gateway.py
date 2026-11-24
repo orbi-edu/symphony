@@ -15,6 +15,7 @@
   replying to a bot message; `INTERACTION_CREATE` for buttons, answered through
   `POST /interactions/{id}/{token}/callback`. Bots and webhooks are ignored.
 - HTTP calls honor the per-route and global rate limits (`X-RateLimit-*`, 429 `retry_after`).
+- Files (`share_file`) go in a Create Message with `files[0]` and `payload_json`.
 """
 
 from __future__ import annotations
@@ -36,7 +37,7 @@ from websockets.sync.client import ClientConnection, connect
 
 from ..endpoints import discord_api_url
 from ..notify import DISCORD_USER_AGENT
-from . import Action, Button, File, HistoryMessage, Inbound, Ref
+from . import Action, Button, File, FileTooLarge, HistoryMessage, Inbound, Ref
 
 log = structlog.get_logger()
 
@@ -51,6 +52,9 @@ IDENTIFY_GAP_S = 5.0
 INVALID_SESSION_WAIT_S = (1.0, 5.0)  # a random wait before re-identifying after op 9
 MAX_RETRY_AFTER_S = 60.0
 HTTP_TIMEOUT_S = 15.0
+UPLOAD_TIMEOUT_S = 120.0
+# "The default limit is 20 MiB for all users", per file; boosts raise it (discord-reference.md).
+DEFAULT_UPLOAD_LIMIT = 20 * 1024 * 1024
 THREAD_TYPES = (10, 11, 12)  # announcement, public and private threads
 BUTTON_STYLES = {"primary": 1, "": 2, "danger": 4}
 _REMEMBER = 5000
@@ -496,14 +500,46 @@ class DiscordGatewayTransport:
     def history(self, channel: str, thread: str, limit: int) -> list[HistoryMessage]:
         return []
 
+    def upload(self, channel: str, thread: str, name: str, data: bytes, *, title: str,
+               comment: str = "") -> str:
+        """Create Message with one attachment (`discord-reference.md` "Uploading Files"):
+        `multipart/form-data` with `files[0]` and `payload_json`, in the conversation `post`
+        answers in. A file over the server's upload limit (20 MiB by default, more with boosts)
+        comes back as 413 `Request entity too large` (40005): `FileTooLarge`. Discord gives no
+        lasting link (attachment URLs are signed and expire), so the permalink is ""."""
+        body: dict[str, Any] = {
+            "content": comment[:self.message_limit], "allowed_mentions": {"parse": []},
+            # The `n` of `files[n]`; a string, as the spec's SnowflakeType wants it.
+            "attachments": [{"id": "0", "filename": name, "title": title[:1024]}],
+        }
+        if thread and thread != channel:
+            body["message_reference"] = {"message_id": thread, "channel_id": channel,
+                                         "fail_if_not_exists": False}
+        route = f"POST /channels/{channel}/messages"
+        try:
+            out = self._request("POST", f"/channels/{channel}/messages", route, body,
+                                files={"files[0]": (name, data, "application/octet-stream")})
+        except DiscordError as exc:
+            if exc.status == 413 or exc.code == 40005:
+                raise FileTooLarge(len(data), DEFAULT_UPLOAD_LIMIT) from exc
+            raise
+        self._remember(out["id"], thread or channel)
+        return ""
+
     # HTTP -----------------------------------------------------------------------------
 
     def _request(self, method: str, path: str, route: str, body: dict | None = None, *,
-                 auth: bool = True) -> dict:
+                 auth: bool = True, files: dict | None = None) -> dict:
+        """`files`: a `multipart/form-data` request, `body` going in `payload_json`."""
         url = f"{self._api_url or discord_api_url()}{path}"
         for _ in range(5):
             self._limits.wait(route)
-            request = self._http.build_request(method, url, json=body)
+            if files:
+                request = self._http.build_request(
+                    method, url, data={"payload_json": json.dumps(body)}, files=files,
+                    timeout=UPLOAD_TIMEOUT_S)
+            else:
+                request = self._http.build_request(method, url, json=body)
             if not auth:  # interaction callbacks are authorized by their token
                 del request.headers["Authorization"]
             response = self._http.send(request)

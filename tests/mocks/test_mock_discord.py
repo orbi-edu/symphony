@@ -572,3 +572,31 @@ def test_unserved_operations_are_501(mock):
     r = httpx.get(f"{mock}/api/v10/users/@me", headers=BOT_AUTH)
     assert r.status_code == 501
     assert httpx.get(f"{mock}/api/v10/nope", headers=BOT_AUTH).status_code == 404
+
+
+def _upload(base: str, payload: dict, files: dict) -> httpx.Response:
+    return _api(base, f"/channels/{CHANNEL}/messages", headers=BOT_AUTH,
+                data={"payload_json": json.dumps(payload)}, files=files)
+
+
+def test_create_message_with_a_file(mock):
+    r = _upload(mock, {"attachments": [{"id": "0", "filename": "a.png", "title": "Shot"}]},
+                {"files[0]": ("a.png", b"\x89PNG\r\n\x00", "image/png")})
+    assert r.status_code == 200, r.text
+    _check(200, r.json())
+    [attachment] = r.json()["attachments"]
+    assert attachment["filename"] == "a.png" and attachment["size"] == 7
+    assert attachment["content_type"] == "image/png" and attachment["title"] == "Shot"
+    [posted] = _messages(mock)
+    assert posted["files"][0]["size"] == 7 and posted["content"] == ""
+
+
+def test_create_message_file_errors(mock):
+    no_part = _upload(mock, {"attachments": [{"id": "1", "filename": "a.png"}]},
+                      {"files[0]": ("a.png", b"x", "image/png")})
+    assert no_part.status_code == 400 and no_part.json()["code"] == 50035
+    httpx.post(f"{mock}/_mock/upload_limit", json={"bytes": 4})
+    big = _upload(mock, {}, {"files[0]": ("a.bin", b"12345", "application/octet-stream")})
+    assert big.status_code == 413 and big.json()["code"] == 40005
+    _check(413, big.json())
+    assert _messages(mock) == []

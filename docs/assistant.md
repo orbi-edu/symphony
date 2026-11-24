@@ -59,6 +59,8 @@ On Slack a thread is a message thread. On Discord a thread is a reply chain or a
 | Propose tickets | `propose_tickets` (planner only) |
 | Remember a person | `remember(text, kind)` and `forget(id \| query)`, for people mapped in `notify.users` ([Memory](#memory)) |
 | Propose a team fact | `propose_team_fact(text, section?)`: a PR on the soul file after a mapped click ([Team facts](#team-facts)) |
+| Run commands in a sandbox | `sandbox_run(repo, command, timeout_s?)`, when `assistant.sandbox.enabled`, for people mapped in `notify.users` ([Sandbox](#sandbox)) |
+| Send a file it made | `share_file(path, title, comment?, ticket?)`, with the sandbox: the file in the thread, and on a ticket after a mapped click ([Sharing files](#sharing-files)) |
 | Use MCP servers | The servers that Admin gives to its role ([mcp.md](mcp.md)) |
 
 It cannot:
@@ -222,6 +224,26 @@ The pod is deleted when the assistant session of the thread ends (30 minutes wit
 
 Only people mapped in `notify.users`. The tool checks the asker of the current turn at each call, so in a thread that a mapped person started, a message from an unmapped person still cannot run commands. The Role `symphony-assistant` gets `pods` and `pods/exec` in its namespace for this.
 
+### Sharing files
+
+With the sandbox, the assistant also gets `share_file(path, title, comment?, ticket?)`. It posts one file the agent made in the sandbox (a video, a screenshot, a PDF, an HTML page, a spreadsheet, a document) in the thread it answers in, so the person gets the file itself instead of its text. The instructions tell the agent to use it to deliver a file, and never to paste a whole HTML page or a binary as text when the file can be shared. It answers `{ok, name, size, permalink?}`; a refusal is a tool error that says why and what to do.
+
+- **What it reads.** One regular file under a repository clone of the thread (`/workspace/<owner>/<name>`, where `sandbox_run` runs) or under `/tmp`. A relative path is read in the thread's only clone. The path is resolved with `realpath` first, so a symlink counts where it points. The thread must have run `sandbox_run` before: the file lives in its pod.
+- **What it refuses.** Anything inside a `.git` directory; the credential files and directories `.git-credentials`, `.netrc`, `.npmrc`, `.config/gh`, `.ssh`, `.aws` and `.kube`, wherever they are; a file whose bytes contain a credential (the merger precheck's patterns: AWS, GitHub, Slack, Linear and API keys, private keys); and a file over 25 MB. For a file that is too large, the answer suggests 720p, a higher CRF or splitting the file.
+- **Slack.** The external upload: `files.getUploadURLExternal` with the name and size, the bytes to the returned URL, then `files.completeUploadExternal` with the channel, `thread_ts` and the comment. It needs the bot scope `files:write` ([install.md](install.md#slack-app)).
+- **Discord.** A Create Message with the file in `files[0]`, `payload_json` with `allowed_mentions: {parse: []}`, replying in the conversation like every answer. A file over the server's upload limit (20 MiB by default, more with boosts) is refused with the same advice. The bot needs **Attach Files**.
+- **Audit.** Each shared file writes `assistant.file_shared`: the asker's login, the file's name and size, the title.
+- **Who can use it.** The same people as `sandbox_run`: the tool checks at each call that the asker of the current turn is mapped in `notify.users`.
+
+#### Attaching the file to a ticket
+
+With `ticket` (for example `ENG-12`), the file is posted as above, and the thread also gets a proposal: "Attach report.pdf (1.2 MB) to ENG-12 as "Load test"?" with **Attach** and **Dismiss**. Nothing reaches the tracker before a click:
+
+- Only a person mapped in `notify.users` can click; anyone else gets a private refusal.
+- Attach uploads the file to the ticket as evidence (the tracker's `attach_evidence`: on Linear, a file upload and an attachment). The message then names who attached it and the link. The audit records `assistant.evidence_attached` with that person's login, the ticket and the file.
+- A claim key lets one click work at a time, and the proposal's status is read again under it, so a double click attaches once. A failed upload keeps the buttons for a retry.
+- The file waits in Redis for one hour (`sym:<ns>:assistant:evidence:*`, not in backups), and only files up to 10 MB wait. For a larger file, or a ticket the tracker does not know, the file is still posted and the answer's `ticket_error` says why nothing was proposed.
+
 ## Device control
 
 When the assistant's role has a Seiji server (or any MCP server with a viewer), the session instructions include a paragraph about using the device tools. The assistant has no shell, so it interacts with the device exclusively through MCP tools such as `acquire_device`, `install_app`, `launch_app` and `run_actions`.
@@ -274,6 +296,7 @@ Each proposed ticket body carries its slice of the spec: at minimum its acceptan
 | Streaming | It posts "Working on it…" at once, and edits that message at most every 1.5 seconds. |
 | Message size | Slack: 3,000 characters per block, 4,000 per message (the limit of `chat.update`, which edits the first part in place). Discord: 2,000 per message. A longer answer continues in more messages. |
 | Idle session | After 30 minutes without a turn, the session ends. The next message starts a new session with the last 30 thread messages as context. |
+| Shared files | 25 MB per file (`share_file`). Discord: the server's upload limit, 20 MiB by default. A file proposed for a ticket: 10 MB, kept one hour. |
 | Replicas | One. Each transport allows one bot connection. |
 
 ## Setup

@@ -36,9 +36,13 @@ Gateway (`discord-gateway.md`, `discord-gateway-events.md`), a websocket at the 
   with empty `content`, as documented.
 
 Bodies are `application/json` or `application/x-www-form-urlencoded`, checked against the
-operation's request schema; `multipart/form-data` (file uploads) is not modelled. Errors are
-Discord's `{"code", "message"[, "errors"]}`; nested `errors` follow the docs (string codes such
-as `BASE_TYPE_MAX_LENGTH`), where the spec types them as integers:
+operation's request schema. Create Message also takes `multipart/form-data`
+(`discord-reference.md` "Uploading Files"): the JSON fields in `payload_json` (checked like a
+JSON body), each file in a `files[n]` part with a `filename`. An `attachments[].id` that names
+no `files[n]` → 400 `Invalid Form Body` (50035); a file over the upload limit ("20 MiB" by
+default; `POST /_mock/upload_limit {"bytes"}` changes it) → 413 `Request entity too large`
+(40005). Errors are Discord's `{"code", "message"[, "errors"]}`; nested `errors` follow the
+docs (string codes such as `BASE_TYPE_MAX_LENGTH`), where the spec types them as integers:
 
 - missing or unknown bot token → 401 `401: Unauthorized` (code 0); a token without access to
   the channel → 403 `Missing Access` (50001); unknown channel → 404 `Unknown Channel` (10003);
@@ -58,7 +62,7 @@ webhooks); `@everyone`/`@here` only with `everyone` parsed.
 
 Control (`/_mock/*`, JSON):
 - `GET /_mock/messages` — everything posted (via, channel_id, content, allowed_mentions,
-  mentions, mention_everyone, user_agent, ...)
+  mentions, mention_everyone, user_agent, files: `[{field, filename, size, sha256}]`, ...)
 - `POST /_mock/reset` — back to the seed
 - `POST /_mock/ratelimit` `{"times": int, "retry_after": float, "global": bool}` — the next
   `times` API requests get a 429 (`times: 0` turns it off)
@@ -127,6 +131,8 @@ MAX_CONTENT = 2000  # "the message contents (up to 2000 characters)"
 EPHEMERAL = 1 << 6
 INTERACTION_WINDOW_S = 3.0  # "you must send an initial response within 3 seconds"
 DEFAULT_APP_FLAGS = 1 << 18  # GATEWAY_MESSAGE_CONTENT
+DEFAULT_UPLOAD_LIMIT = 20 * 1024 * 1024  # "The default limit is 20 MiB for all users"
+_FILE_FIELD = re.compile(r"files\[(\d+)\]\Z")
 
 DEFAULT_TOKEN = "mock-discord-bot-token"
 BOT_USER = {"id": "1300000000000000001", "username": "symphony"}
@@ -180,6 +186,7 @@ def _seed() -> dict:
         "application": {"flags": DEFAULT_APP_FLAGS},
         "counter": 0,
         "ratelimit": {"times": 0, "retry_after": 1.0, "global": False},
+        "upload_limit": DEFAULT_UPLOAD_LIMIT,
     }
 
 
@@ -282,7 +289,8 @@ class DiscordMock:
                                    default_parse=["users"])
         return message if wait else None
 
-    def create_message(self, channel_id: str, auth: str, body: dict, user_agent: str) -> dict:
+    def create_message(self, channel_id: str, auth: str, body: dict, user_agent: str,
+                       files: list[dict] | None = None) -> dict:
         token = auth[len("Bot "):].strip() if auth.startswith("Bot ") else ""
         with self.lock:
             channels = self.state["tokens"].get(token)
@@ -295,19 +303,28 @@ class DiscordMock:
                 raise DiscordError(403, 50001, "Missing Access")
             return self._create(MESSAGES_ROUTE, channel_id, dict(BOT_USER), body, via="bot",
                                 user_agent=user_agent, webhook_id=None,
-                                default_parse=["users", "roles", "everyone"])
+                                default_parse=["users", "roles", "everyone"], files=files or [])
 
     def _create(self, route: str, channel_id: str, author: dict, body: dict, *, via: str,
-                user_agent: str, webhook_id: str | None, default_parse: list[str]) -> dict:
+                user_agent: str, webhook_id: str | None, default_parse: list[str],
+                files: list[dict] | None = None) -> dict:
+        files = files or []
         problem = best_match(validator(_request_pointer(route, "application/json")).iter_errors(body))
         if problem is not None:
             raise _schema_error(problem)
+        if any(f["size"] > self.state["upload_limit"] for f in files):
+            raise DiscordError(413, 40005, "Request entity too large")
+        fields = {f["index"] for f in files}
+        for i, attachment in enumerate(body.get("attachments") or []):
+            if str(attachment.get("id")) not in fields:
+                raise _form_error("attachments", "ATTACHMENT_NOT_FOUND",
+                                  f"attachments[{i}].id names no files[n] part")
         content = body.get("content") or ""
         if len(content) > MAX_CONTENT:
             raise _form_error("content", "BASE_TYPE_MAX_LENGTH",
                               f"Must be {MAX_CONTENT} or fewer in length.")
-        if not content and not any(body.get(k) for k in ("embeds", "components", "sticker_ids",
-                                                          "poll", "attachments")):
+        if not content and not files and not any(
+                body.get(k) for k in ("embeds", "components", "sticker_ids", "poll", "attachments")):
             raise DiscordError(400, 50006, "Cannot send an empty message")
         allowed = body.get("allowed_mentions")
         parse = default_parse if allowed is None else [p for p in allowed.get("parse") or [] if p]
@@ -349,6 +366,17 @@ class DiscordMock:
             "mention_everyone": everyone,
             "tts": bool(body.get("tts")),
         }
+        requested = {str(a.get("id")): a for a in body.get("attachments") or []}
+        for k, f in enumerate(files):
+            meta = requested.get(f["index"], {})
+            attachment_id = str(ID_BASE + 10**15 + n * 100 + k)  # apart from message ids
+            where = f"attachments/{channel_id}/{attachment_id}/{f['filename']}"
+            message["attachments"].append({
+                "id": attachment_id, "filename": meta.get("filename") or f["filename"],
+                "size": f["size"], "content_type": f["content_type"],
+                "url": f"https://cdn.discordapp.com/{where}",
+                "proxy_url": f"https://media.discordapp.net/{where}",
+                **({"title": meta["title"]} if meta.get("title") else {})})
         if webhook_id:
             message["webhook_id"] = webhook_id
         if reference and reference.get("message_id"):
@@ -365,6 +393,7 @@ class DiscordMock:
             "mention_everyone": everyone,
             "user_agent": user_agent,
             "body": body,
+            "files": [{k: f[k] for k in ("field", "filename", "size", "sha256")} for f in files],
             "message": message,
         })
         self._save()
@@ -681,6 +710,8 @@ class DiscordMock:
                 st["webhooks"].append({k: body[k] for k in ("id", "token", "channel_id", "name")})
             elif name == "users":
                 st["users"].append({"id": body["id"], "username": body["username"]})
+            elif name == "upload_limit":
+                st["upload_limit"] = int(body["bytes"])
             else:
                 return 404, {"error": "unknown control route"}
             self._save()
@@ -831,7 +862,13 @@ def make_handler(mock: DiscordMock) -> type[BaseHTTPRequestHandler]:
                     return self._json(200, mock.gateway_bot(auth, host), ok)
                 if shape[0] == "applications":
                     return self._json(200, mock.application(auth), ok)
-                body = _body(raw, self.headers.get("Content-Type", ""))
+                ctype = self.headers.get("Content-Type", "")
+                files: list[dict] = []
+                if shape == ("channels", "{}", "messages") and ctype.lower().startswith(
+                        "multipart/form-data"):
+                    body, files = _multipart(raw, ctype)
+                else:
+                    body = _body(raw, ctype)
                 if shape[0] == "webhooks":
                     out = mock.execute_webhook(parts[1], parts[2], query, body, agent)
                     return self._json(200 if out is not None else 204, out, ok)
@@ -842,7 +879,7 @@ def make_handler(mock: DiscordMock) -> type[BaseHTTPRequestHandler]:
                     return self._json(200, mock.create_dm(auth, body), ok)
                 if len(parts) == 4:
                     return self._json(200, mock.edit_message(parts[1], parts[3], auth, body), ok)
-                return self._json(200, mock.create_message(parts[1], auth, body, agent), ok)
+                return self._json(200, mock.create_message(parts[1], auth, body, agent, files), ok)
             except DiscordError as exc:
                 return self._json(exc.status, exc.body)
 
@@ -872,6 +909,57 @@ def _body(raw: bytes, content_type: str) -> dict:
     if not isinstance(body, dict):
         raise _form_error(None, "MODEL_TYPE_CONVERT", "Only dictionaries may be used in a DictType")
     return body
+
+
+def _disposition(header: str, value: str, param: str) -> str | None:
+    from email.message import Message
+
+    msg = Message()
+    msg[header] = value
+    found = msg.get_param(param, header=header)
+    return found if isinstance(found, str) else None
+
+
+def _multipart(raw: bytes, content_type: str) -> tuple[dict, list[dict]]:
+    """`multipart/form-data` for Create Message: `payload_json` (or one form field per JSON
+    field) and `files[n]` parts, each with a `Content-Disposition` `name` and `filename`."""
+    import hashlib
+
+    boundary = _disposition("content-type", content_type, "boundary")
+    if not boundary:
+        raise DiscordError(400, 50035, "Invalid Form Body")
+    body: dict = {}
+    files: list[dict] = []
+    for chunk in raw.split(b"--" + boundary.encode())[1:]:
+        if chunk.startswith(b"--"):
+            break
+        head, _, data = chunk.removeprefix(b"\r\n").partition(b"\r\n\r\n")
+        data = data.removesuffix(b"\r\n")
+        headers = {}
+        for line in head.decode("latin-1").split("\r\n"):
+            key, _, value = line.partition(":")
+            headers[key.strip().lower()] = value.strip()
+        disposition = headers.get("content-disposition", "")
+        name = _disposition("content-disposition", disposition, "name")
+        if name == "payload_json":
+            try:
+                body = json.loads(data)
+            except (ValueError, UnicodeDecodeError):
+                raise DiscordError(400, 50109, "The request body contains invalid JSON.") from None
+            if not isinstance(body, dict):
+                raise _form_error(None, "MODEL_TYPE_CONVERT",
+                                  "Only dictionaries may be used in a DictType")
+        elif name and (field := _FILE_FIELD.fullmatch(name)):
+            filename = _disposition("content-disposition", disposition, "filename")
+            if not filename or any(f["field"] == name for f in files):
+                raise _form_error(name, "BASE_TYPE_REQUIRED",
+                                  "Each files[n] part needs a filename and a unique name.")
+            files.append({"field": name, "index": field.group(1), "filename": filename,
+                          "size": len(data), "sha256": hashlib.sha256(data).hexdigest(),
+                          "content_type": headers.get("content-type", "application/octet-stream")})
+        elif name:
+            body[name] = data.decode(errors="replace")
+    return body, files
 
 
 def serve(port: int, state_dir: Path | None, host: str = "127.0.0.1") -> ThreadingHTTPServer:

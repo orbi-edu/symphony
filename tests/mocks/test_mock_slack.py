@@ -401,7 +401,8 @@ def test_vendored_slack_docs_match_sources():
     assert {"slack-socket-mode.md", "slack-apps.connections.open.md", "slack-app_mention.md",
             "slack-message.im.md", "slack-block_actions-payload.md", "slack-chat.update.md",
             "slack-chat.postEphemeral.md", "slack-conversations.replies.md",
-            "slack-auth.test.md"} <= set(mine)
+            "slack-auth.test.md", "slack-files.getUploadURLExternal.md",
+            "slack-files.completeUploadExternal.md", "slack-working-with-files.md"} <= set(mine)
     for name, sha in mine.items():
         assert hashlib.sha256((specs / name).read_bytes()).hexdigest() == sha, name
 
@@ -410,3 +411,54 @@ def test_unserved_methods_are_501(mock):
     r = httpx.post(f"{mock}/api/conversations.history", headers={"Authorization": f"Bearer {TOKEN}"})
     assert r.status_code == 501
     assert httpx.post(f"{mock}/api/no.such.method").json()["error"] == "unknown_method"
+
+
+def _auth() -> dict:
+    return {"Authorization": f"Bearer {TOKEN}"}
+
+
+def _upload_url(base: str, length: int, name: str = "a.mp4") -> dict:
+    r = httpx.post(f"{base}/api/files.getUploadURLExternal", headers=_auth(),
+                   data={"filename": name, "length": str(length)})
+    return r.json()
+
+
+def test_external_upload_shares_the_file_in_a_thread(mock):
+    ticket = _upload_url(mock, 5)
+    assert ticket["ok"] and ticket["upload_url"].startswith(mock + "/upload/v1/")
+    r = httpx.post(ticket["upload_url"], content=b"hello")
+    assert r.status_code == 200 and r.text == "OK - 5"
+    done = httpx.post(f"{mock}/api/files.completeUploadExternal", headers=_auth(), json={
+        "files": [{"id": ticket["file_id"], "title": "Hi"}],
+        "channel_id": slack.DEFAULT_CHANNEL["id"], "thread_ts": "1700000001.000001",
+        "initial_comment": "here"}).json()
+    assert done["ok"] and done["files"][0]["id"] == ticket["file_id"]
+    assert done["files"][0]["title"] == "Hi" and done["files"][0]["permalink"]
+    again = httpx.post(f"{mock}/api/files.completeUploadExternal", headers=_auth(), json={
+        "files": [{"id": ticket["file_id"]}], "channel_id": slack.DEFAULT_CHANNEL["id"]}).json()
+    assert again == {"ok": False, "error": "file_not_found"}  # "can only be called once"
+
+
+def test_external_upload_errors(mock):
+    # a form-only method ignores a JSON body's arguments
+    r = httpx.post(f"{mock}/api/files.getUploadURLExternal", headers=_auth(),
+                   json={"filename": "a.mp4", "length": 5})
+    assert r.json() == {"ok": False, "error": "missing_argument"}
+    assert _upload_url(mock, 0)["error"] == "missing_argument"
+    assert httpx.post(f"{mock}/api/files.getUploadURLExternal",
+                      data={"filename": "a", "length": "1"}).json()["error"] == "not_authed"
+    ticket = _upload_url(mock, 5)
+    r = httpx.post(ticket["upload_url"], content=b"too long")
+    assert r.status_code == 400 and "length mismatch" in r.text
+    complete = {"files": json.dumps([{"id": ticket["file_id"]}]),
+                "channel_id": slack.DEFAULT_CHANNEL["id"]}
+    assert httpx.post(f"{mock}/api/files.completeUploadExternal", headers=_auth(),
+                      data=complete).json()["error"] == "file_not_found"  # nothing uploaded
+    assert httpx.post(ticket["upload_url"], content=b"hello").status_code == 200
+    assert httpx.post(f"{mock}/api/files.completeUploadExternal", headers=_auth(),
+                      data={**complete, "channel_id": "C0NOSUCH"}).json()["error"] == "channel_not_found"
+    assert httpx.post(f"{mock}/api/files.completeUploadExternal", headers=_auth(), data={
+        "files": complete["files"], "thread_ts": "1700000001.000001"}).json()["error"] == "invalid_arguments"
+    assert httpx.post(f"{mock}/api/files.completeUploadExternal", headers=_auth(),
+                      data={**complete, "bogus": "1"}).json()["error"] == "invalid_arg_name"
+    assert httpx.post(f"{mock}/upload/v1/unknown", content=b"x").status_code == 404
