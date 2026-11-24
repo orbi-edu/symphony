@@ -46,6 +46,11 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A run that died while waiting for an answer no longer leaves its session in
   `waiting_input` for good (Tern kept showing it under "Needs input"): the daemon closes
   attempt sessions their ticket no longer runs.
+- A runner whose workspace pod ended during the attempt (deadline, eviction, a failed node)
+  no longer crashes at teardown with "Agent generation termination could not be confirmed".
+  A pod that has ended (`Failed`, `Succeeded`) runs no process, so the stop is confirmed and
+  the attempt records its real failure reason. A live pod whose exec fails, or a pod whose
+  object is gone before its containers are known to have stopped, still fails closed.
 
 ## [0.2.12] - 2026-11-21
 
