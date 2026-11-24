@@ -10,7 +10,7 @@ import time
 import pytest
 from tests.api_support import GITHUB_SECRET, LINEAR_SECRET, client_for, make_services
 
-from symphony import wake
+from symphony import questions, wake
 from symphony.merger.store import wake_target
 
 APP_MERGER = wake_target("acme/app")
@@ -79,6 +79,21 @@ def test_unconfigured_secret_is_503(redis_client):
     client = client_for(services)
     assert linear(client, {"action": "x"}).status_code == 503
     assert github(client, "push", {}).status_code == 503
+
+
+def test_a_reply_to_an_agents_question_is_queued_for_the_daemon(api, redis_client):
+    _, client = api
+    questions.ask(redis_client, "test", qid="q1", issue_id="i1", identifier="ENG-1", sid="i1:1",
+                  url=None, question="Which?", options=["A", "B"], to=None, now_ms=1)
+    redis_client.set("sym:test:question-ref:linear:root", "q1")
+    stamp = int(time.time() * 1000)
+    for parent in ("root", "unrelated"):
+        payload = {"action": "create", "type": "Comment", "webhookTimestamp": stamp,
+                   "data": {"id": f"c-{parent}", "parentId": parent, "body": "2",
+                            "user": {"name": "Ana"}}}
+        assert linear(client, payload).status_code == 202
+    queued = [json.loads(raw) for raw in redis_client.lrange("sym:test:questions:inbox", 0, -1)]
+    assert queued == [{"id": "c-root", "parent": "root", "body": "2", "author": "Ana"}]
 
 
 @pytest.mark.parametrize(

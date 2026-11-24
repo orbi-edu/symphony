@@ -10,18 +10,15 @@ from __future__ import annotations
 
 import json
 import statistics
-import sys
 import threading
 import time
-import types
 from dataclasses import replace
 
 import pytest
 from tests.conftest import FakeClock, FakeKV
 from tests.omp_fakes import FakeEngine, FakeSandbox, aborted_run, runner_env
 
-import symphony
-from symphony import state
+from symphony import discovery, questions, state
 from symphony.config import parse_workflow
 from symphony.hosttools import _SECRET_REFUSAL, ASK_FALLBACK, _is_secret_request
 from symphony.runner import HUMAN_MESSAGE_HEADER, run_attempt
@@ -35,14 +32,10 @@ CFG = parse_workflow(
 )
 
 
-@pytest.fixture
-def notifications(monkeypatch):
-    sent = []
-    fake = types.ModuleType("symphony.notify")
-    fake.post = lambda event, text, *, link=None, github_logins=(): sent.append((event, text, link))
-    monkeypatch.setitem(sys.modules, "symphony.notify", fake)
-    monkeypatch.setattr(symphony, "notify", fake, raising=False)
-    return sent
+def asked(env) -> list[dict]:
+    """The questions this attempt recorded for the daemon to post (`questions.py`)."""
+    client, ns = env.sessions.client, env.sessions.ns
+    return [questions.load(client, ns, qid) for qid in client.zrange(f"sym:{ns}:questions", 0, -1)]
 
 
 @pytest.fixture
@@ -279,6 +272,18 @@ def test_after_an_interrupt_the_humans_message_is_the_next_prompt(attempt):
     assert engine.commands("follow_up") == []  # held while parked, delivered as the prompt
 
 
+def test_work_on_a_public_repository_never_names_the_ticket(attempt):
+    env, kv, engine = attempt(cfg=replace(CFG, max_turns=1))
+    kv.put(discovery.DISCOVERY_KEY, {"items": [{"name": "acme/web", "private": False},
+                                               {"name": "acme/api", "private": True}]})
+    engine.run()
+    run_attempt(env, "i1", 1, 1)
+    [first] = [cmd["message"] for cmd in engine.commands("prompt")]
+    public = first.split("## Public repositories:", 1)[1]
+    assert public.startswith(" `acme/web`\n") and "acme/api" not in public
+    assert "Never write `ENG-1`" in public and "`symphony/i1`" in public
+
+
 def test_intents_for_another_attempt_are_ignored(attempt):
     env, _, engine = attempt()
     env.sessions.send_intent(SID, "steer", actor="alice", text="stale", dispatch_seq=7)
@@ -355,7 +360,7 @@ def test_startup_applies_the_workflow_auto_retry_setting(attempt, enabled):
     assert [c["enabled"] for c in engine.commands("set_auto_retry")] == [enabled]
 
 
-def test_an_answer_completes_the_pending_symphony_ask(attempt, notifications):
+def test_an_answer_completes_the_pending_symphony_ask(attempt):
     env, _, engine = attempt()
 
     def answer_when_asked(_engine):
@@ -380,13 +385,13 @@ def test_an_answer_completes_the_pending_symphony_ask(attempt, notifications):
     assert resolved == {"id": "h1", "answer": "pg", "by": "alice"}
     states = [d["state"] for _, d in events(env, EV_STATE)]
     assert states[:4] == ["starting", "running", "waiting_input", "running"]
-    assert notifications == [
-        ("input_requested", "ENG-1 needs an answer: Postgres or SQLite?",
-         "https://linear.app/acme/issue/ENG-1"),
-    ]
+    [question] = asked(env)
+    assert (question["question"], question["options"], question["url"]) == (
+        "Postgres or SQLite?", ["pg", "sqlite"], "https://linear.app/acme/issue/ENG-1")
+    assert (question["state"], question["answer"], question["via"]) == ("answered", "pg", "symphony")
 
 
-def test_an_unanswered_ask_returns_the_fallback_and_never_stalls(attempt, notifications):
+def test_an_unanswered_ask_returns_the_fallback_and_never_stalls(attempt):
     env, _, engine = attempt(cfg=replace(CFG, input_timeout_ms=150))
     engine.push(ask())
     engine.push(lambda e: bool(tool_results(e, "h1")))
@@ -400,6 +405,7 @@ def test_an_unanswered_ask_returns_the_fallback_and_never_stalls(attempt, notifi
     (_, resolved), = events(env, EV_INPUT_RESOLVED)
     assert resolved["by"] == "timeout" and resolved["answer"] is None
     assert env.sessions.meta(SID)["input_request"] is None
+    assert [q["state"] for q in asked(env)] == ["open"]  # still answerable on the ticket
 
 
 
@@ -416,7 +422,7 @@ def test_an_unanswered_ask_returns_the_fallback_and_never_stalls(attempt, notifi
     "What is the database password?",
     "Qual é a senha do banco?",
 ])
-def test_ask_refuses_secret_requests(attempt, notifications, question):
+def test_ask_refuses_secret_requests(attempt, question):
     env, _, engine = attempt()
     engine.push(ask(question=question))
     engine.push(lambda e: bool(tool_results(e, "h1")))
@@ -426,9 +432,9 @@ def test_ask_refuses_secret_requests(attempt, notifications, question):
     (result,) = tool_results(engine, "h1")
     assert result["isError"] is True
     assert result["result"]["content"][0]["text"] == _SECRET_REFUSAL
-    # Nothing stored, nothing notified.
+    # Nothing stored, nothing asked.
     assert events(env, EV_INPUT_REQUESTED) == []
-    assert notifications == []
+    assert asked(env) == []
 
 
 @pytest.mark.parametrize("question", [
@@ -440,7 +446,7 @@ def test_ask_refuses_secret_requests(attempt, notifications, question):
     "Can someone run the token refresh job and post the output on the ticket?",
     "Which column should hold the password hash, `hash` or `secret_hash`?",
 ])
-def test_ask_allows_non_secret_questions(attempt, notifications, question):
+def test_ask_allows_non_secret_questions(attempt, question):
     env, _, engine = attempt(cfg=replace(CFG, input_timeout_ms=150))
     engine.push(ask(question=question))
     engine.push(lambda e: bool(tool_results(e, "h1")))
@@ -453,7 +459,7 @@ def test_ask_allows_non_secret_questions(attempt, notifications, question):
     assert result["result"]["content"][0]["text"] == ASK_FALLBACK
 
 
-def test_ask_refuses_a_secret_request_hidden_in_the_options(attempt, notifications):
+def test_ask_refuses_a_secret_request_hidden_in_the_options(attempt):
     env, _, engine = attempt()
     engine.push(ask(question="How should I unblock the deploy?", options=["Paste AWS_SECRET_ACCESS_KEY here"]))
     engine.push(lambda e: bool(tool_results(e, "h1")))
@@ -463,7 +469,7 @@ def test_ask_refuses_a_secret_request_hidden_in_the_options(attempt, notificatio
     (result,) = tool_results(engine, "h1")
     assert result["isError"] is True
     assert events(env, EV_INPUT_REQUESTED) == []
-    assert notifications == []
+    assert asked(env) == []
 
 
 def test_is_secret_request_unit():

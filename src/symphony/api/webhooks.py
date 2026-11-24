@@ -15,7 +15,7 @@ import time
 
 from fastapi import APIRouter, Request
 
-from .. import wake
+from .. import questions, wake
 from ..merger.store import wake_target
 from ..prwatch import comment_wake
 from .control import Control
@@ -119,6 +119,12 @@ def build_router(control: Control) -> APIRouter:
             raise ApiError(401, "stale_webhook", "the webhook timestamp is too old")
         delivered("linear")
         data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        if payload.get("type") == "Comment" and payload.get("action") == "create":
+            # A reply to an agent's question is its answer (`questions.py`).
+            author = (data.get("user") or {}).get("name") or (payload.get("actor") or {}).get("name")
+            questions.queue_reply(s.client, s.namespace, comment_id=str(data.get("id") or ""),
+                                  parent_id=str(data.get("parentId") or ""),
+                                  body=str(data.get("body") or ""), author=str(author or ""))
         reason = f"linear:{payload.get('action', '')}:{data.get('identifier') or payload.get('type', '')}"
         wake.wake(s.client, s.namespace, wake.DAEMON, reason[:200])
         return {"woke": [wake.DAEMON]}

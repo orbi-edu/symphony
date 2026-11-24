@@ -6,7 +6,7 @@ from dataclasses import replace
 
 from tests.test_dispatch import FakeEffects
 
-from symphony import state
+from symphony import discovery, state
 from symphony.config import parse_workflow
 from symphony.reflector import Harvest, Lesson, nightly_sweep, run_retrospective
 
@@ -58,6 +58,19 @@ def test_exactly_once_second_caller_skipped(kv):
     assert run_retrospective(kv, gh, CFG, "i1", entry(), "call-A", NOW, distill_one) == "learnings-pr-opened"
     assert run_retrospective(kv, gh, CFG, "i1", entry(), "call-B", NOW, distill_one) == "skipped"
     assert len(gh.opened) == 1  # never two learnings PRs
+
+
+def test_a_public_repository_never_gets_a_learnings_pr(kv):
+    """Lessons come from the private ticket: they never land in a public AGENTS.md."""
+    gh = FakeGitHub(pr={"number": 1})
+    gh.repo = "acme/app"
+    kv.put(discovery.DISCOVERY_KEY, {"items": [{"name": "acme/app", "private": False}]})
+    assert run_retrospective(kv, gh, CFG, "i1", entry(), "call-A", NOW, distill_one) \
+        == "public-repository"
+    assert gh.opened == []
+    kv.put(discovery.DISCOVERY_KEY, {"items": [{"name": "acme/app", "private": True}]})
+    assert run_retrospective(kv, gh, CFG, "i2", entry(), "call-B", NOW, distill_one) \
+        == "learnings-pr-opened"
 
 
 def test_platform_reexecution_same_call_id_readopts(kv):

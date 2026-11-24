@@ -21,6 +21,7 @@ from .base import (
     TrackerUnavailable,
     classify_state,
     make_dispatchable,
+    pick_person,
 )
 
 
@@ -43,7 +44,8 @@ class MemoryTracker:
         self.mutations: list[dict] = []
         self.raise_unavailable = False
         self.fetch_calls: list[tuple[str, tuple]] = []
-        self.comments: dict[str, list[dict]] = {}  # issue id -> [{id, body}]
+        self.comments: dict[str, list[dict]] = {}  # issue id -> [{id, body, parent}]
+        self.people: dict[str, list[dict]] = {}  # issue id -> [{name, email, mention}], author first
         self.relations: list[tuple[str, str]] = []  # (blocker id, blocked id)
         self.evidence: dict[str, list[dict]] = {}  # issue id -> [{title, url, kind}]
         self.labels: set[str] = set()  # labels the board has, beyond those on issues
@@ -143,11 +145,16 @@ class MemoryTracker:
         self.set_state(found.id, state_name)
         return True
 
-    def comment(self, issue: str, body: str) -> str:
+    def comment(self, issue: str, body: str, *, parent: str | None = None) -> str:
         found = self._require(issue)
         comment_id = f"comment-{next(self._seq)}"
-        self.comments.setdefault(found.id, []).append({"id": comment_id, "body": body})
+        entry = {"id": comment_id, "body": body, **({"parent": parent} if parent else {})}
+        self.comments.setdefault(found.id, []).append(entry)
         return comment_id
+
+    def person(self, issue: str, hint: str | None = None) -> dict | None:
+        found = self._require(issue)
+        return pick_person(self.people.get(found.id, []), hint)
 
     def upsert_workpad(self, issue: str, body: str) -> str:
         found = self._require(issue)

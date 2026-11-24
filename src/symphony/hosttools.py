@@ -21,29 +21,39 @@ import os
 import re
 import shlex
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from . import state
+from . import questions, state
 from .sessions import SessionStore
 from .trackers.base import SubIssue, TrackerAdapter, TrackerInputError
 from .workspace import SandboxLike
 
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
+
+
 ASK_TOOL = "symphony_ask"
 ASK_FALLBACK = (
-    "No human answered; proceed with your best judgment and record the assumption in the "
-    "Workpad."
+    "Nobody answered in time. The question stays open on the ticket and in Slack, and the "
+    "person who decides is reminded later. Proceed with your best judgment and record the "
+    "assumption in the Workpad. An answer that comes while you still work reaches you as a "
+    "message; one that comes after this run sends the ticket back to Rework with it."
 )
 ASK_DEFINITION = {
     "name": ASK_TOOL,
     "label": "Ask a human",
     "description": (
-        "Ask the people supervising this ticket a question and wait for their answer. Use it "
-        "only when you cannot proceed responsibly without a human decision (ambiguous "
-        "requirements, risky or irreversible choices). If nobody answers in time you get an "
-        "instruction to proceed with your best judgment. Never ask for credentials, keys, "
-        "tokens or passwords: ask a person to run the command in an authorized environment "
-        "and post only the output."
+        "Ask a person a question and wait for their answer. Use it only when you cannot "
+        "proceed responsibly without a human decision (ambiguous requirements, risky or "
+        "irreversible choices). Symphony posts the question on the ticket and in Slack, "
+        "mentioning `to`, and reminds them later: do not post it as a comment yourself. If "
+        "nobody answers in time you get an instruction to proceed with your best judgment; a "
+        "later answer still reaches the work. Never ask for credentials, keys, tokens or "
+        "passwords: ask a person to run the command in an authorized environment and post "
+        "only the output."
     ),
     "parameters": {
         "type": "object",
@@ -55,6 +65,13 @@ ASK_DEFINITION = {
                 "type": "array",
                 "items": {"type": "string"},
                 "description": "Suggested answers, when the choice is between known options.",
+            },
+            "to": {
+                "type": "string",
+                "description": (
+                    "Who decides: the name or e-mail of a person on the ticket (its author, "
+                    "assignee or someone who commented). Default: the ticket's author."
+                ),
             },
         },
     },
@@ -526,7 +543,7 @@ class HostToolBroker:
                 return
             self._asks[call_id] = pending
         self.store.request_input(self.sid, call_id, question, options)
-        self._notify(question)
+        self._record(call_id, question, options, str(args.get("to") or "").strip() or None)
         answered = pending.done.wait(self.input_timeout_s)
         with self._lock:
             self._asks.pop(call_id, None)
@@ -534,25 +551,32 @@ class HostToolBroker:
             self.store.resolve_input(self.sid, call_id, answer=None, by="cancelled")
             return
         if answered:
-            self.store.resolve_input(self.sid, call_id, answer=pending.answer, by=pending.by or "human")
+            by = pending.by or "human"
+            self.store.resolve_input(self.sid, call_id, answer=pending.answer, by=by)
+            self._close_question(call_id, pending.answer or "", by)
             self._respond(call_id, pending.answer or "", is_error=False)
             return
         self.store.resolve_input(self.sid, call_id, answer=None, by="timeout")
         self._respond(call_id, ASK_FALLBACK, is_error=False)
 
-    def _notify(self, question: str) -> None:
+    def _record(self, call_id: str, question: str, options: list[str], to: str | None) -> None:
+        """The question outlives this run (`questions.py`): the daemon posts it on the ticket
+        and in Slack, reminds the person and delivers a late answer."""
         try:
-            from . import notify  # lazy: Slack is optional and only matters when asking
-        except ImportError:
-            return
+            questions.ask(self.store.client, self.store.ns, qid=call_id, issue_id=self.issue_id,
+                          identifier=self.identifier, sid=self.sid, url=self.notify_link,
+                          question=question, options=options, to=to, now_ms=_now_ms())
+        except Exception as exc:  # noqa: BLE001 — Tern still shows it; the agent never blocks on it
+            self._log("question_record_failed", error=str(exc))
+
+    def _close_question(self, call_id: str, answer: str, by: str) -> None:
+        """Answered here (Tern, the CLI, or a delivered answer, which already won): the ticket
+        and Slack say so."""
         try:
-            notify.post(
-                "input_requested",
-                f"{self.identifier} needs an answer: {question}",
-                link=self.notify_link,
-            )
-        except Exception as exc:  # noqa: BLE001 — Slack must never block the agent
-            self._log("notify_failed", event="input_requested", error=str(exc))
+            questions.submit(self.store.client, self.store.ns, call_id, answer, by=by,
+                             via="symphony", now_ms=_now_ms(), delivered="answer")
+        except Exception as exc:  # noqa: BLE001 — the run has its answer; the record is advice
+            self._log("question_close_failed", error=str(exc))
 
     def pending_request(self) -> str | None:
         with self._lock:

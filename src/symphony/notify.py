@@ -10,7 +10,8 @@ Channels, picked from the environment at call time; every configured channel get
 - none: nothing happens.
 
 Mentions come from `notify.users` in WORKFLOW.md: a `slack` and a `discord` map, each from
-GitHub login to that service's user id. A process that already holds a parsed config calls
+GitHub login (or e-mail, for people a ticket names: `questions.py`) to that service's user
+id. A process that already holds a parsed config calls
 `configure(cfg.notify_users)` once at start; a process that never does reads the maps from
 the mounted WORKFLOW.md front matter (`$SYMPHONY_WORKFLOW_MOUNT/WORKFLOW.md`, reloaded when
 the file changes), so every pod gets mentions without extra wiring.
@@ -469,3 +470,95 @@ def _post_slack_blocks(
                 if _sent.get(digest) == now:
                     del _sent[digest]
     return ok
+
+
+# Questions (`questions.py`): a message people answer with a button or in its thread ------
+
+QUESTION_ACTION_PREFIX = "ask:"
+_BUTTON_TEXT_MAX = 75  # Slack's limit for a button's plain_text
+_BUTTONS_MAX = 25  # elements in one actions block
+
+
+def question_action(qid: str, index: int) -> str:
+    """The button id of option `index` (0-based) of question `qid`."""
+    return f"{QUESTION_ACTION_PREFIX}{qid}:{index}"
+
+
+def parse_question_action(action_id: str) -> tuple[str, int] | None:
+    """`ask:<qid>:<index>` → (qid, index)."""
+    if not action_id.startswith(QUESTION_ACTION_PREFIX):
+        return None
+    qid, _, index = action_id[len(QUESTION_ACTION_PREFIX):].rpartition(":")
+    return (qid, int(index)) if qid and index.isdigit() else None
+
+
+def post_question(
+    text: str, *, qid: str, options: Sequence[str], mention_keys: Sequence[str] = (),
+    link: str | None = None, thread: Mapping[str, str] | None = None,
+) -> dict | None:
+    """Post an agent's question: in Slack (bot token and channel) with one button per option
+    and an invitation to answer in the thread, at the top of the channel or, with `thread`
+    (`{channel, ts}`), as a reply also shown in the channel. Discord, when configured, gets
+    the text without buttons. `mention_keys` are `notify.users` keys (a GitHub login or an
+    e-mail). Returns Slack's `{channel, ts}`; None when Slack did not take it. Never raises."""
+    try:
+        _post("discord", "input_requested", text, link=link, github_logins=mention_keys)
+    except Exception as exc:  # noqa: BLE001 — a notification never fails its caller
+        log.warning("notify_failed", notify_channel="discord", notify_event="input_requested",
+                    error=type(exc).__name__)
+    token = os.environ.get("SLACK_BOT_TOKEN", "").strip()
+    channel = (thread or {}).get("channel") or os.environ.get("SLACK_CHANNEL", "").strip()
+    if not token or not channel:
+        return None
+    mention = " ".join(f"<@{uid}>" for uid in _user_ids("slack", mention_keys))
+    message = format_message("input_requested", text, link=link, mention=mention)
+    blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": message[:3000]}}]
+    buttons = [
+        {"type": "button", "action_id": question_action(qid, i), "value": str(i),
+         "text": {"type": "plain_text", "text": _button_text(i, option)}}
+        for i, option in enumerate(options[:_BUTTONS_MAX])
+    ]
+    if buttons:
+        blocks.append({"type": "actions", "elements": buttons})
+    blocks.append({"type": "context", "elements": [
+        {"type": "mrkdwn", "text": "Or answer in your own words in this thread."}]})
+    payload: dict = {"channel": channel, "text": message, "blocks": blocks, "unfurl_links": False}
+    if thread:
+        payload.update(thread_ts=thread["ts"], reply_broadcast=True)
+    body = _slack_call(token, "chat.postMessage", payload)
+    return {"channel": body.get("channel") or channel, "ts": body["ts"]} if body.get("ts") else None
+
+
+def edit_question(where: Mapping[str, str], head: str, text: str) -> bool:
+    """Replace a question message posted by `post_question`, buttons removed: `head` is
+    Slack mrkdwn written by Symphony, `text` is shown as written (escaped)."""
+    token = os.environ.get("SLACK_BOT_TOKEN", "").strip()
+    if not token or not where.get("channel") or not where.get("ts"):
+        return False
+    message = f"{head}\n{_escape(text.strip())}"[:3000]
+    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": message}}]
+    return bool(_slack_call(token, "chat.update", {
+        "channel": where["channel"], "ts": where["ts"], "text": message, "blocks": blocks,
+    }).get("ok"))
+
+
+def _button_text(index: int, option: str) -> str:
+    label = f"{index + 1}. {option.strip()}"
+    return label if len(label) <= _BUTTON_TEXT_MAX else label[:_BUTTON_TEXT_MAX - 1] + "…"
+
+
+def _slack_call(token: str, method: str, payload: dict) -> dict:
+    """A Slack Web API call; the body when Slack accepted it, else {} (logged)."""
+    try:
+        response = httpx.post(f"{slack_api_url()}/{method}", json=payload, timeout=TIMEOUT_S,
+                              headers={"Authorization": f"Bearer {token}"})
+        body = _json(response)
+    except Exception as exc:  # noqa: BLE001 — a notification never fails its caller
+        log.warning("notify_failed", notify_channel="slack", method=method,
+                    error=type(exc).__name__)
+        return {}
+    if response.status_code != 200 or not body.get("ok"):
+        log.warning("notify_rejected", notify_channel="slack", method=method,
+                    status=response.status_code, slack_error=body.get("error", ""))
+        return {}
+    return body

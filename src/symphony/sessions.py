@@ -5,7 +5,8 @@ implementation attempt (`<issue_id>:<dispatch_seq>`), a merger agent
 (`merger:<owner>:<name>:<pr>:<role>:<n>`) or a chat thread of the assistant
 (`assist:<transport>:<channel>:<thread>:<n>`, kind `assist`). The runner (or the merger, or the
 assistant) is the only writer of
-events and transcript; the control API is the only writer of intents. Everything lives in Redis
+events and transcript; intents come from the control API and, for a late answer to a
+question, from the daemon (`questions.py`). Everything lives in Redis
 so every read path — the API, SSE, the ACP bridge, MCP — is a Redis read with no Kubernetes call.
 
 Keys (prefix `sym:<namespace>:session:<sid>`):
@@ -21,7 +22,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 from . import metrics, retention
@@ -115,6 +116,27 @@ class SessionStore:
         if doc is not None and doc.get("kind") in metrics.ATTEMPT_KINDS:
             metrics.count_attempt_finished(self.client, self.ns, outcome)
         return doc
+
+    def end_orphans(self, live_seq: Callable[[str], int | None], *, idle_ms: int,
+                    limit: int = 200) -> list[str]:
+        """Close implementation attempts left open by a runner that died: no update for
+        `idle_ms` and the ticket's live attempt (`live_seq(issue_id)`, None when no runner
+        works on it) is another one. Without this, a run that died waiting for an answer
+        shows `waiting_input` for good. Returns the ids closed."""
+        closed = []
+        cutoff = self._now() - idle_ms
+        for doc in self.list(limit=limit, states=("starting", "running", "waiting_input", "idle")):
+            sid = doc.get("sid") or ""
+            issue_id, _, seq = sid.rpartition(":")
+            if (doc.get("kind") not in metrics.ATTEMPT_KINDS or not issue_id or not seq.isdigit()
+                    or doc.get("updated_at", 0) > cutoff or live_seq(issue_id) == int(seq)):
+                continue
+            if doc.get("input_request"):
+                self.resolve_input(sid, doc["input_request"].get("id") or "", answer=None,
+                                   by="abandoned")
+            self.close(sid, "error")
+            closed.append(sid)
+        return closed
 
     def _write_meta(self, sid: str, doc: dict) -> None:
         pipe = self.client.pipeline()
