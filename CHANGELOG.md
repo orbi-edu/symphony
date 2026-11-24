@@ -7,6 +7,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.20] - 2026-11-24
+
 ### Added
 
 - The assistant can send a file it made in its sandbox: `share_file(path, title, comment?)`
