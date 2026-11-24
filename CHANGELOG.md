@@ -7,6 +7,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.17] - 2026-11-24
+
 ### Fixed
 
 - `PUT /v1/setup/skills` (`symphony setup skills`, Tern Setup) published the change but
