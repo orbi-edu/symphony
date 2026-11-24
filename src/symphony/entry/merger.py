@@ -379,6 +379,13 @@ def configure(load_cfg: Callable[[], object | None], env, stop: threading.Event,
     return None
 
 
+def _effective_label_filter(cfg, repo: str) -> tuple[bool, tuple[str, ...]]:
+    """The effective label filter for a repository: per-repo override wins, else global."""
+    active = cfg.merger_label_filter_repos.get(repo.lower(), cfg.merger_label_filter_enabled)
+    labels = tuple(cfg.merger_label_filter_labels) if active else ()
+    return active, labels
+
+
 class MergerFleet:
     """Manages a set of Mergers, one per repository, with a reconcile loop that starts and
     stops them as the set of discovered repositories changes."""
@@ -427,6 +434,10 @@ class MergerFleet:
         except (NotConfigured, NotAuthorizedForRepo, CredentialError, GitError, GitHubError) as exc:
             log.warning("merger_fleet_build_failed", repo=repo, error=str(exc)[:300])
             return False
+        active, labels = _effective_label_filter(self.cfg, repo)
+        m.label_filter_active = active
+        m.label_filter_labels = labels
+        m.store.label_filter = {"active": active, "labels": list(labels)}
         threads, beat = start_loops(m, self.client, self.ns, pulse, repo_stop,
                                     reviewers=self.reviewers, review_semaphore=self.review_semaphore,
                                     poll_s=self.poll_s)
@@ -471,6 +482,17 @@ class MergerFleet:
                 ok = self.start_repo(repo)
                 if ok:
                     self._failed.discard(repo)
+        # Update the label filter on each running repo (live toggle, no restart).
+        with self._lock:
+            for repo, entry in self._repos.items():
+                m = entry["merger"]
+                active, labels = _effective_label_filter(cfg, repo)
+                if m.label_filter_active != active or m.label_filter_labels != labels:
+                    log.info("merger_label_filter_changed", repo=repo, active=active,
+                             labels=list(labels))
+                    m.label_filter_active = active
+                    m.label_filter_labels = labels
+                m.store.label_filter = {"active": active, "labels": list(labels)}
 
     def stop_all(self) -> None:
         with self._lock:

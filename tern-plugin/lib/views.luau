@@ -756,6 +756,9 @@ local function merger(state: any): Node
 		for _, b in (type(batch.members) == "table" and batch.members) or {} do
 			table.insert(names, "#" .. tostring(b.pr) .. (if b.merged then " ✓" else ""))
 		end
+		-- `label_filter` (merger status): the PRs this merger takes in.
+		local lf = type(r.label_filter) == "table" and r.label_filter or nil
+		local lf_labels = lf and type(lf.labels) == "table" and lf.labels or {}
 		table.insert(status_rows, {
 			id = "s" .. repo,
 			cells = {
@@ -765,6 +768,11 @@ local function merger(state: any): Node
 					then { ui.span(tostring(lease.owner), "mono"), ui.span(" · renews in " .. math.max(0, math.floor((lease.expires_in_ms or 0) / 1000)) .. " s", "muted") }
 					else { ui.span("no lease: the train is stopped", "muted") },
 				batch = { ui.span(if #names > 0 then table.concat(names, "  ") else "—", "mono") },
+				filter = if lf == nil
+					then { ui.span("—", "muted") }
+					elseif lf.active
+					then { ui.span("labeled: ", "muted"), ui.span(table.concat(lf_labels, ", "), "mono") }
+					else { ui.span("every PR", "muted") },
 			},
 		})
 		for _, rv in r.reviewing or {} do
@@ -818,6 +826,7 @@ local function merger(state: any): Node
 					{ id = "alive", head = "Merger", priority = 8 },
 					{ id = "lease", head = "Train lease", grow = 1, priority = 10 },
 					{ id = "batch", head = "Current batch", align = "end", mono = true, priority = 5 },
+					{ id = "filter", head = "Takes", priority = 4 },
 				},
 				rows = status_rows,
 				empty = "No merger has started yet",

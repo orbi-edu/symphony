@@ -787,6 +787,9 @@ def eligible(m: Merger, p: dict, skips: dict, recs: dict, parked: dict, main: st
         return False
     if cm.BYPASS in p["labels"]:
         return True
+    # Label filter: when active, skip PRs that lack all filter labels.
+    if m.label_filter_active and not any(label in p["labels"] for label in m.label_filter_labels):
+        return False
     if (parked.get(p["number"]) or {}).get("head_sha") == p["head_sha"]:
         return False
     s = skips.get(p["number"])

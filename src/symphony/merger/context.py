@@ -46,6 +46,10 @@ class Merger:
     # The tracker's required labels (`tracker.required_labels`): a ticket the merger opens
     # carries them, with `repo:<owner/name>`, so the daemon can dispatch it.
     ticket_labels: tuple[str, ...] = ()
+    # Label filter: when active, only PRs with at least one of these labels (or review-bypass)
+    # are candidates for review. Set from merger.label_filter in WORKFLOW.md.
+    label_filter_active: bool = True
+    label_filter_labels: tuple[str, ...] = ("symphony", "symphony-learnings")
     # Opaque ticket id (a public repository's branch) → identifier: one tracker read each.
     _opaque: dict[str, str | None] = field(default_factory=dict, repr=False)
 

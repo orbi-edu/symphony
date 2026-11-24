@@ -7,6 +7,23 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- The merger now reviews only pull requests that carry at least one of the labels in
+  `merger.label_filter.labels` (default `["symphony", "symphony-learnings"]`) or the
+  `review-bypass` label. Set `merger.label_filter.enabled: false` to review every PR as
+  before. The toggle takes effect without restarting the merger.
+
+### Added
+
+- Workflow keys `merger.label_filter.enabled` (boolean, default true),
+  `merger.label_filter.labels` (list of label names) and `merger.label_filter.repos`
+  (per-repository override, `owner/name` → boolean). Visible in Admin › Workflow and
+  `symphony api`.
+- The merger status payload (`GET /v1/merger`) includes the effective label filter per
+  repository (`"label_filter": {"active": true, "labels": [...]}`); the Tern Merger tab
+  shows it in a **Takes** column. A change logs `merger_label_filter_changed`.
+
 ## [0.2.15] - 2026-11-24
 
 ### Fixed

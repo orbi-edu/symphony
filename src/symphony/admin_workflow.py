@@ -176,6 +176,9 @@ _FIELDS = {
         "decay_after_incorporations", "integer"
     ),
     "skills.sources": _Field("skill_sources", "json"),
+    "merger.label_filter.enabled": _Field("merger_label_filter_enabled", "boolean"),
+    "merger.label_filter.labels": _Field("merger_label_filter_labels", "json"),
+    "merger.label_filter.repos": _Field("merger_label_filter_repos", "json"),
 }
 
 
@@ -380,6 +383,24 @@ def _check_value(key: str, value: Any, namespace: str, *, submitted: bool) -> An
             except ConfigError as exc:
                 raise _invalid(key, str(exc)) from None
             return list(value)
+        if key == "merger.label_filter.labels":
+            # A patch must name at least one label (turning the filter off is
+            # `merger.label_filter.enabled: false`); the parser rejects an empty list
+            # while the filter is enabled for documents written by hand.
+            if not isinstance(value, (list, tuple)) or len(value) > _MAX_ITEMS or (submitted and not value):
+                raise _invalid(key, "Use a nonempty JSON array of at most 256 label names.")
+            if not all(isinstance(item, str) and item.strip() and len(item) <= 256 for item in value):
+                raise _invalid(key, "Each label must be a nonempty string of at most 256 characters.")
+            return list(value)
+        if key == "merger.label_filter.repos":
+            if not isinstance(value, Mapping) or len(value) > 256:
+                raise _invalid(key, "Use a JSON object of at most 256 owner/name repositories.")
+            for repo, flag in value.items():
+                if not isinstance(repo, str) or not _REPO.fullmatch(repo):
+                    raise _invalid(key, "Keys must be owner/name repositories.")
+                if not isinstance(flag, bool):
+                    raise _invalid(key, f"Value for {repo} must be true or false.")
+            return {k.lower(): v for k, v in value.items()}
         if (
             not isinstance(value, (list, tuple))
             or len(value) > _MAX_ITEMS

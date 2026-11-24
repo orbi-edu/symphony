@@ -30,8 +30,11 @@ WORKFLOW = "---\ntracker:\n  kind: memory\n---\nbody\n"
 
 @dataclass
 class FakeCfg:
-    """Minimal config stand-in for discovery tests."""
+    """Minimal config stand-in for discovery tests (the label filter keeps `Config`'s defaults)."""
     default_repo: str | None = None
+    merger_label_filter_enabled: bool = True
+    merger_label_filter_labels: tuple[str, ...] = ("symphony", "symphony-learnings")
+    merger_label_filter_repos: dict = field(default_factory=dict)
 
 
 @dataclass
