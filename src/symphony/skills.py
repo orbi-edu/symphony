@@ -1,11 +1,11 @@
-"""Central skill sources: fetch SKILL.md directories from configured repositories and stage
+"""Central skill sources: fetch skill directories from configured repositories and stage
 them into agent workspaces so every role gets the instructions its operator chose.
 
 A skill source is a repository directory holding one sub-directory per skill, each with a
-``SKILL.md`` file. Sources may be GLOBAL (every repository) or scoped to specific
-repositories. The target repository's own ``.omp/skills/`` and ``.agents/skills/`` always
-win; among central sources, repository-specific beats global, and earlier sources beat later
-ones.
+``SKILL.md`` file and optionally supporting files (templates, scripts) at any depth.
+Sources may be GLOBAL (every repository) or scoped to specific repositories. The target
+repository's own ``.omp/skills/`` and ``.agents/skills/`` always win; among central
+sources, repository-specific beats global, and earlier sources beat later ones.
 
 Fetching uses a GitHub App installation token scoped to the source repository with read-only
 permissions. The ref→SHA resolution is cached (TTL configurable, default 10 min) so repeated
@@ -15,6 +15,7 @@ is logged and skipped — it never fails a run.
 
 from __future__ import annotations
 
+import base64
 import io
 import json
 import os
@@ -37,6 +38,15 @@ MAX_SKILLS_PER_SOURCE = 100
 DEFAULT_REF_TTL_S = 600
 # Redis key prefix for cached ref→SHA mappings.
 _CACHE_PREFIX = "sym:{ns}:skill-ref"
+# Cache key version: bump when the serialized format changes so old entries are ignored.
+_CACHE_VERSION = "v2"
+
+# File extensions delivered alongside SKILL.md. Only text types that agents can read.
+ALLOWED_EXTENSIONS = frozenset({
+    ".md", ".txt", ".sh", ".py", ".json", ".yaml", ".yml", ".toml",
+    ".html", ".htm", ".css", ".js", ".mjs", ".cjs", ".ts",
+    ".svg", ".mmd", ".excalidraw", ".csv",
+})
 
 
 @dataclass(frozen=True)
@@ -62,10 +72,24 @@ class SkillSource:
 
 
 @dataclass
+class SkillFile:
+    """One file inside a skill directory."""
+    path: str           # relative to the skill folder, e.g. "SKILL.md" or "templates/deck.html"
+    content: str        # UTF-8 text
+    executable: bool = False  # tar member had the execute bit
+
+
+@dataclass
 class ResolvedSkill:
     """One skill directory extracted from a source."""
     name: str
-    content: str  # the SKILL.md content
+    content: str                            # the SKILL.md text (convenience accessor)
+    files: dict[str, SkillFile] = field(default_factory=dict)
+    # files maps relative path → SkillFile; always includes "SKILL.md"
+
+    def __post_init__(self) -> None:
+        if "SKILL.md" not in self.files:
+            self.files["SKILL.md"] = SkillFile(path="SKILL.md", content=self.content)
 
 
 @dataclass
@@ -162,77 +186,180 @@ def _fetch_tarball(
     return _extract_skills(resp.content, path_prefix)
 
 
-def _extract_skills(tarball_bytes: bytes, path_prefix: str) -> list[ResolvedSkill]:
-    """Extract ``<prefix>/*/SKILL.md`` from a tarball, respecting size limits."""
-    skills: list[ResolvedSkill] = []
-    total_bytes = 0
-    seen_names: set[str] = set()
+def _has_allowed_ext(filename: str) -> bool:
+    """True when the file name ends with one of the allowed text extensions."""
+    dot = filename.rfind(".")
+    return dot >= 0 and filename[dot:].lower() in ALLOWED_EXTENSIONS
 
-    # Normalize: strip trailing slash.
+
+def _safe_relpath(parts: list[str]) -> bool:
+    """Reject `..`, absolute components and hidden components (starting with `.`)."""
+    for p in parts:
+        if not p or p == ".." or p.startswith(".") or p.startswith("/"):
+            return False
+    return True
+
+
+def _extract_skills(tarball_bytes: bytes, path_prefix: str) -> list[ResolvedSkill]:
+    """Extract skill directories from a tarball, respecting size limits.
+
+    A skill is a folder under ``<prefix>/`` that contains ``SKILL.md``.
+    Every regular text file (by extension allowlist) under the skill folder at any
+    depth is included. Symlinks, hardlinks, devices, binary files, hidden components
+    and paths with ``..`` are skipped. The executable bit (mode & 0o111) is remembered.
+    """
+    # First pass: collect all candidate file entries grouped by skill name.
     prefix = path_prefix.rstrip("/")
 
+    # skill_name -> list of (relpath_within_skill, TarInfo)
+    candidates: dict[str, list[tuple[str, tarfile.TarInfo]]] = {}
+
     try:
-        with tarfile.open(fileobj=io.BytesIO(tarball_bytes), mode="r:gz") as tar:
-            for member in tar.getmembers():
-                if not member.isfile():
-                    continue
-                # GitHub tarballs start with `<owner>-<repo>-<sha>/` prefix.
-                # We need: `<anything>/<prefix>/<skill_name>/SKILL.md`
-                parts = member.name.split("/")
-                if len(parts) < 3:
-                    continue
-                # Remove the top-level GitHub directory.
-                rel_parts = parts[1:]
-                # Build relative path.
-                rel = "/".join(rel_parts)
+        tar = tarfile.open(fileobj=io.BytesIO(tarball_bytes), mode="r:gz")
+    except (tarfile.TarError, OSError) as exc:
+        log.warning("skill_tarball_extract_error", error=str(exc))
+        return []
 
-                # Must match: <prefix>/<skill_name>/SKILL.md
-                if prefix:
-                    expected_start = prefix + "/"
-                    if not rel.startswith(expected_start):
-                        continue
-                    after_prefix = rel[len(expected_start):]
-                else:
-                    after_prefix = rel
+    try:
+        for member in tar.getmembers():
+            # Only regular files; skip symlinks, hardlinks, devices.
+            if not member.isfile() or member.issym() or member.islnk():
+                continue
 
-                # Must be exactly one level deep: <skill_name>/SKILL.md
-                sub_parts = after_prefix.split("/")
-                if len(sub_parts) != 2 or sub_parts[1] != "SKILL.md":
-                    continue
+            if member.name.startswith("/") or "\\" in member.name:
+                continue
+            parts = member.name.split("/")
+            if len(parts) < 3 or ".." in parts:
+                continue
+            # Remove the top-level GitHub directory (owner-repo-sha).
+            rel_parts = parts[1:]
+            rel = "/".join(rel_parts)
 
-                skill_name = sub_parts[0]
-                if not skill_name or skill_name.startswith("."):
+            # Must be under <prefix>/<skill_name>/...
+            if prefix:
+                expected_start = prefix + "/"
+                if not rel.startswith(expected_start):
                     continue
-                if skill_name in seen_names:
-                    continue
+                after_prefix = rel[len(expected_start):]
+            else:
+                after_prefix = rel
 
-                # Size check.
-                if member.size > MAX_SKILL_FILE_BYTES:
-                    log.info("skill_file_too_large", name=skill_name, size=member.size)
-                    continue
+            sub_parts = after_prefix.split("/")
+            if len(sub_parts) < 2:
+                continue
+
+            skill_name = sub_parts[0]
+            file_parts = sub_parts[1:]  # path within the skill folder
+
+            if not skill_name or not _safe_relpath([skill_name] + file_parts):
+                continue
+
+            file_relpath = "/".join(file_parts)
+
+            # Check extension allowlist (SKILL.md is .md so it passes).
+            if not _has_allowed_ext(file_relpath):
+                continue
+
+            # Per-file size check.
+            if member.size > MAX_SKILL_FILE_BYTES:
+                log.info("skill_file_too_large", skill=skill_name, file=file_relpath,
+                         size=member.size)
+                continue
+
+            candidates.setdefault(skill_name, []).append((file_relpath, member))
+
+        # Second pass: build ResolvedSkill for each folder that has SKILL.md.
+        skills: list[ResolvedSkill] = []
+        total_bytes = 0
+
+        for skill_name in sorted(candidates):
+            entries = candidates[skill_name]
+            # A skill must have SKILL.md.
+            has_skill_md = any(rp == "SKILL.md" for rp, _ in entries)
+            if not has_skill_md:
+                continue
+
+            if len(skills) >= MAX_SKILLS_PER_SOURCE:
+                log.info("skill_source_count_exceeded")
+                break
+
+            files: dict[str, SkillFile] = {}
+            skill_content = ""
+            skill_ok = True
+
+            for file_relpath, member in entries:
                 if total_bytes + member.size > MAX_SOURCE_BYTES:
-                    log.info("skill_source_budget_exceeded", name=skill_name)
-                    break
-                if len(skills) >= MAX_SKILLS_PER_SOURCE:
-                    log.info("skill_source_count_exceeded")
+                    log.info("skill_source_budget_exceeded", skill=skill_name)
+                    skill_ok = False
                     break
 
                 f = tar.extractfile(member)
                 if f is None:
                     continue
-                content = f.read().decode("utf-8", errors="replace")
-                total_bytes += len(content.encode("utf-8"))
-                seen_names.add(skill_name)
-                skills.append(ResolvedSkill(name=skill_name, content=content))
+                raw = f.read()
+                try:
+                    text = raw.decode("utf-8")
+                except UnicodeDecodeError:
+                    # Non-UTF-8 file: skip silently.
+                    continue
+
+                total_bytes += len(raw)
+                executable = bool(member.mode & 0o111)
+                sf = SkillFile(path=file_relpath, content=text, executable=executable)
+                files[file_relpath] = sf
+                if file_relpath == "SKILL.md":
+                    skill_content = text
+
+            if not skill_ok:
+                break
+
+            if "SKILL.md" not in files:
+                continue
+
+            skills.append(ResolvedSkill(
+                name=skill_name, content=skill_content, files=files,
+            ))
+
+        return skills
     except (tarfile.TarError, OSError) as exc:
         log.warning("skill_tarball_extract_error", error=str(exc))
-
-    return skills
+        return []
+    finally:
+        tar.close()
 
 
 # ---------------------------------------------------------------------------
 # Source resolution
 # ---------------------------------------------------------------------------
+
+def _tarball_cache_key(ns: str, repo: str, sha: str) -> str:
+    return f"{_CACHE_PREFIX.format(ns=ns)}:tarball:{_CACHE_VERSION}:{repo}:{sha}"
+
+
+def _serialize_skill(skill: ResolvedSkill) -> dict:
+    return {
+        "name": skill.name,
+        "content": skill.content,
+        "files": {
+            path: {"content": sf.content, "executable": sf.executable}
+            for path, sf in skill.files.items()
+        },
+    }
+
+
+def _deserialize_skill(data: dict) -> ResolvedSkill:
+    files_raw = data.get("files")
+    if isinstance(files_raw, dict):
+        files = {
+            path: SkillFile(path=path, content=info["content"],
+                            executable=info.get("executable", False))
+            for path, info in files_raw.items()
+        }
+    else:
+        # Old v1 cache entry (no files dict): skip it.
+        raise ValueError("old cache format")
+    return ResolvedSkill(name=data["name"], content=data.get("content", ""), files=files)
+
 
 def resolve_sources(
     sources: Sequence[SkillSource],
@@ -284,18 +411,15 @@ def resolve_sources(
             continue
 
         # Check if we already have this sha cached (tarball not needed).
-        tarball_cache_key = f"{_CACHE_PREFIX.format(ns=cache_ns)}:tarball:{source.repo}:{sha}"
+        tk = _tarball_cache_key(cache_ns, source.repo, sha)
         cached_skills = None
         if cache_client is not None:
             try:
-                raw = cache_client.get(tarball_cache_key)
+                raw = cache_client.get(tk)
                 if raw:
-                    cached_skills = [
-                        ResolvedSkill(name=s["name"], content=s["content"])
-                        for s in json.loads(raw)
-                    ]
+                    cached_skills = [_deserialize_skill(s) for s in json.loads(raw)]
             except Exception:
-                pass
+                pass  # old format or corrupt: re-fetch
 
         if cached_skills is not None:
             results.append(ResolvedSource(source=source, sha=sha, skills=cached_skills))
@@ -307,11 +431,11 @@ def resolve_sources(
         if cache_client is not None and skills:
             try:
                 payload = json.dumps(
-                    [{"name": s.name, "content": s.content} for s in skills],
+                    [_serialize_skill(s) for s in skills],
                     ensure_ascii=False,
                 )
                 # Cache for a longer period — the SHA is immutable.
-                cache_client.setex(tarball_cache_key, 3600, payload)
+                cache_client.setex(tk, 3600, payload)
             except Exception:
                 pass
 
@@ -347,7 +471,6 @@ def deduplicate(
     return result
 
 
-
 # ---------------------------------------------------------------------------
 # Staging — workspace pod (implementer)
 # ---------------------------------------------------------------------------
@@ -357,43 +480,62 @@ def deduplicate(
 # We resolve HOME inside the exec script so the path is always correct.
 _USER_SKILLS_SUBDIR = ".omp/agent/skills"
 
+# One staging script carries at most this many bytes. It travels on the exec's stdin, never
+# in argv (Linux caps a single exec argument at 128 KiB), so the cap only bounds one write.
+_BATCH_LIMIT = 1024 * 1024
+_HEREDOC_END = "SYMPHONY_SKILL_EOF"
+
+
+def _file_block(skill_dir: str, sf: SkillFile) -> str:
+    """Shell that writes one file from a base64 here-doc (base64 never holds the marker)."""
+    dest = f"{skill_dir}/{sf.path}"
+    encoded = base64.encodebytes(sf.content.encode("utf-8")).decode("ascii")
+    mode = "755" if sf.executable else "644"
+    return (
+        f"mkdir -p {shlex.quote(os.path.dirname(dest))}\n"
+        f"base64 -d > {shlex.quote(dest)} <<'{_HEREDOC_END}'\n{encoded}{_HEREDOC_END}\n"
+        f"chmod {mode} {shlex.quote(dest)}\n"
+    )
+
 
 def stage_skills_workspace(
     sandbox,
     skills: dict[str, ResolvedSkill],
 ) -> None:
     """Write skills into the workspace pod's user skills directory, replacing any
-    previously staged central skills. The repo's own .omp/skills/ loads natively and
-    is not touched."""
-    # Resolve HOME inside the pod.
+    previously staged central skills. Every file of each skill folder is written with its
+    executable bit. Files travel in as few execs as the batch limit allows, on stdin."""
     skills_dir = f"$HOME/{_USER_SKILLS_SUBDIR}"
     if not skills:
-        # Clear any previously staged central skills.
-        sandbox.exec_script(
-            f'rm -rf "{skills_dir}"',
-            timeout_s=30,
-        )
+        sandbox.exec_script(f'rm -rf "{skills_dir}"', timeout_s=30)
         return
 
-    # Wipe and recreate the directory.
-    sandbox.exec_script(
-        f'rm -rf "{skills_dir}" && mkdir -p "{skills_dir}"',
-        timeout_s=30,
-    )
+    sandbox.exec_script(f'rm -rf "{skills_dir}" && mkdir -p "{skills_dir}"', timeout_s=30)
 
-    # We need the actual resolved path for write_private_file (which needs an absolute path).
+    # Absolute paths for the here-doc targets: the HOME the engine will see.
     code, resolved_home = sandbox.exec_script('echo -n "$HOME"', timeout_s=10)
     home = resolved_home.strip() if code == 0 and resolved_home.strip() else "/root"
     abs_skills_dir = f"{home}/{_USER_SKILLS_SUBDIR}"
 
+    batches: list[str] = []
+    current = ""
     for name, skill in skills.items():
-        skill_dir = f"{abs_skills_dir}/{name}"
-        sd = shlex.quote(skill_dir)
-        sandbox.exec_script(f"mkdir -p {sd}", timeout_s=15)
-        sandbox.write_private_file(
-            f"{skill_dir}/SKILL.md",
-            skill.content,
+        for sf in skill.files.values():
+            block = _file_block(f"{abs_skills_dir}/{name}", sf)
+            if current and len(current) + len(block) > _BATCH_LIMIT:
+                batches.append(current)
+                current = ""
+            current += block
+    if current:
+        batches.append(current)
+
+    for script in batches:
+        size = len(script.encode("utf-8"))
+        code, output = sandbox.exec_script(
+            f"head -c {size} | bash -e", timeout_s=60, stdin=script,
         )
+        if code != 0:
+            log.warning("skill_workspace_write_failed", exit_code=code, output=output[-300:])
 
 
 # ---------------------------------------------------------------------------
@@ -405,7 +547,8 @@ def stage_skills_local(
     skills: dict[str, ResolvedSkill],
 ) -> None:
     """Write skills into a local directory for a merger or assistant agent.
-    The agent reads ``PI_CODING_AGENT_DIR/skills/*/SKILL.md``."""
+    The agent reads ``PI_CODING_AGENT_DIR/skills/*/SKILL.md``. Every file from
+    each skill's folder is written, with the executable bit preserved."""
     import shutil
 
     target = os.path.join(skills_dir, "skills")
@@ -417,15 +560,14 @@ def stage_skills_local(
 
     os.makedirs(target, exist_ok=True)
     for name, skill in skills.items():
-        skill_path = os.path.join(target, name)
-        os.makedirs(skill_path, exist_ok=True)
-        fd = os.open(
-            os.path.join(skill_path, "SKILL.md"),
-            os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
-            0o600,
-        )
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(skill.content)
+        for relpath, sf in skill.files.items():
+            full_path = os.path.join(target, name, relpath)
+            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+            mode = 0o755 if sf.executable else 0o644
+            fd = os.open(full_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(sf.content)
+            os.chmod(full_path, mode)
 
 
 # ---------------------------------------------------------------------------
@@ -439,6 +581,7 @@ def skills_meta(resolved: list[ResolvedSource]) -> list[dict]:
             "source": rs.source.repo,
             "sha": rs.sha,
             "names": [s.name for s in rs.skills],
+            "files": sum(len(s.files) for s in rs.skills),
         }
         for rs in resolved
         if rs.skills

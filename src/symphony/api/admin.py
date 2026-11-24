@@ -341,6 +341,7 @@ def build_router(control: Control, auth: Authenticator) -> APIRouter:
                     rs = resolved[0]
                     entry["sha"] = rs.sha or None
                     entry["skills"] = [sk.name for sk in rs.skills]
+                    entry["files"] = sum(len(sk.files) for sk in rs.skills)
                     entry["error"] = rs.error
             except Exception as exc:
                 entry["error"] = str(exc)
