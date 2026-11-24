@@ -6,6 +6,7 @@ The server is disposable, has no TCP listener, and never uses a configured REDIS
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -398,7 +399,8 @@ def test_unreadable_live_generation_cannot_confirm_termination():
         assert process.stdout.readline().strip() == "ready"
         with pytest.raises(RuntimeError, match="termination could not be confirmed") as raised:
             kill_agent_generation(LocalSandbox(), issue_id, 1)
-        assert f"unreadable pid={process.pid} state=" in str(raised.value)
+        # Another non-dumpable process of this user (ssh-agent, say) may be named first.
+        assert re.search(r": unreadable pid=\d+ state=\S", str(raised.value))
         assert secret not in str(raised.value)
         assert process.poll() is None
     finally:
@@ -413,7 +415,27 @@ def test_failed_exec_names_the_cause_of_an_unconfirmed_stop():
 
     with pytest.raises(RuntimeError, match="termination could not be confirmed") as raised:
         kill_agent_generation(DeadPodSandbox(), uuid.uuid4().hex, 1)
-    assert "exec failed: (404)" in str(raised.value)
+    assert str(raised.value).endswith(": exec failed or interrupted: exec failed: (404)")
+
+
+@pytest.mark.parametrize(
+    ("code", "output", "cause"),
+    [
+        (4, "login banner\nsurvivors pids=744 745\n", "survivors pids=744 745"),
+        (124, "", "timeout"),
+        (137, "", "timeout"),
+        (2, "boom\n", "exit 2: boom"),
+        (2, "x" * 500, "exit 2: " + "x" * 200),
+    ],
+)
+def test_unconfirmed_stop_names_the_script_cause(code, output, cause):
+    class Sandbox:
+        def exec_script(self, script, timeout_s=None):
+            return code, output
+
+    with pytest.raises(RuntimeError) as raised:
+        kill_agent_generation(Sandbox(), uuid.uuid4().hex, 1)
+    assert str(raised.value) == f"Agent generation termination could not be confirmed: {cause}"
 
 
 def _every_process_environment_readable() -> bool:

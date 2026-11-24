@@ -22,16 +22,18 @@ from . import codehost, ghapp, kube
 from .edge import log, make_tracker, now_ms
 from .kube import PodSandbox
 from .trackers.base import Issue
-from .workspace import kill_agent_processes, run_hook, sandbox_name
+from .workspace import STOP_UNCONFIRMED, kill_agent_processes, run_hook, sandbox_name
 
 # structlog's key=value rendering of an `error=` field
 _LOGGED_ERROR = re.compile(r"\berror='((?:[^'\\]|\\.)*)'")
 
 
-_STOP_UNCONFIRMED = "Agent generation termination could not be confirmed"
 # The stop script's own exit codes, and the ones `PodSandbox.exec_script` adds around it:
-# -1 for an exec that failed or wedged, 124 for `timeout`'s TERM, 137 for its `-k` KILL.
-_STOP_CAUSES = {-1: "exec failed", 3: "unreadable", 4: "survivors", 124: "timeout", 137: "timeout"}
+# -1 for an exec that failed to open or passed its wall deadline, 124 for `timeout`'s TERM,
+# 137 for its `-k` KILL.
+_STOP_CAUSES = {
+    -1: "exec failed or interrupted", 3: "unreadable", 4: "survivors", 124: "timeout", 137: "timeout",
+}
 _STOP_DETAIL_CHARS = 200
 
 
@@ -115,7 +117,7 @@ def kill_agent_generation(sandbox, issue_id: str, seq: int) -> None:
         cause = detail
     elif detail:
         cause = f"{cause}: {detail}"
-    raise RuntimeError(f"{_STOP_UNCONFIRMED}: {cause}")
+    raise RuntimeError(f"{STOP_UNCONFIRMED}: {cause}")
 
 
 def _pod_disruption(pod) -> dict:

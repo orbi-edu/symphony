@@ -32,6 +32,8 @@ AGENT_PROCESS_PATTERN = (
     r"^([^[:space:]]*/)?(omp|bun)([[:space:]].*)?"
     r"[[:space:]]--mode[[:space:]]+rpc([[:space:]]|$)"
 )
+# The prefix of every error of an unconfirmed generation stop; triage matches it.
+STOP_UNCONFIRMED = "Agent generation termination could not be confirmed"
 
 
 class SandboxLike(Protocol):
