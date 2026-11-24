@@ -536,10 +536,11 @@ class TestResolution:
     TARBALL_FILES = {
         "acme-skills-abc123/skills/deck/SKILL.md": "# Deck",
         "acme-skills-abc123/skills/deck/scripts/render.mjs": "#!/bin/sh\n",
+        "acme-skills-abc123/artifacts/sheet/SKILL.md": "# Sheet",
     }
     TARBALL_MODES = {"acme-skills-abc123/skills/deck/scripts/render.mjs": 0o755}
 
-    def _resolve_twice(self, cache: dict, *, seed: dict | None = None):
+    def _resolve_twice(self, cache: dict, *, seed: dict | None = None, sources=None):
         """Resolve `acme/skills@main` twice against a GitHub stub; returns both results and
         the request counts."""
         import unittest.mock as mock
@@ -574,7 +575,7 @@ class TestResolution:
                 cache[key] = value
 
         cache.update(seed or {})
-        sources = [SkillSource(repo="acme/skills", ref="main")]
+        sources = sources or [SkillSource(repo="acme/skills", ref="main")]
         with mock.patch("httpx.get", side_effect=fake_get), \
                 mock.patch("symphony.ghapp.InstallationCredential.from_env") as cred:
             cred.return_value.token.return_value = "test-token"
@@ -606,6 +607,16 @@ class TestResolution:
         (first, _), calls = self._resolve_twice({}, seed=old)
         assert calls["tarball"] == 1
         assert set(first[0].skills[0].files) == {"SKILL.md", "scripts/render.mjs"}
+
+    def test_sources_of_one_repository_are_cached_apart(self):
+        """Two paths of one repository at the same commit keep their own skills, from the
+        network and from the cache."""
+        sources = [SkillSource(repo="acme/skills", ref="main"),
+                   SkillSource(repo="acme/skills", ref="main", path="artifacts")]
+        (first, second), calls = self._resolve_twice({}, sources=sources)
+        assert calls["tarball"] == 2
+        for result in (first, second):
+            assert [[s.name for s in rs.skills] for rs in result] == [["deck"], ["sheet"]]
 
     def test_failed_source_is_logged_and_skipped(self):
         """A source that fails to fetch is skipped, never fails the run."""

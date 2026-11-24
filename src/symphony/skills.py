@@ -343,8 +343,9 @@ def _extract_skills(tarball_bytes: bytes, path_prefix: str) -> list[ResolvedSkil
 # Source resolution
 # ---------------------------------------------------------------------------
 
-def _tarball_cache_key(ns: str, repo: str, sha: str) -> str:
-    return f"{_CACHE_PREFIX.format(ns=ns)}:tarball:{_CACHE_VERSION}:{repo}:{sha}"
+def _tarball_cache_key(ns: str, repo: str, sha: str, path: str) -> str:
+    # One repository can hold several sources (one per path): the path is part of the key.
+    return f"{_CACHE_PREFIX.format(ns=ns)}:tarball:{_CACHE_VERSION}:{repo}:{sha}:{path}"
 
 
 def _serialize_skill(skill: ResolvedSkill) -> dict:
@@ -422,7 +423,7 @@ def resolve_sources(
             continue
 
         # Check if we already have this sha cached (tarball not needed).
-        tk = _tarball_cache_key(cache_ns, source.repo, sha)
+        tk = _tarball_cache_key(cache_ns, source.repo, sha, source.path)
         cached_skills = None
         if cache_client is not None:
             try:
