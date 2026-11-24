@@ -130,6 +130,8 @@ _FIELDS = {
     "kubernetes.sandbox.idle_timeout_s": _Field("sandbox.idle_timeout_s", "integer"),
     "kubernetes.runner.timeout_s": _Field("runner.timeout_s", "integer"),
     "kubernetes.runner.wallclock_guard_s": _Field("runner.wallclock_guard_s", "integer"),
+    "kubernetes.runner.cpu": _Field("runner.cpu", "number", 0.001),
+    "kubernetes.runner.memory_mib": _Field("runner.memory_mib", "integer"),
     "kubernetes.privileged_agents": _Field("privileged_agents", "boolean"),
     "kubernetes.runtime_class": _Field("runtime_class", optional=True),
     "kubernetes.image_pull_secrets": _Field("image_pull_secrets", "json"),

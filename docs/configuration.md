@@ -214,11 +214,17 @@ On Kubernetes, these keys control the workspaces and the Jobs. Local mode ignore
 | `kubernetes.sandbox.idle_timeout_s` | integer | `1800` | The daemon deletes a workspace pod that is idle for longer than this. The session PVC stays. |
 | `kubernetes.runner.timeout_s` | integer | `14400` | The maximum life of a runner Job (`activeDeadlineSeconds`). |
 | `kubernetes.runner.wallclock_guard_s` | integer | `12600` | The runner ends the attempt cleanly as a continuation after this time. Keep it below both timeouts. |
+| `kubernetes.runner.cpu` | number | `0.25` | The CPU request of a runner or reflector Job pod. The pod has no CPU limit. |
+| `kubernetes.runner.memory_mib` | integer | `512` | The memory request and limit of a runner or reflector Job pod, in MiB. With the CPU request, the pod is Burstable, not BestEffort, so the kubelet does not evict it first under node memory pressure. |
 | `kubernetes.learning.enabled` | boolean | `true` | Run retrospectives on terminal tickets. |
 | `kubernetes.learning.reflect_on` | list of strings | `null` | The terminal states that start a retrospective. `null` means all `tracker.terminal_states`. |
 | `kubernetes.learning.agents_md_budget_lines` | integer | `100` | The line budget of the curated `AGENTS.md`. |
 | `kubernetes.learning.learnings_label` | string | `symphony-learnings` | The label of learnings pull requests. |
 | `kubernetes.learning.decay_after_incorporations` | integer | `10` | A lesson that no retrospective used in this number of changes decays. |
+
+Runner and reflector Job pods carry the annotation
+`cluster-autoscaler.kubernetes.io/safe-to-evict: "false"`, so the cluster autoscaler does not
+remove their node during an attempt. See the sizing note in [install.md](install.md#2-prerequisites).
 
 ### Repository discovery
 
