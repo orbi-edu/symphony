@@ -58,6 +58,17 @@ class SkillSource:
     roles: tuple[str, ...] = ()  # empty → every role
     repos: tuple[str, ...] = ()  # empty → global (every repository)
 
+    def as_entry(self) -> dict:
+        """The WORKFLOW.md entry this source was parsed from (unset fields omitted)."""
+        entry: dict = {"repo": self.repo, "path": self.path}
+        if self.ref:
+            entry["ref"] = self.ref
+        if self.roles:
+            entry["roles"] = list(self.roles)
+        if self.repos:
+            entry["repos"] = list(self.repos)
+        return entry
+
     def applies_to(self, role: str, target_repo: str | None) -> bool:
         """Does this source apply to the given role and target repository?"""
         if self.roles and role not in self.roles:
