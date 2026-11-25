@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import itertools
 import re
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import replace
 
@@ -53,6 +54,9 @@ class MemoryTracker:
         self.parents: dict[str, str] = {}  # child id -> parent id
         self._seq = itertools.count(1)
         self._on_comment = on_comment  # like Linear's: told the id of every comment written
+        # When each comment was written (`comments_since`); tests point it at their clock.
+        self.now_ms: Callable[[], int] = lambda: int(time.time() * 1000)
+        self.comment_times: dict[str, int] = {}
 
     # -- test helpers ----------------------------------------------------
     def add_issue(self, issue_id: str, identifier: str, state: str = "Todo", **kw) -> Issue:
@@ -152,6 +156,7 @@ class MemoryTracker:
         comment_id = f"comment-{next(self._seq)}"
         entry = {"id": comment_id, "body": body, **({"parent": parent} if parent else {})}
         self.comments.setdefault(found.id, []).append(entry)
+        self.comment_times[comment_id] = self.now_ms()
         if self._on_comment is not None:
             self._on_comment(comment_id)
         return comment_id
@@ -245,6 +250,12 @@ class MemoryTracker:
     def attachments(self, identifier: str) -> list[dict]:
         found = self._find(identifier)
         return list(self.evidence.get(found.id, [])) if found else []
+
+    def comments_since(self, issue: str, since_ms: int) -> list[dict]:
+        found = self._require(issue)
+        timed = [{"id": c["id"], "at": self.comment_times.get(c["id"])}
+                 for c in self.comments.get(found.id, [])]
+        return [c for c in timed if c["at"] is not None and c["at"] > since_ms]
 
     def identifier_in(self, text: str, repo: str | None = None) -> str | None:
         """The first known identifier in `text`, as a whole word."""

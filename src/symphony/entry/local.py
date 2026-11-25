@@ -43,7 +43,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 
-from .. import orchestrator, state, wake
+from .. import orchestrator, questions, state, wake
 from ..admin_auth import Caller, authorize_command
 from ..admin_commands import AdminStore, process_commands
 from ..api.auth import Authenticator
@@ -467,6 +467,8 @@ class LocalStack:
                         tick_kv, tracker, cfg, now_ms(), self.fx, self.owner,
                         admission_open=lambda: bool(authoritative() and not self.store.paused()),
                         wake_reasons=reasons,
+                        own_comment=lambda comment_id: questions.is_own(
+                            self.kv.client, self.namespace, comment_id),
                     )
                     questions_step(self.kv, self.namespace, tracker, cfg)
                     log.info("tick", wakes=len(reasons), **result)

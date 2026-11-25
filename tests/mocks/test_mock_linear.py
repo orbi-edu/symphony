@@ -209,6 +209,18 @@ def test_the_workpad_is_one_comment_edited_in_place(mock):
         "## Workpad\n\n- [x] plan"]
 
 
+def test_comments_since_lists_the_comments_after_a_time_by_the_id_comment_returned(mock):
+    control(mock.base, "POST", "issues", {"title": "Waits", "state": "In Progress"})
+    writer = tracker()
+    before = writer.comment("ENG-1", "Symphony is waiting for a person")
+    [(_, mark)] = [(c["id"], c["at"]) for c in writer.comments_since("ENG-1", 0)]
+    time.sleep(0.01)  # a later millisecond than the mark
+    later = writer.comment("ENG-1", "Still waiting for an answer")
+    since = writer.comments_since("ENG-1", mark)
+    assert [c["id"] for c in since] == [later] and before != later
+    assert since[0]["at"] >= mark
+
+
 # -- the host tools -------------------------------------------------------------------------
 @pytest.fixture
 def broker(mock, redis_client, tmp_path):

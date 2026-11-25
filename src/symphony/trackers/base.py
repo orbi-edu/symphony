@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Protocol
 
 
@@ -193,6 +194,12 @@ class TrackerAdapter(Protocol):
         """The ticket's evidence: `[{title, url, kind}]` (`kind` may be "")."""
         ...
 
+    def comments_since(self, issue: str, since_ms: int) -> list[dict]:
+        """The ticket's comments created after `since_ms` (epoch ms): `[{id, at}]`, `id` as
+        `comment` returns it (what `questions.record_own` keys Symphony's own comments by),
+        `at` in epoch ms. Read-only; the daemon tells a person's reply from its own with it."""
+        ...
+
     def identifier_in(self, text: str, repo: str | None = None) -> str | None:
         """The first identifier of this tracker's tickets in `text` (a PR branch, title or
         body), canonical. `repo` (`owner/name`) is the PR's repository, for trackers whose
@@ -209,6 +216,17 @@ class TrackerAdapter(Protocol):
         """Tickets whose title or body holds `query`, newest first, at most `limit`:
         `[{identifier, title, state, url}]`. Read-only; for the assistant's `tracker_search`."""
         ...
+
+
+def epoch_ms(value) -> int | None:
+    """Epoch milliseconds of a tracker's ISO-8601 timestamp; None when absent or unreadable."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        at = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return int((at if at.tzinfo else at.replace(tzinfo=UTC)).timestamp() * 1000)
 
 
 def make_dispatchable(

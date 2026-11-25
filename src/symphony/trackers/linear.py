@@ -27,6 +27,7 @@ from .base import (
     TrackerInputError,
     TrackerUnavailable,
     classify_state,
+    epoch_ms,
     make_dispatchable,
     pick_person,
 )
@@ -128,6 +129,11 @@ query SymphonyProject($id: String!) {
 UPDATE_STATE_MUTATION = """
 mutation SymphonyMove($id: String!, $stateId: String!) {
   issueUpdate(id: $id, input: {stateId: $stateId}) { success }
+}
+"""
+COMMENT_TIMES_QUERY = """
+query SymphonyCommentTimes($id: String!) {
+  issue(id: $id) { comments(first: 50, orderBy: createdAt) { nodes { id createdAt } } }
 }
 """
 COMMENTS_QUERY = """
@@ -518,6 +524,13 @@ class LinearTracker:
         if kind == "unknown" and ticket["state"].get("type") in TERMINAL_STATE_TYPES:
             kind = "terminal"
         return {"name": name, "type": kind}
+
+    def comments_since(self, issue: str, since_ms: int) -> list[dict]:
+        nodes = ((self._post(COMMENT_TIMES_QUERY, {"id": issue}).get("issue") or {})
+                 .get("comments") or {}).get("nodes") or []
+        found = [{"id": c["id"], "at": epoch_ms(c.get("createdAt"))} for c in nodes if c.get("id")]
+        return sorted((c for c in found if c["at"] is not None and c["at"] > since_ms),
+                      key=lambda c: c["at"])
 
     def attachments(self, identifier: str) -> list[dict]:
         issue = self._post(ATTACHMENTS_QUERY, {"id": identifier}).get("issue")

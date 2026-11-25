@@ -276,6 +276,68 @@ def test_an_answer_to_its_question_redispatches_it_once(kv, clock, tracker, redi
     assert spawned == [("i1", 1)]
 
 
+def _own_comments_tracker(redis_client, clock):
+    """A board that records the comments Symphony writes, as `edge.make_tracker` does."""
+    tracker = MemoryTracker(on_comment=lambda cid: questions.record_own(redis_client, "test", cid))
+    tracker.now_ms = clock.now_ms
+    return tracker
+
+
+def _person_comments(tracker, clock, body="Use pg."):
+    """A comment a person writes: the tracker records no Symphony id for it."""
+    comment_id = f"person-{clock.now_ms()}"
+    tracker.comments.setdefault("i1", []).append({"id": comment_id, "body": body})
+    tracker.comment_times[comment_id] = clock.now_ms()
+    tracker.set_state("i1", "Todo", updated_at=iso(clock.now_ms()))  # a comment moves updatedAt
+
+
+def _tick(kv, tracker, c, clock, redis_client):
+    fx = FakeEffects()
+    tick(kv, tracker, c, clock.now_ms(), fx, owner="d1",
+         own_comment=lambda cid: questions.is_own(redis_client, "test", cid))
+    return fx
+
+
+def test_a_reminder_symphony_posts_does_not_reopen_the_ticket(kv, clock, redis_client):
+    c = replace(daemon_cfg(), ask_reminder_ms=600_000)
+    tracker = _own_comments_tracker(redis_client, clock)
+    questions.ask(redis_client, "test", qid="q1", issue_id="i1", identifier="ENG-1", sid="i1:1",
+                  url=None, question="pg or sqlite?", options=["pg", "sqlite"], to=None,
+                  now_ms=clock.now_ms())
+    _blocked_ticket(kv, clock, tracker, c)
+    _tick(kv, tracker, c, clock, redis_client)  # the waiting comment
+    questions.tick(redis_client, "test", kv=kv, tracker=tracker, cfg=c, now_ms=clock.now_ms())
+
+    clock.advance(900_000)  # past the reminder delay and past the waiting comment's echo
+    questions.tick(redis_client, "test", kv=kv, tracker=tracker, cfg=c, now_ms=clock.now_ms())
+    reminder = tracker.comments["i1"][-1]
+    assert reminder["body"].startswith("**Still waiting for an answer**")
+    assert questions.is_own(redis_client, "test", reminder["id"])
+    tracker.set_state("i1", "Todo", updated_at=iso(clock.now_ms() + 1_000))  # its echo
+
+    for _ in range(3):
+        clock.advance(1_000)
+        assert _tick(kv, tracker, c, clock, redis_client).spawned == []
+    assert kv.get(state.issue_key("i1"))["status"] == "blocked"
+
+
+def test_a_persons_comment_after_symphonys_reopens_the_ticket_once(kv, clock, redis_client):
+    c = daemon_cfg()
+    tracker = _own_comments_tracker(redis_client, clock)
+    _blocked_ticket(kv, clock, tracker, c)
+    _tick(kv, tracker, c, clock, redis_client)  # the waiting comment
+    clock.advance(300_000)
+    tracker.comment("i1", "**Answered** by alice in Slack")  # Symphony's own
+    clock.advance(5_000)
+    _person_comments(tracker, clock)
+
+    spawned = []
+    for _ in range(3):
+        spawned += _tick(kv, tracker, c, clock, redis_client).spawned
+        clock.advance(1_000)
+    assert spawned == [("i1", 1)]
+
+
 def test_the_wait_survives_a_daemon_restart(redis_client, clock, tracker):
     c = daemon_cfg()
     _blocked_ticket(RedisKV(redis_client), clock, tracker, c)

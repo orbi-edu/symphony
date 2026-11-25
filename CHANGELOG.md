@@ -15,6 +15,10 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   continuation. The daemon writes one short comment on the ticket saying what it waits for.
   The ticket gets one new run when a person acts: an answer to one of the agent's
   questions, a comment, a label or state change, any later edit, or `refresh`/`reevaluate`.
+  Symphony's own comments (a question reminder, an announcement) never reopen it: the
+  daemon reads the comments since its waiting comment and skips those whose id Symphony
+  recorded (`sym:<ns>:comment-own:<id>`), through the new tracker read `comments_since`
+  (Linear, GitHub, memory).
   The wait is kept in Redis, so a daemon restart keeps it; the API (`/v1/issues` `status`
   and `phase`, with `blocked: {needs, reason, at}`; `/v1/overview` `counts`), Tern and the
   CLI show it as `blocked_on_person`. `WORKFLOW.md` and the GitHub example tell the agent to

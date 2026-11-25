@@ -14,7 +14,7 @@ from typing import Protocol
 from . import discovery, intake, prwatch, state, telemetry, triage
 from .config import Config, known_runtimes, resolve_workspace
 from .repos import validate_runtime_component
-from .trackers.base import Issue, TrackerAdapter, TrackerUnavailable
+from .trackers.base import Issue, TrackerAdapter, TrackerUnavailable, epoch_ms
 
 ORPHAN_CLAIM_TICKS = 2
 STALL_STRIKES_TO_KILL = 2
@@ -155,7 +155,8 @@ def reopen_blocked_fields(now_ms: int) -> dict:
     return {"status": "retry_queued", "retry_at": now_ms, "updated_at": now_ms, "failures": 0,
             "blocked_reason": None, "exhaustion_reported_at": None, "blocked_reported_at": None,
             "blocked_needs": None, "blocked_detail": None, "blocked_at": None,
-            "idle_continuations": None, "refresh_grant": True}
+            "blocked_state": None, "blocked_labels": None, "idle_continuations": None,
+            "refresh_grant": True}
 
 
 # The report's own comment moves the ticket's `updated_at` a moment after it is sent; an
@@ -291,10 +292,12 @@ def tick(
     *,
     admission_open: Callable[[], bool] = lambda: True,
     wake_reasons: Iterable[str] = (),
+    own_comment: Callable[[str], bool] = lambda comment_id: False,
 ) -> dict:
     """One orchestration pass. `wake_reasons` are the `wake(daemon)` reasons that caused
     it (empty for a safety poll); a GitHub comment wake makes the named pull request's
-    review watch due now instead of at its throttle."""
+    review watch due now instead of at its throttle. `own_comment(id)` tells a tracker
+    comment Symphony wrote (`questions.is_own`) from a person's."""
     state.heartbeat(kv, now_ms)
     # Repositories the workflow leaves unconfigured get their discovered runtime/components.
     cfg = discovery.effective(cfg, kv.get(discovery.DISCOVERY_KEY))
@@ -396,7 +399,7 @@ def tick(
                     kv.put(state.issue_key(issue_id), entry)
                     fx.emit("orphan_claim_reopened", issue_id=issue_id, attempt=entry["attempt"])
             elif entry.get("status") == "blocked" and entry.get("blocked_reason") == BLOCKED_ON_PERSON:
-                _wait_for_person(kv, issue, entry, now_ms, fx, refresh)
+                _wait_for_person(kv, tracker, issue, entry, now_ms, fx, refresh, own_comment)
             elif entry.get("status") == "blocked":
                 exhausted = entry.get("blocked_reason") == RETRIES_EXHAUSTED
                 revoked = entry.get("admin_authorization_revoked")
@@ -920,16 +923,17 @@ def _report_exhausted(
 
 
 def _wait_for_person(
-    kv: state.KV, issue: Issue, entry: dict, now_ms: int, fx: Effects, refresh: bool
+    kv: state.KV, tracker: TrackerAdapter, issue: Issue, entry: dict, now_ms: int, fx: Effects,
+    refresh: bool, own_comment: Callable[[str], bool],
 ) -> None:
     """The agent cannot go on without a person (`symphony_blocked`, or the idle safety net):
     no run starts until one acts. The first tick says once, on the ticket, what it waits for;
-    a later touch of the ticket — a comment, a label, a state, an edit — queues it again, as
-    does a `refresh`. An answer to one of its questions reopens it from `questions._deliver`.
+    a person's later touch of the ticket (`_touched_by_person`) queues it again, as does a
+    `refresh`. An answer to one of its questions reopens it from `questions._deliver`.
 
     The record is the entry itself (Redis), so a daemon restart keeps the ticket waiting."""
     reported_at = entry.get("blocked_reported_at")
-    if refresh or _touched_after_report(issue, reported_at):
+    if refresh or (reported_at and _touched_by_person(tracker, issue, entry, own_comment, fx)):
         entry.update(reopen_blocked_fields(now_ms))
         kv.put(state.issue_key(issue.id), entry)
         fx.emit("blocked_reopened", issue_id=issue.id, reason=BLOCKED_ON_PERSON)
@@ -945,9 +949,45 @@ def _wait_for_person(
         "changes this ticket's labels or state. The branch and the Workpad are kept.\n\n"
         "_Reported by the orchestrator._",
     )
-    entry.update(blocked_reported_at=now_ms, updated_at=now_ms)
+    # The ticket as it was left: a label or state that differs later is a person's change.
+    entry.update(blocked_reported_at=now_ms, updated_at=now_ms, blocked_state=issue.state,
+                 blocked_labels=_label_set(issue))
     kv.put(state.issue_key(issue.id), entry)
     fx.emit("blocked_on_person", issue_id=issue.id, needs=entry.get("blocked_needs"))
+
+
+def _label_set(issue: Issue) -> list[str]:
+    return sorted({label.casefold() for label in issue.labels})
+
+
+def _touched_by_person(
+    tracker: TrackerAdapter, issue: Issue, entry: dict, own_comment: Callable[[str], bool],
+    fx: Effects,
+) -> bool:
+    """Did a person act on the ticket since the waiting comment?
+
+    The ticket's `updated_at` moving past the comment's echo is the cheap first test, but
+    Symphony's own later comments (a question reminder, an announcement) move it too. So:
+    a label or state other than the ones left is a person's change; a comment counts only
+    when Symphony did not write it (`questions.record_own` ids); and an update that none of
+    Symphony's own comments explains — an edit the tracker does not attribute — still counts,
+    as before."""
+    reported_at = entry["blocked_reported_at"]
+    if not intake.changed_since(issue, reported_at + REPORT_ECHO_MS):
+        return False
+    if issue.state != entry.get("blocked_state", issue.state) or (
+            _label_set(issue) != entry.get("blocked_labels", _label_set(issue))):
+        return True
+    try:
+        comments = tracker.comments_since(issue.id, reported_at)
+    except TrackerUnavailable as exc:
+        fx.emit("blocked_watch_unavailable", issue_id=issue.id, error=str(exc))
+        return False  # no information this tick; the next one looks again
+    if any(not own_comment(str(c["id"])) for c in comments):
+        return True
+    newest_own = max((c["at"] for c in comments), default=None)
+    updated = epoch_ms(issue.updated_at)
+    return newest_own is None or updated is None or updated > newest_own + REPORT_ECHO_MS
 
 
 def _cooldown_holds(entry: dict, issue: Issue, cfg: Config, now_ms: int, refresh: bool) -> bool:

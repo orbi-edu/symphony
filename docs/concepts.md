@@ -167,6 +167,8 @@ While the ticket waits:
 
 The ticket gets one new run when a person acts: an answer to one of the agent's questions (on the ticket, in Slack, in Tern or with the CLI), a comment, a label or state change, or any other edit of the ticket after the daemon's comment. The `refresh` and `reevaluate` commands also open it again. A move out of the active states parks it as usual.
 
+Symphony's own comments never count: when the ticket's update time moves, the daemon reads the comments written since its waiting comment and ignores those whose id Symphony recorded when it wrote them (`sym:<ns>:comment-own:<id>`), such as a question reminder. A label or state other than the ones the ticket had when it started waiting counts at once. An update that none of Symphony's own comments explains (for example, a person edits the description) counts too, because the tracker does not say who edited.
+
 ### Backoff
 
 The backoff after a failed attempt $n$ is:

@@ -29,6 +29,7 @@ from .base import (
     TrackerInputError,
     TrackerUnavailable,
     classify_state,
+    epoch_ms,
     make_dispatchable,
     pick_person,
 )
@@ -478,6 +479,12 @@ class GitHubTracker:
     def _comments(self, node: dict) -> list[dict]:
         repo = node["repository"]["nameWithOwner"]
         return self._rest_pages(f"/repos/{repo}/issues/{node['number']}/comments")
+
+    def comments_since(self, issue: str, since_ms: int) -> list[dict]:
+        found = [{"id": str(c["id"]), "at": epoch_ms(c.get("created_at"))}
+                 for c in self._comments(self._require(issue)) if c.get("id")]
+        return sorted((c for c in found if c["at"] is not None and c["at"] > since_ms),
+                      key=lambda c: c["at"])
 
     def fetch_issue_workpad(self, identifier: str) -> str:
         """Ticket comments (the agent's Workpad) for the reflector's harvest."""
