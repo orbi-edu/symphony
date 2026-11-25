@@ -187,7 +187,7 @@ def test_merger_writes_move_comment_create_and_read_attachments(mock):
     writer = tracker()
     assert writer.move("ENG-1", "Rework") is True
     assert writer.move("ENG-1", "Rework") is False
-    assert writer.state_of("ENG-1") == {"name": "Rework", "type": "active"}
+    assert writer.state_of("ENG-1") == {"name": "Rework", "type": "active", "canceled": False}
     assert writer.comment("ENG-1", "symphony-merger: blocked")
     created = writer.create_issue("Main is red", "CI broke", state="Todo",
                                   labels=["symphony", "repo:acme/new"], repo="acme/new")

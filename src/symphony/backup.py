@@ -94,6 +94,7 @@ CORE_KEPT = {
     "lessons:usage_age": "learning decay counters; the tracker cannot rebuild them",
     "totals:tokens": "the token ledger totals; the tracker cannot rebuild them",
     "answered:": "PR comments that answered a question; losing one lets the review watch act on it again",
+    "abandoned:": "canceled-ticket markers; losing one leaves that ticket's questions open until their reminder check",
 }
 CORE_SKIPPED = {
     "issue:": "tracking entries; reconcile rebuilds them from the tracker",

@@ -30,6 +30,7 @@ Restored, because the tracker cannot rebuild them:
 | `lessons:usage_age` | The decay counters of learnings |
 | `totals:tokens` | The token ledger totals |
 | `answered:*` | Pull request comments that answered a question. Without one, the review watch acts again on a comment that already answered |
+| `abandoned:*` | Canceled-ticket markers. Without one, that ticket's questions stay open until their reminder check closes them |
 
 Not in the backup:
 
