@@ -21,12 +21,28 @@ WAIT_APPROVAL = "wait-approval"
 REVIEWED_TITLE = "**Reviewed**"
 NOT_MERGED_TITLE = "**Not merged**"
 WAITING_TITLE = "**Waiting for CI**"
+PREVIEW_TITLE = "**Preview**"
 OURS = re.compile(
-    r"^(\*\*(Merged|Not merged|Waiting for CI|Reviewed|Review bypassed|Rebased onto main)\*\*\n\n)?"
+    r"^(\*\*(Merged|Not merged|Waiting for CI|Reviewed|Review bypassed|Rebased onto main"
+    r"|Preview)\*\*\n\n)?"
     rf"\*\*{VERSION}\*\*"
 )
 DRAFTED = (f"This PR is back to draft with the `{REVIEW_REQUESTED}` label: address this comment, "
            "then mark it ready for review.")
+
+
+def preview_comment(builds: list[dict]) -> str:
+    """The PR's one Preview comment: a link per build (`preview_links`), newest first. It is
+    edited in place when a new head gets a build."""
+    lines = [f"- `{b['sha12']}`{' (newest)' if i == 0 else ''}: [Open in Seiji]({b['url']})"
+             for i, b in enumerate(builds)]
+    return "\n\n".join([
+        PREVIEW_TITLE,
+        f"**{VERSION}**: builds of this PR to try on a simulator in Seiji. A link opens that "
+        "build, now or later, while GitHub keeps its artifact; open it again for a new "
+        "viewer.",
+        "\n".join(lines),
+    ])
 
 
 def scrub(text: str, *paths: str) -> str:

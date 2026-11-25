@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from types import SimpleNamespace
 from unittest import mock
 
@@ -15,6 +16,7 @@ from tests.test_merger_support import (
     make_merger,
 )
 
+from symphony import preview_links
 from symphony.merger import comments as cm
 from symphony.merger.approval import (
     button_id,
@@ -22,6 +24,7 @@ from symphony.merger.approval import (
     check_previews_for_open_prs,
     is_approved,
 )
+from symphony.merger.github import GitHubError
 from symphony.merger.policy import parse
 from symphony.merger.train import Train
 
@@ -273,6 +276,107 @@ def test_preview_new_sha_gets_new_announcement(env):
         check_preview(env.m, policy, pr)
     assert len(posted) == 2
     assert posted[1]["button_action_id"] == f"preview:acme/app:7:{head2[:12]}"
+
+
+LINK_SECRET = "test-link-secret-0123456789"
+
+
+@pytest.fixture
+def links_on(monkeypatch):
+    monkeypatch.setenv("SYMPHONY_PUBLIC_URL", "https://symphony.example.com")
+    monkeypatch.setenv(preview_links.SECRET_ENV, LINK_SECRET)
+
+
+def _build(env, branch: str, files: dict, message: str) -> str:
+    """A push to `branch` whose CI run carries the preview artifact."""
+    head = env.world.commit(branch, files, message)
+    env.gh.tick()
+    env.gh.artifacts[env.gh.runs[head]["id"]] = [{"name": "ios-simulator-preview",
+                                                  "expired": False}]
+    return head
+
+
+def test_the_pr_comment_lists_each_builds_link_newest_first_edited_in_place(env, links_on):
+    """One Preview comment per PR: a new head with a build adds its signed link on top, the
+    older builds stay (an older sha keeps opening that version)."""
+    env.gh.open_pr(7, "eng-7", "ENG-7 add a", author="alice")
+    head1 = _build(env, "eng-7", {"src/a.py": "A = 1\n"}, "feat: a")
+    policy = parse(PREVIEW_POLICY)
+    with mock.patch("symphony.notify.post_with_button", return_value=True):
+        check_preview(env.m, policy, env.gh.pr(7))
+        [comment] = env.gh.comments[7]
+        assert comment["body"].startswith("**Preview**\n\n**symphony-merger**")
+        assert cm.OURS.match(comment["body"])
+        link1 = preview_links.url("https://symphony.example.com", LINK_SECRET, "acme/app", 7,
+                                  head1[:12])
+        assert link1.startswith("https://symphony.example.com/v1/previews/open?repo=acme%2Fapp"
+                                f"&pr=7&sha={head1[:12]}&sig=")
+        assert f"- `{head1[:12]}` (newest): [Open in Seiji]({link1})" in comment["body"]
+        check_preview(env.m, policy, env.gh.pr(7))  # the same head: nothing to change
+        assert comment["edits"] == 0
+
+        head2 = _build(env, "eng-7", {"src/a.py": "A = 2\n"}, "feat: a v2")
+        check_preview(env.m, policy, env.gh.pr(7))
+    assert len(env.gh.comments[7]) == 1 and comment["edits"] == 1
+    body = comment["body"]
+    assert body.index(head2[:12]) < body.index(head1[:12])
+    assert f"- `{head2[:12]}` (newest): [Open in Seiji](" in body
+    assert f"- `{head1[:12]}`: [Open in Seiji]({link1})" in body
+    shas = [b["sha12"] for b in preview_links.builds(env.m.store.client, env.m.store.ns,
+                                                       "acme/app", 7)]
+    assert shas == [head2[:12], head1[:12]]
+
+
+def test_the_pr_comment_keeps_the_last_five_builds(env, links_on):
+    env.gh.open_pr(7, "eng-7", "ENG-7 add a", author="alice")
+    policy = parse(PREVIEW_POLICY)
+    heads = []
+    with mock.patch("symphony.notify.post_with_button", return_value=True):
+        for i in range(7):
+            heads.append(_build(env, "eng-7", {"src/a.py": f"A = {i}\n"}, f"feat: a {i}"))
+            check_preview(env.m, policy, env.gh.pr(7))
+    [comment] = env.gh.comments[7]
+    assert [h[:12] for h in reversed(heads[2:])] == re.findall(r"`([0-9a-f]{12})`", comment["body"])
+
+
+def test_a_deleted_preview_comment_is_posted_again(env, links_on):
+    env.gh.open_pr(7, "eng-7", "ENG-7 add a", author="alice")
+    policy = parse(PREVIEW_POLICY)
+    with mock.patch("symphony.notify.post_with_button", return_value=True):
+        _build(env, "eng-7", {"src/a.py": "A = 1\n"}, "feat: a")
+        check_preview(env.m, policy, env.gh.pr(7))
+        head2 = _build(env, "eng-7", {"src/a.py": "A = 2\n"}, "feat: a v2")
+        env.gh.fail_next["edit_comment"] = GitHubError("Not Found", 404)
+        check_preview(env.m, policy, env.gh.pr(7))
+    assert len(env.gh.comments[7]) == 2
+    assert f"`{head2[:12]}` (newest)" in env.gh.comments[7][1]["body"]
+
+
+def test_a_failed_comment_is_tried_again_and_slack_still_posts_once(env, links_on):
+    env.gh.open_pr(7, "eng-7", "ENG-7 add a", author="alice")
+    policy = parse(PREVIEW_POLICY)
+    posted = []
+    with mock.patch("symphony.notify.post_with_button",
+                    side_effect=lambda *a, **kw: posted.append(kw) or True):
+        head = _build(env, "eng-7", {"src/a.py": "A = 1\n"}, "feat: a")
+        env.gh.fail_next["comment"] = GitHubError("Server Error", 502)
+        check_preview(env.m, policy, env.gh.pr(7))
+        assert env.gh.comments[7] == [] and len(posted) == 1
+        check_preview(env.m, policy, env.gh.pr(7))
+    assert len(posted) == 1
+    assert f"`{head[:12]}` (newest)" in env.gh.comments[7][0]["body"]
+
+
+def test_no_pr_comment_without_the_link_secret(env, monkeypatch):
+    monkeypatch.setenv("SYMPHONY_PUBLIC_URL", "https://symphony.example.com")
+    monkeypatch.delenv(preview_links.SECRET_ENV, raising=False)
+    env.gh.open_pr(7, "eng-7", "ENG-7 add a", author="alice")
+    posted = []
+    with mock.patch("symphony.notify.post_with_button",
+                    side_effect=lambda *a, **kw: posted.append(kw) or True):
+        _build(env, "eng-7", {"src/a.py": "A = 1\n"}, "feat: a")
+        check_preview(env.m, parse(PREVIEW_POLICY), env.gh.pr(7))
+    assert len(posted) == 1 and env.gh.comments[7] == []
 
 
 def test_no_announcement_without_artifact(env):

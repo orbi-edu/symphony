@@ -233,6 +233,11 @@ class Config:
     merger_label_filter_enabled: bool = True
     merger_label_filter_labels: tuple[str, ...] = ("symphony", "symphony-learnings")
     merger_label_filter_repos: dict = field(default_factory=dict)
+    # `api.access`: Cloudflare Access in front of the API, `{team_domain, aud}`. Browser routes
+    # (preview links, `api/previews.py`) verify its JWT and map its e-mail in `notify.users`.
+    api_access: dict | None = None
+    # `previews.public_links`: without `api.access`, a signed preview link alone opens it.
+    previews_public_links: bool = False
     prompt_body: str = ""
 
     @property
@@ -652,6 +657,30 @@ def _retention(data: dict) -> dict:
         if not retention.MIN_DAYS <= value <= high:
             raise ConfigError(f"retention.{key} must be between {retention.MIN_DAYS} and {high}")
         out[f"retention_{key}"] = value
+    return out
+
+
+_LABEL = r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?"
+_TEAM_DOMAIN = re.compile(rf"(?=.{{1,253}}\Z){_LABEL}(\.{_LABEL})+\Z")
+
+
+def _api_and_previews(data: dict) -> dict:
+    """`api.access` (Cloudflare Access: `team_domain` host, `aud` tag) and
+    `previews.public_links`."""
+    api = _section(data, "api", {"access"})
+    out: dict[str, Any] = {"api_access": None}
+    if api.get("access") is not None:
+        access = _section(api, "access", {"team_domain", "aud"})
+        domain = _typed(access, "team_domain", str, "").strip().lower()
+        if not _TEAM_DOMAIN.fullmatch(domain):
+            raise ConfigError("api.access.team_domain must be a host name such as "
+                              "acme.cloudflareaccess.com (no scheme, no path)")
+        aud = _typed(access, "aud", str, "").strip()
+        if not aud:
+            raise ConfigError("api.access.aud must be the Access application's audience tag")
+        out["api_access"] = {"team_domain": domain, "aud": aud}
+    previews = _section(data, "previews", {"public_links"})
+    out["previews_public_links"] = _typed(previews, "public_links", bool, False)
     return out
 
 
@@ -1077,6 +1106,7 @@ def parse_workflow(text: str, env: Mapping[str, str] | None = None) -> Config:
         **_backup(data),
         **_skills(data),
         **_merger(data),
+        **_api_and_previews(data),
         prompt_body=body,
     )
 

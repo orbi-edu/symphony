@@ -172,7 +172,12 @@ The `share_device` host tool posts a "Control the device" button. Only the mappe
 
 ### PR previews
 
-When a Seiji server named `seiji` is configured and the GitHub App has `actions: read` and `pull_requests: read`, clicking "Open in simulator" on a merger review notification spins up a simulator in Seiji with the PR's preview build, and sends the clicker a viewer link. See [assistant.md](assistant.md#pr-previews) for the full flow.
+When a Seiji server named `seiji` is configured and the GitHub App has `actions: read`, `contents: read` and `pull_requests: read`, a PR's preview build opens on a simulator in Seiji in two ways ([assistant.md](assistant.md#pr-previews) has the full flow):
+
+- **The Slack button.** A reviewer clicks "Open in simulator" on the merger's notification and gets a viewer link privately. Only for the current head.
+- **The link on the PR.** The merger keeps a **Preview** comment on the pull request with a link per build, newest first (the last 5). The link has no expiry: it opens that build days later, as long as GitHub keeps its artifact, and an older sha opens that older version. Behind Cloudflare Access (`api.access`), any person whose Access e-mail is mapped in `notify.users` may open it; without Access it works only with `previews.public_links: true` ([security](security.md#preview-links)). The browser shows the progress, then lands on a fresh control viewer; reload the page later for a new one. When someone asks on the PR to open the app in Seiji, the answer agent replies with this link.
+
+Each build gets its own device, at most 2 per PR (a third releases the oldest). A device goes back after 55 minutes, when the PR is merged or closed, or when the lease is gone. A device from the button also goes back when the head changes or a human approves; one opened from a link keeps its build.
 
 ## Limits
 

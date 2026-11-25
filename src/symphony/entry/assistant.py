@@ -356,23 +356,10 @@ def build(cfg_holder: ConfigHolder, client, namespace: str, env: Mapping[str, st
             definition, mcp.repository.headers(server), lease_id, True))
 
     # -- PR previews (previews.py): each click reads the MCP definition it needs ---------
-    preview_mgr = None
-    if all(env.get(name) for name in GITHUB_APP_ENV):
-        from ..previews import PreviewManager
+    from .. import previews
 
-        def preview_token(repo: str) -> Callable[[], str]:
-            return InstallationCredential.from_env(
-                env, now_ms, target_repos=(repo,),
-                permissions={"actions": "read", "pull_requests": "read", "metadata": "read"},
-            ).token
-
-        preview_mgr = PreviewManager(
-            client=client,
-            namespace=namespace,
-            repository=mcp.repository,
-            github_token=preview_token,
-            notify_users=lambda: policy().notify_users,
-        )
+    preview_mgr = previews.from_env(client, namespace, mcp.repository, env,
+                                    notify_users=lambda: policy().notify_users)
 
     answers = Answers(client, namespace, notify_users=lambda: policy().notify_users)
     slack = transports.get("slack")

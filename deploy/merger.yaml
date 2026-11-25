@@ -67,10 +67,17 @@ spec:
             # provider API keys from the Admin screen, read per agent run (internals §13)
             - name: SYMPHONY_SECRET_PROVIDERS
               value: symphony-providers
+            # Signs the PR preview links (`preview:` policy; docs/merger.md T10). Only this key
+            # of symphony-api: the bootstrap token stays with the API.
+            - name: SYMPHONY_PREVIEW_LINK_SECRET
+              valueFrom:
+                secretKeyRef: {name: symphony-api, key: SYMPHONY_PREVIEW_LINK_SECRET, optional: true}
           envFrom:
             # Optional: without the GitHub App the merger idles (`merger_not_configured`).
             - secretRef: {name: linear-api-key, optional: true}
             - secretRef: {name: github-app, optional: true}
+            # SYMPHONY_PUBLIC_URL: the base of the preview links on PRs.
+            - configMapRef: {name: symphony-api-config, optional: true}
             - secretRef: {name: symphony-slack, optional: true}
             - secretRef: {name: symphony-discord, optional: true}
             # Host-level fallback for the merger's agents: AWS_REGION +

@@ -314,18 +314,20 @@ def render_session_report(entry: dict, rollup: dict | None = None) -> str:
     if isinstance(replaced, list):
         was = ", ".join(f"`{repo}`" for repo in replaced) or "another repository"
         lines.append(f"- Workspace: rebuilt when the ticket's repositories changed (was {was})")
-    # One line per run: the attached trace (`sessiontrace`) or why it is not there.
+    # One line per run (and per PR answer run): the attached trace (`sessiontrace`) or why
+    # it is not there.
     for trace in entry.get("traces") or []:
         if not isinstance(trace, dict):
             continue
+        run = f"{'answer, ' if trace.get('answer') else ''}run {trace.get('run', '?')}"
         if trace.get("url"):
             redacted = _int(trace.get("redactions"))
             lines.append(
-                f"- **Session trace**: {trace['url']} (run {trace.get('run', '?')}, "
+                f"- **Session trace**: {trace['url']} ({run}, "
                 f"{redacted} {'redaction' if redacted == 1 else 'redactions'})"
             )
         elif trace.get("note"):
-            lines.append(f"- Session trace (run {trace.get('run', '?')}): {trace['note']}")
+            lines.append(f"- Session trace ({run}): {trace['note']}")
 
     if rollup and rollup.get("spans"):
         lines += ["", "**Session trace**", ""]

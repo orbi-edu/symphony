@@ -50,6 +50,8 @@ def build(role: str):
         services = build_services(
             kv.client, aclient, pod_namespace(), kv=kv, core=core, batch=batch
         )
+        if services.previews is not None:
+            services.previews.start()  # releases the link previews' devices (`previews.py`)
         return build_app(services), API_PORT
     if role == "gateway":
         from ..gateway_api import build_app

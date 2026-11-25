@@ -404,6 +404,8 @@ class LocalStack:
             self.client, self.aclient, self.namespace, kv=self.kv, core=None,
             secrets=self.secrets, workflow=self.workflow_repo, mcp=self.mcp,
         )
+        if services.previews is not None:
+            services.previews.start()
         app = build_app(services)
         if self.memory is not None:
             auth = Authenticator(

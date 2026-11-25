@@ -445,13 +445,13 @@ def test_preview_happy_path(redis_client, mcp_repo, seiji_server, monkeypatch):
     assert len(seiji_state["leases"]) >= 1
     assert len(seiji_state["viewers"]) >= 1
 
-    # A restarted assistant (a new manager on the same Redis) gives the device back.
-    [live] = mgr._previews.values()
-    restarted = PreviewManager(client=redis_client, namespace=NS, repository=mcp_repo,
-                               github_token=fake_github_token, notify_users=lambda: USERS)
-    assert restarted.release_leftovers() == 1
-    assert not mcp_servers.held_by_live_session(redis_client, NS, "seiji", live.lease_id)
-    assert restarted.release_leftovers() == 0
+    # Another process (the API, a restarted assistant) sees the device in Redis: its sweep
+    # owns it, and a link for the same build reuses it.
+    [live] = mgr.live()
+    other = PreviewManager(client=redis_client, namespace=NS, repository=mcp_repo,
+                           github_token=fake_github_token, notify_users=lambda: USERS)
+    assert other.get("acme/app", 42, "abcdef012345") == live
+    assert live.origin == "button"
 
 
 def test_preview_lease_reuse(redis_client, mcp_repo, seiji_server, monkeypatch):
@@ -591,13 +591,13 @@ def test_preview_release_on_merge(redis_client, mcp_repo, seiji_server, monkeypa
         act = action("preview:acme/app:20:112233445566", user_id="U_ALICE")
         result = mgr.handle(act, out)
         assert result == "viewer_sent"
-        assert len(mgr._previews) == 1
+        assert len(mgr.live()) == 1
 
         # Now merge the PR
         merged[0] = True
         released = mgr.sweep()
         assert released >= 1
-        assert len(mgr._previews) == 0
+        assert len(mgr.live()) == 0
 
 
 def test_preview_release_on_approval(redis_client, mcp_repo, seiji_server, monkeypatch):
@@ -666,7 +666,7 @@ def test_preview_release_on_approval(redis_client, mcp_repo, seiji_server, monke
                              "submitted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ",
                                                            time.gmtime(time.time() + 5))})
         assert mgr.sweep() == 1
-        assert len(mgr._previews) == 0
+        assert len(mgr.live()) == 0
 
 
 def test_preview_release_on_timeout(redis_client, mcp_repo, seiji_server, monkeypatch):
@@ -727,12 +727,11 @@ def test_preview_release_on_timeout(redis_client, mcp_repo, seiji_server, monkey
         assert result == "viewer_sent"
 
         # Fast-forward the started_at to 56 minutes ago
-        key = mgr._key("acme/app", 40)
-        with mgr._lock:
-            preview = mgr._previews.get(key)
+        preview = mgr.get("acme/app", 40, "ccdd11223344")
         assert preview is not None
         preview.started_at = time.time() - (LEASE_MAX_AGE_S + 60)
+        mgr._save(preview)
 
         released = mgr.sweep()
         assert released >= 1
-        assert len(mgr._previews) == 0
+        assert len(mgr.live()) == 0

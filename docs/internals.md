@@ -65,6 +65,11 @@ The `state` keys have no namespace prefix. All other keys have a namespace prefi
 | `sym:<ns>:ratelimits` | Hash | `<provider>/<model>` → rate limit observation (section 10) | Never; the API shows only the last hour |
 | `sym:<ns>:mcp:token:<sha256>` | String (JSON) | One agent session's MCP token: `{role, session, exp}`; the key holds the SHA-256 of the token, never the token (section 18) | Its own TTL (4 h by default); deleted when the session ends |
 | `sym:<ns>:mcp:calls` | Hash | `<server>:<role>` → MCP calls through the gateway | Never |
+| `sym:<ns>:preview:live` | Hash | `<owner/name>:<pr>:<sha12>` → a live preview device `{repo, pr, head_sha, lease_id, server, mcp_token, started_at, bundle_id, origin}`; `origin` is `button` or `link` ([assistant.md](assistant.md#pr-previews)) | 1 h, renewed on each write |
+| `sym:<ns>:preview:starting:<owner/name>:<pr>:<sha12>` | String (JSON) | A start in progress, `{step}` (`queued`, `downloading`, `installing`, `launching`): one start per build across the assistant and the API | 15 min; deleted when the start ends |
+| `sym:<ns>:preview:failed:<owner/name>:<pr>:<sha12>` | String | Why the last start of that build failed, for the link's status page | 10 min |
+| `sym:<ns>:preview:sweep` | String | The preview sweep lock: one process sweeps a round | 55 s |
+| `sym:<ns>:preview:builds:<owner/name>:<pr>` | String (JSON) | The PR's preview links that the merger listed, `{comment, builds: [{sha, sha12, url, at}]}`, newest first, at most 5; the answer run reads them | 90 days |
 | `sym:<ns>:merger:repos` | Set | Every repository that a merger registered | Never |
 | `sym:<ns>:merger:<repo>:heartbeat` | String | The merger of `<repo>` is alive | 90 s, renewed every 30 s or less |
 | `sym:<ns>:merger:<repo>:*` | Several | Merger state of one repository; see [Merger keys](#merger-keys) | Per key |
@@ -280,10 +285,10 @@ Rules for the runner tools:
 
 ### Session trace
 
-At the end of each run of an implementation or investigation attempt, the runner attaches the
-run's omp session to the ticket (`sessiontrace.py`, `agent.attach_trace`, default on). It
-skips a run that never started the engine or has no session file, an answer run, an attempt
-that lost its dispatch, and a tracker that stores no files.
+At the end of each run of an implementation or investigation attempt, and of each PR answer
+run, the runner attaches the run's omp session to the ticket (`sessiontrace.py`,
+`agent.attach_trace`, default on). It skips a run that never started the engine or has no
+session file, an attempt that lost its dispatch, and a tracker that stores no files.
 
 1. After the engine got SIGTERM and the generation was swept, and before the workspace is
    released, the runner runs `<engine binary> --export <session file> <tmp>/session-trace.html`
@@ -303,10 +308,13 @@ that lost its dispatch, and a tracker that stores no files.
    redact is attached unchanged.
 4. `tracker.attach_evidence(kind="report", title="Session trace (run N)",
    filename="session-trace-run-N.html", content_type="text/html")`; `N` is the claim's `runs`.
+   An answer run (`mode: answer`) uses `title="Session trace (answer, run N)"` and
+   `filename="session-trace-answer-run-N.html"`.
 5. The claim gets `traces[]`: `{run, url, redactions}`, or `{run, note}` when the trace is not
-   attached ("trace too large to attach: 26.3 MB", "trace not attached: the upload failed").
-   The session report has one line per run: `**Session trace**: <url> (run N, K redactions)`
-   or the note.
+   attached ("trace too large to attach: 26.3 MB", "trace not attached: the upload failed");
+   an answer run's record has `answer: true`. The session report has one line per run:
+   `**Session trace**: <url> (run N, K redactions)` (`(answer, run N, …)` for an answer) or
+   the note.
 
 A failed export, read or upload is logged (`session_trace_failed`, `session_trace_too_large`,
 `session_trace_upload_failed`) and never changes the outcome of the run or its report.

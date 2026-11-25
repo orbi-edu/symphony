@@ -115,6 +115,7 @@ apply_secret github-app \
   "${github_key[@]}"
 apply_secret symphony-api \
   --from-literal "GITHUB_WEBHOOK_SECRET=$(random)" \
+  --from-literal "SYMPHONY_PREVIEW_LINK_SECRET=$(random)" \
   --from-literal "SYMPHONY_BOOTSTRAP_TOKEN=$TOKEN"
 if [ -n "${AWS_BEARER_TOKEN_BEDROCK:-}" ]; then
   apply_secret model-provider \

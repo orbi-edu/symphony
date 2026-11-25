@@ -252,18 +252,45 @@ The `share_device` host tool lets the assistant post a "Control the device" butt
 
 ## PR previews
 
-When the merger announces a preview build of a pull request ([merger.md](merger.md), `preview:` in the repository policy) with an "Open in simulator" button (`preview:<owner>/<name>:<pr>:<sha12>`), a click is handled by the assistant process:
+A preview runs a pull request's build on a simulator in Seiji, for a person to try. There are two ways to open one. Both use the same start (`previews.py`): download the `ios-simulator-preview` artifact of the sha, extract `app.zip` and `preview.json`, check `head_sha`, upload the app to Seiji, acquire a device, install and launch the app, and record the lease.
+
+### The Slack button
+
+When the merger announces a preview build of a pull request ([merger.md](merger.md#t10-preview-announcement), `preview:` in the repository policy) with an "Open in simulator" button (`preview:<owner>/<name>:<pr>:<sha12>`), a click is handled by the assistant process:
 
 1. The clicker must be mapped in `notify.users` and be one of the PR's reviewers: the `requested_reviewers` or anyone with a submitted review. A PR with no reviewer accepts its author.
 2. Symphony acks immediately with "Starting a simulator for #N…". A click while that device is still starting gets "is starting" instead of a second device.
-3. It finds the `ios-simulator-preview` artifact for the PR's current head SHA. If the head moved past the sha in the button, it says so and stops.
-4. It downloads the artifact, extracts `app.zip` and `preview.json`, checks `head_sha`, and uploads the app to Seiji.
-5. It acquires a device, installs the app and launches it, then records the lease.
-6. It requests a control viewer and sends the link privately to the clicker.
+3. If the head moved past the sha in the button, it says so and stops. Otherwise it starts the device for the head.
+4. It requests a control viewer and sends the link privately to the clicker.
 
-One device per (repository, PR number). A second click by any allowed reviewer reuses the live lease and gets a fresh viewer. The device is released when the PR is merged or closed, a human approves it after the preview started, the head changes, 55 minutes have passed, or the lease is gone. A background loop checks every 60 seconds. A device acquired for a click that then fails (install, launch) is released at once. Live previews are recorded in Redis: an assistant that restarts releases the previews of the previous process.
+### The link on the pull request
 
-Previews are enabled when a Seiji server named `seiji` is configured and the GitHub App has `actions: read` and `pull_requests: read`.
+The button only exists in Slack, only for the current head and only for reviewers, and a viewer link opens once within 60 seconds. So the merger also keeps one **Preview** comment on the pull request with a link per build, newest first, the last 5 (edited in place when a new head gets a build):
+
+```text
+https://<SYMPHONY_PUBLIC_URL>/v1/previews/open?repo=<owner/name>&pr=<n>&sha=<sha12>&sig=<signature>
+```
+
+The signature is an HMAC-SHA256 of the repository, the PR number and the sha with `SYMPHONY_PREVIEW_LINK_SECRET` ([install](install.md#preview-links)). The link has no expiry: it works days later, as long as GitHub keeps the build's artifact. A link of an older sha opens that version, not the current head.
+
+Opening it in a browser:
+
+1. The API checks the signature (a bad one is a 403 page).
+2. It checks the person. Behind Cloudflare Access (`api.access` in [configuration](configuration.md#api)), it verifies the Access token and maps its e-mail in `notify.users`. Any mapped person may open a preview, not only reviewers. Without `api.access` the route refuses, unless `previews.public_links: true` lets the signed link alone open it ([security](security.md#preview-links)).
+3. A device that already runs this build is reused. Otherwise the start runs in the background and the page shows its progress ("Downloading build…", "Installing…", "Launching…") or its error in plain words; it asks again every 2 seconds. An expired artifact gets a page that says so.
+4. When the device is ready, the API mints a fresh control viewer link and redirects the browser to it. Reloading the page later mints a new one for the same device.
+
+Each open is audited as `preview.opened` (actor: the person's GitHub login, or the e-mail when no login maps to the same chat user; `public-link` without Access; target `<owner/name>#<pr>@<sha12>`).
+
+When someone asks on the PR to open or test the app in Seiji, the answer run ([review watch](concepts.md#review-watch)) gets these links in its prompt and replies with the link, instead of installing the build on a device nobody else can reach.
+
+### Devices and their lifetime
+
+One device per (repository, PR, sha), at most 2 live per PR: a third build releases the oldest. Another click or open of the same build reuses the live lease and gets a fresh viewer. The device is released when the PR is merged or closed, 55 minutes have passed, or the lease is gone. A device started by the button is also released when a human approves the PR after the preview started, or when the head changes; a device opened from a link keeps its sha and is not. A device acquired for a start that then fails (install, launch) is released at once.
+
+The devices are recorded in Redis (`sym:<ns>:preview:live`), so the assistant (buttons) and the API (links) share them. Each runs a sweep every 60 seconds; a short Redis lock lets one of them sweep a round. A restarted process keeps sweeping what the previous one started.
+
+Previews are enabled when a Seiji server named `seiji` is configured and the GitHub App has `actions: read`, `contents: read` and `pull_requests: read`. Links also need `SYMPHONY_PUBLIC_URL` and `SYMPHONY_PREVIEW_LINK_SECRET` on the merger and the API.
 
 ## Agents' questions
 
