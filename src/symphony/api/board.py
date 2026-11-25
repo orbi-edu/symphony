@@ -4,7 +4,8 @@ Response shapes (timestamps: `*_at`/`*At` are ISO-8601 UTC strings ending in `Z`
 token and session documents, which keep Redis epoch milliseconds):
 
 - `GET /v1/overview` (ETag, 304) → `{daemon:{alive, paused, heartbeat_at}, counts:{running,
-  waiting_input, queued, retrying, in_review, merging, held}, tokens_today, cost_today,
+  waiting_input, queued, retrying, in_review, merging, held, blocked_on_person}, tokens_today,
+  cost_today,
   merger:{reviewing, train, parked} (summed over every repository's merger), config_generation,
   rate_limits:[{model ("provider/model"),
   stage, remaining|null, limit|null, reset_at|null, retry_after_ms|null, observed_at, source
@@ -12,9 +13,12 @@ token and session documents, which keep Redis epoch milliseconds):
   `rate_limits` holds only observations from the last hour; held tickets are counted only
   under `held` (also those Symphony never tracked).
 - `GET /v1/issues` → `{items:[{issue_id, identifier, title, repo, status, phase ("held" when a
-  person holds it), held:{by, reason, at}|null, tracker_state, attempt, seq, session_id,
-  session_state, input_request, model, tokens, cost, pr_url, reason, updated_at,
-  evidence_count}]}`; `reason` is why the issue cannot be dispatched, a code or null:
+  person holds it), held:{by, reason, at}|null, blocked:{needs, reason, at}|null,
+  tracker_state, attempt, seq, session_id, session_state, input_request, model, tokens, cost,
+  pr_url, reason, updated_at, evidence_count}]}`; `status` and `phase` are `blocked_on_person`
+  while the agent waits for a person (`symphony_blocked`), and `blocked` says for what
+  (`needs` ∈ `answer`|`access`|`decision`|`other`); `reason` is why the issue cannot be
+  dispatched, a code or null:
   `no_repo_designation`|`malformed_repo_designation`|`mixed_owner_repo_designation`|
   `repo_not_authorized`.
 - `POST /v1/commands {action, target?, reason (8-1000)}` (operator, `Idempotency-Key` optional)

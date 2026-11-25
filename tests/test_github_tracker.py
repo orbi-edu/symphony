@@ -213,6 +213,15 @@ def test_comment_and_workpad_upsert(gh, tracker, token):
     assert tracker.fetch_issue_workpad("app-99999") == ""
 
 
+def test_comments_since_lists_comment_ids_as_comment_returns_them(gh, tracker, token):
+    t = ticket(gh, "Waits for a person")
+    ident = f"app-{t['issue']['number']}"
+    note = tracker.comment(ident, "Symphony is waiting for a person")
+    [listed] = tracker.comments_since(ident, 0)
+    assert listed["id"] == note and listed["at"] > 0
+    assert tracker.comments_since(ident, listed["at"]) == []
+
+
 def test_sub_issues_with_blocks_are_idempotent(gh, tracker, token):
     parent = ticket(gh, "Parent", labels=("symphony", "repo:acme/lib", "planning"))
     rest(gh, token, "POST", "/repos/acme/app/labels", json={"name": "docs"})

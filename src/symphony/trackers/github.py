@@ -29,6 +29,7 @@ from .base import (
     TrackerInputError,
     TrackerUnavailable,
     classify_state,
+    epoch_ms,
     make_dispatchable,
     pick_person,
 )
@@ -161,6 +162,7 @@ mutation SymphonyAddItem($project: ID!, $content: ID!) {
 
 class GitHubTracker:
     kind = "github"
+    stores_files = False  # an issue holds no files: evidence is a comment
 
     def __init__(
         self,
@@ -479,6 +481,12 @@ class GitHubTracker:
         repo = node["repository"]["nameWithOwner"]
         return self._rest_pages(f"/repos/{repo}/issues/{node['number']}/comments")
 
+    def comments_since(self, issue: str, since_ms: int) -> list[dict]:
+        found = [{"id": str(c["id"]), "at": epoch_ms(c.get("created_at"))}
+                 for c in self._comments(self._require(issue)) if c.get("id")]
+        return sorted((c for c in found if c["at"] is not None and c["at"] > since_ms),
+                      key=lambda c: c["at"])
+
     def fetch_issue_workpad(self, identifier: str) -> str:
         """Ticket comments (the agent's Workpad) for the reflector's harvest."""
         try:
@@ -500,6 +508,17 @@ class GitHubTracker:
                 out.append({"title": meta.get("title", ""), "url": c["html_url"],
                             "kind": meta.get("kind", "")})
         return out
+
+    def ticket_attachments(self, issue: str) -> list[dict]:
+        """GitHub issues hold no files (evidence is a comment, which the agent reads with
+        the ticket's comments)."""
+        return []
+
+    def fetch_attachment(self, issue: str, attachment_id: str, *, max_bytes: int) -> bytes:
+        raise TrackerInputError(
+            "GitHub issues have no file attachments to download: evidence is posted as a "
+            "comment, so read it in the issue's comments"
+        )
 
     def identifier_in(self, text: str, repo: str | None = None) -> str | None:
         text = text or ""

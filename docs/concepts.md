@@ -103,7 +103,7 @@ Symphony keeps one record for each tracked ticket. The record has a status that 
 | `retry_queued` | A retry or a continuation waits for its time (`retry_at`). |
 | `parked` | The ticket is not in an active state, or a person holds it. It uses no slot. |
 | `interrupting` | An operator stopped the attempt with the `interrupt` command. The stop is not confirmed yet. |
-| `blocked` | The attempt needs a person's decision. The `reevaluate` command or a change on the ticket opens it again. |
+| `blocked` | The attempt needs a person's decision: the retries ran out (`agent.max_failed_attempts`), or the agent waits for a person ([Waiting for a person](#waiting-for-a-person); the API shows `blocked_on_person`). The `reevaluate` command or a change on the ticket opens it again. |
 
 ```mermaid
 stateDiagram-v2
@@ -111,12 +111,13 @@ stateDiagram-v2
   claimed --> running: runner starts (fenced write)
   claimed --> retry_queued: orphan claim (no runner after 2 polls), same attempt
   running --> retry_queued: continuation (same attempt, about 1 s)
+  running --> blocked: agent waits for a person (symphony_blocked, or idle continuations)
   running --> retry_queued: failure or stall (next attempt, backoff)
   running --> interrupting: operator interrupt command
   interrupting --> retry_queued: run stopped (next attempt, backoff)
   interrupting --> blocked: token role revoked during the command
   retry_queued --> claimed: due, routable, not held, cooldown passed, slot free
-  blocked --> retry_queued: ticket changed, or reevaluate
+  blocked --> retry_queued: ticket changed, answer, or reevaluate
   running --> parked: ticket left the active states, or hold
   retry_queued --> parked: hold
   parked --> claimed: answer run (review watch)
@@ -144,11 +145,29 @@ An **attempt** is one implementer run with a number that starts at 1. A **dispat
 | Outcome | Cause | Next step |
 |---|---|---|
 | `done` | The ticket left the active states (for example, the agent moved it to In Review). | The daemon parks the record, or cleans it when the state is terminal. |
-| `continuation` | The turn cap (`agent.max_turns`) was reached, the wall-clock guard (`kubernetes.runner.wallclock_guard_s`) fired, or a person interrupted and did not write. | The same attempt runs again after about 1 second. The cooldown can delay it. |
+| `continuation` | The turn cap (`agent.max_turns`) was reached, the wall-clock guard (`kubernetes.runner.wallclock_guard_s`) fired, a person interrupted and did not write, or the ticket's repository set changed. | The same attempt runs again after about 1 second. The cooldown can delay it. |
+| `blocked` | The agent called `symphony_blocked`, or `agent.max_idle_continuations` continuation turns in a row changed nothing. | The ticket waits for a person ([Waiting for a person](#waiting-for-a-person)). The attempt is not consumed. |
 | `failed` | A fatal hook failed, the prompt did not render, the engine stream was silent for `engine.turn_timeout_ms`, an engine command failed, the model returned an error, or the GitHub credential renewal failed. | The attempt number increases. The retry waits for the backoff. |
 | `fenced` | A newer dispatch owns the ticket. | Nothing. The runner exits with no effect. |
 
 The runner checks the ticket state before each turn. Each turn after the first gets a short continuation prompt. The first turn gets the full prompt, plus the failure summary of the previous attempt when there is one.
+
+### Waiting for a person
+
+An agent that cannot go on without a person — an unanswered question, access it lacks, a decision that is not its own — calls the `symphony_blocked` host tool with the reason and what it needs (`answer`, `access`, `decision` or `other`). The run ends at the end of that turn with outcome `blocked`. Without this signal, each continuation would start again at the same point and repeat the same "blocked" message.
+
+A safety net catches an agent that does not call the tool: when `agent.max_idle_continuations` (default 3) continuation turns in a row change nothing, the run ends the same way, with the reason "no progress in 3 continuation turns". A turn changes nothing when the workspace has no new commit and no file change (the runner compares `git rev-parse HEAD`, `git status --porcelain` and `git diff HEAD` of each repository before and after the turn) and the agent called no tool beyond reads: file reads and searches, tracker queries (not mutations), and shell commands that only read (`git status`, `git log`, `ls`, `cat`…). A turn in which a person wrote to the agent always counts as progress. The first turn of a dispatch counts only when the dispatch continues a clean exit. A continuation that cannot read the workspace counts as progress, so the net never cuts a run on missing evidence.
+
+While the ticket waits:
+
+- It holds no slot and gets no dispatch, retry or continuation.
+- The daemon writes one short comment on the ticket that says what the agent waits for.
+- The API and Tern show the status `blocked_on_person` with the reason.
+- The record is in Redis, so a daemon restart keeps the ticket waiting.
+
+The ticket gets one new run when a person acts: an answer to one of the agent's questions (on the ticket, in Slack, in Tern or with the CLI), a comment, a label or state change, or any other edit of the ticket after the daemon's comment. The `refresh` and `reevaluate` commands also open it again. A move out of the active states parks it as usual.
+
+Symphony's own comments never count: when the ticket's update time moves, the daemon reads the comments written since its waiting comment and ignores those whose id Symphony recorded when it wrote them (`sym:<ns>:comment-own:<id>`), such as a question reminder. A label or state other than the ones the ticket had when it started waiting counts at once. An update that none of Symphony's own comments explains (for example, a person edits the description) counts too, because the tracker does not say who edited.
 
 ### Backoff
 
@@ -290,7 +309,7 @@ In a multi-repository ticket:
 - The GitHub token covers all the ticket's repositories and no others.
 - Each repository that changes gets its own branch and pull request. The merger Deployment of each repository reviews and merges the pull request of that repository.
 
-If a ticket's repository changes between attempts, the runner sees that the workspace holds a different clone. It deletes the workspace and makes a new one.
+If a ticket's repository set changes, Symphony does not reuse the workspace. The workspace pod and its session volume record the set they were built for. Before a dispatch reuses a workspace, the runner compares that record with the ticket's set (the labels, or the default repository). When they differ, it deletes the pod and the session volume and builds a new workspace, with a GitHub token for the new set and a new engine session. The session report notes the rebuild. When the set changes while a run works, the run ends at the next turn boundary as a continuation, and the next dispatch builds the new workspace. A workspace from before the record existed is still compared by the clone at `/workspace`.
 
 ## Planning tickets and sub-issues
 
@@ -304,6 +323,8 @@ A large ticket can become a tree of sub-issues. The agent makes them with the `s
 The tool is idempotent for each key: a second call with the same key does not make a second issue. The daemon dispatches a sub-issue only when all its blockers are terminal.
 
 The agent attaches evidence with the `symphony_attach_evidence` host tool. Linear takes any file of at most 25 MB. GitHub has no public API to upload a file to an issue, so it takes only text evidence, as a collapsible comment of at most 65,536 characters.
+
+With Linear, a later run reads the ticket's files back: `symphony_ticket_attachments` lists them and `symphony_fetch_attachment` downloads one into the workspace. The runner downloads it with the tracker credential, so the agent never holds it. At the end of each run the runner also attaches the run's session trace, redacted, and the session report links it ([security](security.md#session-traces-and-ticket-attachments)).
 
 ## Monorepos and components
 

@@ -10,7 +10,14 @@ import pytest
 from tests.conftest import FakeKV
 
 from symphony import questions
-from symphony.hosttools import ASK_FALLBACK, ASK_TOOL, HostToolBroker, tool_definitions
+from symphony.hosttools import (
+    ASK_FALLBACK,
+    ASK_TOOL,
+    BLOCKED_RESULT,
+    BLOCKED_TOOL,
+    HostToolBroker,
+    tool_definitions,
+)
 from symphony.sessions import EV_INPUT_RESOLVED, SessionStore
 from symphony.trackers.base import TrackerUnavailable
 from symphony.trackers.memory import MemoryTracker
@@ -57,11 +64,49 @@ def wait_pending(broker, call_id):
 def test_definitions_register_tracker_tools_and_the_ask_tool_top_level():
     tools = tool_definitions(MemoryTracker())
     assert [t["name"] for t in tools] == [
-        "linear_graphql", "symphony_create_issues", "symphony_attach_evidence", ASK_TOOL
+        "linear_graphql", "symphony_create_issues", "symphony_attach_evidence",
+        "symphony_ticket_attachments", "symphony_fetch_attachment", ASK_TOOL, BLOCKED_TOOL,
     ]
     assert {t["loadMode"] for t in tools} == {"essential"}
-    ask = tools[-1]["parameters"]
+    ask = tools[-2]["parameters"]
     assert ask["required"] == ["question"] and "options" in ask["properties"]
+    blocked = tools[-1]["parameters"]
+    assert blocked["required"] == ["reason", "needs"]
+    assert blocked["properties"]["needs"]["enum"] == ["answer", "access", "decision", "other"]
+
+
+def blocked_frame(call_id, **arguments):
+    return {"type": "host_tool_call", "id": call_id, "toolCallId": f"t-{call_id}",
+            "toolName": BLOCKED_TOOL, "arguments": arguments}
+
+
+def test_symphony_blocked_records_the_wait_and_tells_the_agent_to_end_its_turn(broker_factory):
+    broker, _, responses = broker_factory()
+    broker.handle(blocked_frame("b1", reason="acme/tools returns 404 for this token",
+                                needs="access"))
+    assert responses.arrived.wait(5)
+    assert responses.items == [("b1", BLOCKED_RESULT, False)]
+    assert broker.blocked == {"reason": "acme/tools returns 404 for this token", "needs": "access"}
+
+
+@pytest.mark.parametrize("arguments", [
+    {"reason": "", "needs": "access"},
+    {"reason": "waiting", "needs": "coffee"},
+    {"reason": "x" * 501, "needs": "other"},
+])
+def test_symphony_blocked_refuses_what_a_person_could_not_act_on(broker_factory, arguments):
+    broker, _, responses = broker_factory()
+    broker.handle(blocked_frame("b2", **arguments))
+    assert responses.arrived.wait(5)
+    [(_, _, is_error)] = responses.items
+    assert is_error and broker.blocked is None
+
+
+def test_a_superseded_attempt_cannot_block_the_ticket(broker_factory):
+    broker, _, responses = broker_factory(owns=lambda: False)
+    broker.handle(blocked_frame("b3", reason="needs a decision", needs="decision"))
+    assert responses.arrived.wait(5)
+    assert responses.items[0][2] is True and broker.blocked is None
 
 
 def test_an_answer_without_a_request_id_completes_the_pending_ask(broker_factory):

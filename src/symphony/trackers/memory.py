@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import itertools
 import re
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import replace
 
@@ -27,6 +28,7 @@ from .base import (
 
 class MemoryTracker:
     kind = "memory"
+    stores_files = True
 
     def __init__(
         self,
@@ -49,10 +51,15 @@ class MemoryTracker:
         self.people: dict[str, list[dict]] = {}  # issue id -> [{name, email, mention}], author first
         self.relations: list[tuple[str, str]] = []  # (blocker id, blocked id)
         self.evidence: dict[str, list[dict]] = {}  # issue id -> [{title, url, kind}]
+        # attachment id -> {issue, title, kind, url, created_at, data}
+        self.files: dict[str, dict] = {}
         self.labels: set[str] = set()  # labels the board has, beyond those on issues
         self.parents: dict[str, str] = {}  # child id -> parent id
         self._seq = itertools.count(1)
         self._on_comment = on_comment  # like Linear's: told the id of every comment written
+        # When each comment was written (`comments_since`); tests point it at their clock.
+        self.now_ms: Callable[[], int] = lambda: int(time.time() * 1000)
+        self.comment_times: dict[str, int] = {}
 
     # -- test helpers ----------------------------------------------------
     def add_issue(self, issue_id: str, identifier: str, state: str = "Todo", **kw) -> Issue:
@@ -152,6 +159,7 @@ class MemoryTracker:
         comment_id = f"comment-{next(self._seq)}"
         entry = {"id": comment_id, "body": body, **({"parent": parent} if parent else {})}
         self.comments.setdefault(found.id, []).append(entry)
+        self.comment_times[comment_id] = self.now_ms()
         if self._on_comment is not None:
             self._on_comment(comment_id)
         return comment_id
@@ -225,6 +233,9 @@ class MemoryTracker:
         entry = {"title": title, "url": f"memory://evidence/{found.identifier}/{filename}",
                  "kind": kind}
         self.evidence.setdefault(found.id, []).append(entry)
+        self.files[f"att-{len(self.files) + 1}"] = {
+            **entry, "issue": found.id, "created_at": "2026-01-01T00:00:00.000Z", "data": data,
+        }
         return entry
 
     def create_issue(
@@ -245,6 +256,31 @@ class MemoryTracker:
     def attachments(self, identifier: str) -> list[dict]:
         found = self._find(identifier)
         return list(self.evidence.get(found.id, [])) if found else []
+
+    def comments_since(self, issue: str, since_ms: int) -> list[dict]:
+        found = self._require(issue)
+        timed = [{"id": c["id"], "at": self.comment_times.get(c["id"])}
+                 for c in self.comments.get(found.id, [])]
+        return [c for c in timed if c["at"] is not None and c["at"] > since_ms]
+
+    def ticket_attachments(self, issue: str) -> list[dict]:
+        found = self._find(issue)
+        return [
+            {"id": file_id, "title": f["title"], "kind": f["kind"], "url": f["url"],
+             "created_at": f["created_at"]}
+            for file_id, f in self.files.items() if found is not None and f["issue"] == found.id
+        ]
+
+    def fetch_attachment(self, issue: str, attachment_id: str, *, max_bytes: int) -> bytes:
+        found = self._require(issue)
+        file = self.files.get(attachment_id)
+        if file is None or file["issue"] != found.id:
+            raise TrackerInputError(f"no attachment {attachment_id!r} on this ticket")
+        if len(file["data"]) > max_bytes:
+            raise TrackerInputError(
+                f"attachment {attachment_id!r} is larger than {max_bytes // (1024 * 1024)} MB"
+            )
+        return file["data"]
 
     def identifier_in(self, text: str, repo: str | None = None) -> str | None:
         """The first known identifier in `text`, as a whole word."""

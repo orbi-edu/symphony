@@ -4,8 +4,9 @@ The agent calls these like any other tool; omp forwards each call as a `host_too
 frame and waits for our `host_tool_result`. Two consequences shape this module:
 
 - **Credentials stay here.** The tracker's raw tool (`linear_graphql`),
-  `symphony_create_issues` and `symphony_attach_evidence` run through the tracker adapter in
-  the runner process, so the tracker credential never enters the workspace pod's
+  `symphony_create_issues`, `symphony_attach_evidence` and the ticket's attachments
+  (`symphony_ticket_attachments`, `symphony_fetch_attachment`) run through the tracker
+  adapter in the runner process, so the tracker credential never enters the workspace pod's
   environment, argv or files.
 - **Nothing blocks the reader.** Each call is served on its own worker thread: the turn
   loop keeps forwarding events, and a pending `symphony_ask` waits for a human `answer`
@@ -22,6 +23,7 @@ import re
 import shlex
 import threading
 import time
+import urllib.parse
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -90,6 +92,43 @@ ASK_DEFINITION = {
                     "assignee or someone who commented). Default: the ticket's author."
                 ),
             },
+        },
+    },
+    "loadMode": "essential",
+}
+BLOCKED_TOOL = "symphony_blocked"
+BLOCKED_NEEDS = ("answer", "access", "decision", "other")
+BLOCKED_REASON_MAX = 500
+BLOCKED_RESULT = (
+    "Recorded. This run ends when your turn ends, and Symphony leaves one comment on the "
+    "ticket saying what it waits for. The ticket starts again when a person answers your "
+    "question, comments, or changes its labels or state. Update the Workpad if needed, then "
+    "end your turn: do not post a 'blocked' comment yourself."
+)
+BLOCKED_DEFINITION = {
+    "name": BLOCKED_TOOL,
+    "label": "Wait for a person",
+    "description": (
+        "Stop working until a person acts, when you cannot make progress without one: an "
+        "unanswered question, missing access (a repository or service you cannot reach), a "
+        "decision only a person can make. The run ends at the end of this turn and the "
+        "ticket waits, without new runs, until someone answers, comments or changes the "
+        "ticket. Call it instead of ending turns with 'blocked' messages. Ask with "
+        "symphony_ask first when one question would unblock you."
+    ),
+    "parameters": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["reason", "needs"],
+        "properties": {
+            "reason": {
+                "type": "string",
+                "description": (
+                    "What you are waiting for, in one or two sentences a person can act on. "
+                    "At most 500 characters."
+                ),
+            },
+            "needs": {"enum": list(BLOCKED_NEEDS)},
         },
     },
     "loadMode": "essential",
@@ -254,15 +293,138 @@ _DEFAULT_TYPES = {
     "report": "text/markdown",
 }
 
+ATTACHMENTS_TOOL = "symphony_ticket_attachments"
+ATTACHMENTS_DEFINITION = {
+    "name": ATTACHMENTS_TOOL,
+    "label": "Ticket attachments",
+    "description": (
+        "List the files attached to this ticket, earlier runs' evidence and drafts included: "
+        "[{id, title, kind, host, created_at}]. Download one with symphony_fetch_attachment."
+    ),
+    "parameters": {"type": "object", "additionalProperties": False, "properties": {}},
+    "loadMode": "essential",
+}
+FETCH_TOOL = "symphony_fetch_attachment"
+FETCH_DEFINITION = {
+    "name": FETCH_TOOL,
+    "label": "Fetch attachment",
+    "description": (
+        "Download a file attached to this ticket (an id from symphony_ticket_attachments) into "
+        "the workspace at `path`. At most 25 MB; the path must be inside the workspace. "
+        "Returns {path, bytes}."
+    ),
+    "parameters": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["id", "path"],
+        "properties": {
+            "id": {"type": "string", "description": "The attachment id."},
+            "path": {"type": "string", "description": "Relative to the workspace root."},
+        },
+    },
+    "loadMode": "essential",
+}
+# Tools that act for the ticket: a superseded attempt gets none of them.
+_TICKET_TOOLS = (CREATE_ISSUES_TOOL, EVIDENCE_TOOL, ATTACHMENTS_TOOL, FETCH_TOOL)
+
 
 class ToolInputError(Exception):
     """The agent's arguments cannot be served; the message tells it what to fix."""
 
 
+class FileTooLarge(ToolInputError):
+    """A sandbox file over the size cap; `size` is its length in bytes."""
+
+    def __init__(self, path: str, size: int, max_bytes: int) -> None:
+        super().__init__(f"refused: {path} is larger than {max_bytes // (1024 * 1024)} MB")
+        self.size = size
+
+
+def read_sandbox_file(
+    sandbox: SandboxLike, root: str, path: str, max_bytes: int = EVIDENCE_MAX_BYTES
+) -> bytes:
+    """Read a file through the sandbox, refusing anything that resolves (symlinks included)
+    outside `root`, and anything over `max_bytes`."""
+    script = (
+        f"root=$(cd {shlex.quote(root)} 2>/dev/null && pwd -P) "
+        "|| { echo symphony:no-root; exit 2; }\n"
+        'cd "$root" || exit 2\n'
+        f"p=$(realpath -- {shlex.quote(path)} 2>/dev/null) || {{ echo symphony:missing; exit 3; }}\n"
+        'case "$p" in "$root"/*) ;; *) echo symphony:outside; exit 4;; esac\n'
+        '[ -f "$p" ] || { echo symphony:missing; exit 3; }\n'
+        "size=$(wc -c < \"$p\" | tr -d ' ')\n"
+        f'[ "$size" -le {max_bytes} ] || {{ echo "symphony:too-large $size"; exit 5; }}\n'
+        'echo "symphony:size $size"\n'
+        'base64 < "$p"\n'
+    )
+    code, out = sandbox.exec_script(script, timeout_s=300)
+    if code == 5:
+        size = next((line.split()[1] for line in out.splitlines()
+                     if line.startswith("symphony:too-large ")), "0")
+        raise FileTooLarge(path, int(size), max_bytes)
+    refusals = {
+        3: f"no such file in the workspace: {path}",
+        4: f"refused: {path} resolves outside the workspace",
+    }
+    if code in refusals:
+        raise ToolInputError(refusals[code])
+    lines = out.splitlines()
+    marker = next((i for i, line in enumerate(lines) if line.startswith("symphony:size ")), None)
+    if code != 0 or marker is None:
+        raise RuntimeError(f"could not read {path} from the workspace (exit {code})")
+    size = int(lines[marker].split()[1])
+    data = base64.b64decode("".join(lines[marker + 1 :]))
+    if len(data) != size:
+        raise RuntimeError(f"short read of {path}: {len(data)} of {size} bytes")
+    return data
+
+
+def write_sandbox_file(sandbox: SandboxLike, root: str, path: str, data: bytes) -> None:
+    """Write `data` to `path` (relative) through the sandbox: the reader's rules in reverse.
+    Missing directories are created, but only below an existing directory that resolves
+    (symlinks included) inside `root`; a directory or a symlink at `path` is refused. The
+    bytes travel on stdin, never in argv."""
+    parts = path.split("/")
+    if not path or "\x00" in path or path.startswith("/") or ".." in parts:
+        raise ToolInputError(f"refused: {path!r} must be a relative path inside the workspace")
+    encoded = base64.encodebytes(data).decode("ascii")
+    quoted = shlex.quote(path)
+    script = (
+        f"root=$(cd {shlex.quote(root)} 2>/dev/null && pwd -P) "
+        "|| { echo symphony:no-root; exit 2; }\n"
+        'cd "$root" || exit 2\n'
+        f"d=$(dirname -- {quoted}); b=$(basename -- {quoted})\n"
+        'a="$d"; while [ ! -e "$a" ] && [ ! -L "$a" ] && [ "$a" != . ]; do a=$(dirname -- "$a"); done\n'
+        'r=$(cd -- "$a" 2>/dev/null && pwd -P) || { echo symphony:outside; exit 4; }\n'
+        'case "$r/" in "$root"/*) ;; *) echo symphony:outside; exit 4;; esac\n'
+        'mkdir -p -- "$d" 2>/dev/null || { echo symphony:outside; exit 4; }\n'
+        'r=$(cd -- "$d" && pwd -P) || exit 2\n'
+        'case "$r/" in "$root"/*) ;; *) echo symphony:outside; exit 4;; esac\n'
+        't="$r/$b"\n'
+        'if [ -L "$t" ] || [ -d "$t" ]; then echo symphony:not-a-file; exit 6; fi\n'
+        'rm -f -- "$t.symphony-part" || exit 7\n'
+        f'(set -C; head -c {len(encoded)} | base64 -d > "$t.symphony-part") || exit 7\n'
+        f'[ "$(wc -c < "$t.symphony-part" | tr -d \' \')" -eq {len(data)} ] '
+        '|| { rm -f -- "$t.symphony-part"; echo symphony:short-write; exit 7; }\n'
+        'mv -f -- "$t.symphony-part" "$t"\n'
+    )
+    code, out = sandbox.exec_script(script, timeout_s=300, stdin=encoded)
+    refusals = {
+        4: f"refused: {path} resolves outside the workspace",
+        6: f"refused: {path} is a directory or a symlink",
+    }
+    if code in refusals:
+        raise ToolInputError(refusals[code])
+    if code != 0:
+        raise RuntimeError(f"could not write {path} into the workspace (exit {code}): {out[-200:]}")
+
+
 def tool_definitions(tracker: TrackerAdapter) -> list[dict]:
     """The `set_host_tools` payload: every tracker tool, the tracker-backed Symphony tools
-    (`symphony_create_issues`, `symphony_attach_evidence`) and `symphony_ask`. Essential load
-    mode keeps them top-level, so workflow prompts can name them directly."""
+    (`symphony_create_issues`, `symphony_attach_evidence`, and for a tracker that stores
+    files `symphony_ticket_attachments` and `symphony_fetch_attachment`), `symphony_ask` and
+    `symphony_blocked`. Essential load mode keeps them top-level, so workflow prompts can name
+    them directly."""
     tools = [
         {
             "name": spec.name,
@@ -272,7 +434,9 @@ def tool_definitions(tracker: TrackerAdapter) -> list[dict]:
         }
         for spec in tracker.agent_tool_specs()
     ]
-    return [*tools, CREATE_ISSUES_DEFINITION, EVIDENCE_DEFINITION, ASK_DEFINITION]
+    files = [ATTACHMENTS_DEFINITION, FETCH_DEFINITION] if tracker.stores_files else []
+    return [*tools, CREATE_ISSUES_DEFINITION, EVIDENCE_DEFINITION, *files, ASK_DEFINITION,
+            BLOCKED_DEFINITION]
 
 
 def subissue_key(issue_id: str, key: str) -> str:
@@ -420,6 +584,9 @@ class HostToolBroker:
         self._threads: list[threading.Thread] = []
         self._known = {spec.name for spec in tracker.agent_tool_specs()}
         self._closed = False
+        # `symphony_blocked`'s request, `{reason, needs}`: the turn loop ends the run at the
+        # end of the turn in which it was set.
+        self.blocked: dict | None = None
 
     # -- dispatch ----------------------------------------------------------------
     def handle(self, frame: dict) -> None:
@@ -443,7 +610,9 @@ class HostToolBroker:
         try:
             if name == ASK_TOOL:
                 self._ask(call_id, args)
-            elif name in (CREATE_ISSUES_TOOL, EVIDENCE_TOOL):
+            elif name == BLOCKED_TOOL:
+                self._blocked(call_id, args)
+            elif name in _TICKET_TOOLS:
                 if not self._owns():
                     self._respond(
                         call_id, "this attempt no longer owns the issue; stop working on it",
@@ -453,8 +622,12 @@ class HostToolBroker:
                 try:
                     if name == CREATE_ISSUES_TOOL:
                         result = self.create_issues(args)
-                    else:
+                    elif name == EVIDENCE_TOOL:
                         result = self.attach_evidence(args)
+                    elif name == ATTACHMENTS_TOOL:
+                        result = self.ticket_attachments()
+                    else:
+                        result = self.fetch_attachment(args)
                 except (ToolInputError, TrackerInputError) as exc:
                     self._respond(call_id, str(exc), is_error=True)
                     return
@@ -522,7 +695,7 @@ class HostToolBroker:
             raise ToolInputError("path and title are required")
         if self.sandbox is None:
             raise ToolInputError("no workspace is attached to this attempt")
-        data = self._read_workspace_file(path)
+        data = read_sandbox_file(self.sandbox, self.workspace_root, path)
         filename = os.path.basename(path)
         attached = self.tracker.attach_evidence(
             self.issue_id, title=title, kind=kind, filename=filename,
@@ -533,38 +706,54 @@ class HostToolBroker:
             self.store.update(self.sid, evidence=[*(meta.get("evidence") or []), attached])
         return {"url": attached["url"]}
 
-    def _read_workspace_file(self, path: str) -> bytes:
-        """Read a file through the sandbox, refusing anything that resolves (symlinks
-        included) outside the workspace root, and anything over the size cap."""
-        script = (
-            f"root=$(cd {shlex.quote(self.workspace_root)} 2>/dev/null && pwd -P) "
-            "|| { echo symphony:no-root; exit 2; }\n"
-            'cd "$root" || exit 2\n'
-            f"p=$(realpath -- {shlex.quote(path)} 2>/dev/null) || {{ echo symphony:missing; exit 3; }}\n"
-            'case "$p" in "$root"/*) ;; *) echo symphony:outside; exit 4;; esac\n'
-            '[ -f "$p" ] || { echo symphony:missing; exit 3; }\n'
-            "size=$(wc -c < \"$p\" | tr -d ' ')\n"
-            f'[ "$size" -le {EVIDENCE_MAX_BYTES} ] || {{ echo "symphony:too-large $size"; exit 5; }}\n'
-            'echo "symphony:size $size"\n'
-            'base64 < "$p"\n'
+    def ticket_attachments(self) -> list[dict]:
+        """`symphony_ticket_attachments`: what is attached to this ticket. The URL stays on
+        the host (only its host is shown): the agent downloads through
+        `symphony_fetch_attachment`, never with a credential of its own."""
+        return [
+            {"id": a["id"], "title": a["title"], "kind": a["kind"],
+             "host": urllib.parse.urlsplit(a["url"]).hostname or "", "created_at": a["created_at"]}
+            for a in self.tracker.ticket_attachments(self.issue_id)
+        ]
+
+    def fetch_attachment(self, args: dict) -> dict:
+        """`symphony_fetch_attachment`: one of this ticket's attachments → a workspace file.
+        The id is resolved against the ticket through the tracker, so another ticket's file
+        or an arbitrary URL is never fetched with the tracker credential."""
+        attachment_id = str(args.get("id") or "").strip()
+        path = str(args.get("path") or "").strip()
+        if not attachment_id or not path:
+            raise ToolInputError("id and path are required")
+        if self.sandbox is None:
+            raise ToolInputError("no workspace is attached to this attempt")
+        data = self.tracker.fetch_attachment(
+            self.issue_id, attachment_id, max_bytes=EVIDENCE_MAX_BYTES
         )
-        code, out = self.sandbox.exec_script(script, timeout_s=300)
-        refusals = {
-            3: f"no such file in the workspace: {path}",
-            4: f"refused: {path} resolves outside the workspace",
-            5: f"refused: {path} is larger than 25 MB",
-        }
-        if code in refusals:
-            raise ToolInputError(refusals[code])
-        lines = out.splitlines()
-        marker = next((i for i, line in enumerate(lines) if line.startswith("symphony:size ")), None)
-        if code != 0 or marker is None:
-            raise RuntimeError(f"could not read {path} from the workspace (exit {code})")
-        size = int(lines[marker].split()[1])
-        data = base64.b64decode("".join(lines[marker + 1 :]))
-        if len(data) != size:
-            raise RuntimeError(f"short read of {path}: {len(data)} of {size} bytes")
-        return data
+        write_sandbox_file(self.sandbox, self.workspace_root, path, data)
+        return {"path": path, "bytes": len(data)}
+
+    # -- symphony_blocked ----------------------------------------------------------
+    def _blocked(self, call_id: str, args: dict) -> None:
+        reason = " ".join(str(args.get("reason") or "").split())
+        needs = args.get("needs")
+        if not reason or needs not in BLOCKED_NEEDS:
+            self._respond(
+                call_id,
+                "symphony_blocked needs a reason and `needs`, one of " + ", ".join(BLOCKED_NEEDS),
+                is_error=True,
+            )
+            return
+        if len(reason) > BLOCKED_REASON_MAX:
+            self._respond(call_id, f"reason is over {BLOCKED_REASON_MAX} characters; shorten it",
+                          is_error=True)
+            return
+        if not self._owns():
+            self._respond(call_id, "this attempt no longer owns the issue; stop working on it",
+                          is_error=True)
+            return
+        self.blocked = {"reason": reason, "needs": needs}
+        self._log("agent_blocked_on_person", issue_id=self.issue_id, needs=needs)
+        self._respond(call_id, BLOCKED_RESULT, is_error=False)
 
     # -- symphony_ask --------------------------------------------------------------
     def _ask(self, call_id: str, args: dict) -> None:

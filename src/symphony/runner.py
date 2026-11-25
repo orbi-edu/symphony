@@ -18,15 +18,21 @@ from __future__ import annotations
 import random
 import re
 import secrets
+import shlex
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
-from . import discovery, endpoints, metrics, prwatch, state
+from . import discovery, endpoints, metrics, prwatch, sessiontrace, state
 from .config import Config, bind_role_model, resolve_workspace
 from .hosttools import HostToolBroker, tool_definitions
 from .omp_rpc import CommandFailed, OmpClient, OmpError, ReadTimeout, RunWatcher, SilenceTimeout
-from .orchestrator import PARKED, mark_clean_continuation, mark_retry_after_failure
+from .orchestrator import (
+    BLOCKED_ON_PERSON,
+    PARKED,
+    mark_clean_continuation,
+    mark_retry_after_failure,
+)
 from .prompt import PromptError, public_repository_guidance, render_prompt
 from .sessions import SessionStore, attempt_session_id
 from .teamconfig import TeamConfig, model_arg
@@ -78,6 +84,9 @@ class RunnerEnv:
     intent_block_ms: int = INTENT_BLOCK_MS
     # The attempt prompt's extra paragraph for the role's MCP servers (`McpLaunch.prompt_guidance`).
     mcp_guidance: Callable[[], str] = field(default=lambda: "")
+    # The credential values this run holds (tracker key, App tokens, gateway tokens), all
+    # redacted from the session trace before it is attached (`sessiontrace`).
+    credentials: Callable[[], list[str]] = field(default=lambda: [])
 
 
 class RunnerFenced(Exception):
@@ -157,6 +166,112 @@ def target_repos(issue: Issue) -> tuple[str, ...]:
     if issue.target_repos:
         return tuple(issue.target_repos)
     return (issue.target_repo,) if issue.target_repo else ()
+
+
+def _repo_set(repos) -> frozenset[str]:
+    """A repository set compared as owner/name, case-insensitively and in any order: the
+    tracker's label order is not a change."""
+    return frozenset(str(repo).casefold() for repo in repos)
+
+
+def _update_entry(kv, issue_id: str, **fields) -> None:
+    entry = kv.get(state.issue_key(issue_id))
+    if entry is not None:
+        entry.update(fields)
+        kv.put(state.issue_key(issue_id), entry)
+
+
+# What an idle turn may do (`agent.max_idle_continuations`): read, search, plan, wait.
+_READ_TOOLS = frozenset({
+    "read", "grep", "glob", "find", "ls", "lsp", "web_search", "fetch", "todo", "todo_write",
+    "wait", "symphony_blocked",
+})
+# Shell commands that only read. Anything else in a `bash` call counts as work.
+_READ_PROGRAMS = frozenset({
+    "cat", "ls", "head", "tail", "grep", "egrep", "rg", "find", "fd", "pwd", "echo", "printf",
+    "wc", "which", "tree", "stat", "file", "diff", "jq", "sort", "uniq", "cut", "true", "date",
+    "sleep",
+})
+_GIT_READS = frozenset({
+    "status", "log", "diff", "show", "branch", "remote", "rev-parse", "fetch", "ls-files",
+    "ls-remote", "blame", "describe",
+})
+_GH_READS = frozenset({
+    "pr view", "pr list", "pr checks", "pr diff", "pr status", "issue view", "issue list",
+    "repo view", "run view", "run list", "run watch", "status",
+})
+_REDIRECT = re.compile(r"\d*>&\d+|\d*>\s*/dev/null")
+_SEGMENT = re.compile(r"&&|\|\||[;|&\n]")
+_MUTATION = re.compile(r"\s*(?:#[^\n]*\n\s*)*mutation\b")
+
+
+def _command_words(segment: str) -> list[str]:
+    """A command's program and its positional words: assignments, flags and the value of
+    `-C`/`-c` (git's directory and config) dropped."""
+    words = segment.split()
+    while words and "=" in words[0]:
+        words = words[1:]  # FOO=bar cmd
+    out, skip = [], False
+    for word in words:
+        if skip:
+            skip = False
+        elif word in ("-C", "-c"):
+            skip = True
+        elif not word.startswith("-") or not out:
+            out.append(word)
+    return out
+
+
+def _reads_only(command: str) -> bool:
+    for segment in _SEGMENT.split(_REDIRECT.sub(" ", command)):
+        words = _command_words(segment)
+        if not words or words[0] == "cd":
+            continue
+        program, rest = words[0].rsplit("/", 1)[-1], words[1:]
+        if program in _READ_PROGRAMS:
+            continue
+        if program == "git" and rest[:1] and rest[0] in _GIT_READS:
+            continue
+        if program == "gh" and (" ".join(rest[:2]) in _GH_READS or rest[:1] == ["status"]):
+            continue
+        return False
+    return True
+
+
+def _acts(frame: dict, tracker_tools: frozenset[str]) -> bool:
+    """Did this engine frame start a tool call that does more than read? Tracker queries are
+    reads; tracker mutations, edits, writes, questions and any other command are work."""
+    if frame.get("type") != "tool_execution_start":
+        return False
+    name = str(frame.get("toolName") or "")
+    args = frame.get("args") if isinstance(frame.get("args"), dict) else {}
+    if name in _READ_TOOLS:
+        return False
+    if name in tracker_tools:
+        return _MUTATION.match(str(args.get("query") or "")) is not None
+    if name == "bash":
+        return not _reads_only(str(args.get("command") or ""))
+    return True
+
+
+def _workspace_fingerprint(sandbox: SandboxLike, root: str) -> str | None:
+    """A checksum of what the turn could have changed in the workspace — the primary
+    repository and every one under `repos/`: HEAD, `git status --porcelain` and the diff
+    against HEAD. None when it cannot be read, which counts as a change: never cut a run on
+    missing evidence."""
+    script = (
+        f"cd {shlex.quote(root)} 2>/dev/null || exit 3\n"
+        'for d in . repos/*; do [ -e "$d/.git" ] || continue; echo "== $d"; '
+        'git -C "$d" rev-parse HEAD; git -C "$d" status --porcelain; git -C "$d" diff HEAD; '
+        "done 2>&1 | cksum"
+    )
+    try:
+        code, out = sandbox.exec_script(script, timeout_s=60)
+    except Exception:  # noqa: BLE001 — evidence, never a reason to fail the attempt
+        return None
+    lines = out.strip().splitlines()
+    words = lines[-1].split() if code == 0 and lines else []
+    return " ".join(words[:2]) if len(words) >= 2 and all(w.isdigit() for w in words[:2]) else None
 
 
 def _fetch_issue(env: RunnerEnv, issue_id: str) -> Issue | None:
@@ -273,6 +388,9 @@ class LiveSession:
         self._last_entry: str | None = None
         self._seen_entries: set[str] = set()
         self._pr_url: str | None = None
+        # A person wrote to the agent since the last `take_human_spoke`: the idle-turn count
+        # starts over (`agent.max_idle_continuations`).
+        self._human_spoke = False
 
     # -- intents ---------------------------------------------------------------
     def start(self, broker: HostToolBroker) -> None:
@@ -320,6 +438,7 @@ class LiveSession:
         text = str(payload.get("text") or "").strip()
         if kind == "answer":
             if self.broker is not None and self.broker.answer(payload.get("request_id"), text, actor):
+                self._human_spoke = True
                 self.store.intent_applied(self.sid, intent_id, kind)
                 return
             # The question timed out or was cancelled: the answer still reaches the agent,
@@ -341,6 +460,7 @@ class LiveSession:
             if not text:
                 self.store.intent_applied(self.sid, intent_id, kind, ignored=True, reason="empty text")
                 return
+            self._human_spoke = True
             if self._phase == "running":
                 self.client.send(kind_applied, {"message": text})
                 self.store.intent_applied(self.sid, intent_id, kind, delivered=kind_applied)
@@ -377,6 +497,11 @@ class LiveSession:
         with self._cond:
             interrupted, self._interrupted = self._interrupted, False
         return interrupted
+
+    def take_human_spoke(self) -> bool:
+        with self._cond:
+            spoke, self._human_spoke = self._human_spoke, False
+        return spoke
 
     def wait_for_human(self, timeout_s: float) -> bool:
         """Park after a human interrupt until someone writes (True) or the timeout."""
@@ -547,6 +672,13 @@ def _run_session(env, issue_id, attempt, seq, bridge_token, issue, sid, repos):
         sandbox = env.ensure_sandbox(issue, cfg)
         entry = kv.get(state.issue_key(issue_id)) or entry
         entry.update(sandbox_name=sandbox.name, sandbox_id=getattr(sandbox, "id", None))
+        replaced = getattr(sandbox, "replaced_repos", None)
+        if replaced is not None:
+            # The workspace was built for another repository set and was rebuilt (pod and
+            # session volume): the engine session spoke about that code, so it goes too.
+            entry.update(session_path=None, session_id=None, repos_changed_from=list(replaced))
+            env.log("workspace_repos_changed", issue_id=issue_id, previous=list(replaced),
+                    repos=list(repos))
         kv.put(state.issue_key(issue_id), entry)
         env.sessions.update(sid, pod=sandbox.name)
 
@@ -654,10 +786,42 @@ def _run_session(env, issue_id, attempt, seq, bridge_token, issue, sid, repos):
                     except Exception as exc:  # noqa: BLE001 — the generation kill follows
                         env.log("engine_sigterm_failed", sid=sid, error=str(exc))
                 env.kill_agent(sandbox)
+                if client is not None:
+                    _attach_trace(env, sandbox, issue_id, bridge_token)
             if kv.owns():
                 env.release_sandbox(sandbox)
 
     return _finish(env, issue_id, outcome, issue, failure_summary)
+
+
+def _attach_trace(env: RunnerEnv, sandbox: SandboxLike, issue_id: str, bridge_token: str) -> None:
+    """The run's session trace on the ticket, for the session report (`agent.attach_trace`).
+    After the engine stopped (its session file is complete) and before the workspace is
+    released. An answer run is no implementation run, and a superseded attempt must not
+    write to the ticket. Nothing here fails the run."""
+    kv, cfg = env.kv, env.cfg
+    try:
+        entry = kv.get(state.issue_key(issue_id)) or {}
+        session_path = entry.get("session_path")
+        if (
+            not cfg.attach_trace
+            or not env.tracker.stores_files
+            or not session_path
+            or entry.get("mode") == prwatch.ANSWER_MODE
+            or not kv.owns()
+        ):
+            return
+        run = int(entry.get("runs") or entry.get("attempt") or 1)
+        record = sessiontrace.attach(
+            sandbox, env.tracker, issue_id,
+            omp=shlex.split(cfg.engine_command)[0], session_path=session_path, run=run,
+            credentials=[bridge_token, *env.credentials()], log=env.log,
+        )
+        entry = kv.get(state.issue_key(issue_id)) or entry
+        entry["traces"] = [*(entry.get("traces") or []), record]
+        kv.put(state.issue_key(issue_id), entry)
+    except Exception as exc:  # noqa: BLE001 — fenced or not, the trace never fails the run
+        env.log("session_trace_failed", issue_id=issue_id, error=str(exc)[:300])
 
 
 def _turn_loop(
@@ -688,6 +852,19 @@ def _turn_loop(
     turn_cap = cfg.answer_max_turns if answering else cfg.max_turns
     # Set after a human interrupt: the next prompt is what the human wrote, not ours.
     human_turn = False
+    # The repository set the workspace was built for. A change takes effect on a new
+    # dispatch, never in this workspace: its clone, branch and credential are the old set's.
+    built_for = _repo_set(entry.get("target_repos") or ())
+    # The safety net against continuation turns that go nowhere (`agent.max_idle_continuations`).
+    # A dispatch that continues a clean exit carries the count over (an int in the entry);
+    # any other start — new, after a failure, after a person acted — begins at None.
+    idle_cap = 0 if answering else cfg.max_idle_continuations
+    idle = entry.get("idle_continuations")
+    continuing = idle is not None
+    idle = int(idle or 0)
+    tracker_tools = frozenset(spec.name for spec in env.tracker.agent_tool_specs())
+    root = workspace_root(sandbox, cfg)
+    fingerprint = _workspace_fingerprint(sandbox, root) if idle_cap else None
 
     while True:
         if not fencing_ok(kv, issue_id, attempt, seq):
@@ -704,6 +881,13 @@ def _turn_loop(
                 return "done", None
         elif current.state_type != "active" or current.state not in cfg.active_states:
             return "done", None
+        if not answering and built_for and _repo_set(target_repos(current)) != built_for:
+            # The ticket's repositories changed mid-run: end here, so the next dispatch builds
+            # a workspace (and a credential) for the new set instead of looping in this one.
+            env.log("repos_changed_mid_run", issue_id=issue_id, built_for=sorted(built_for),
+                    repos=list(target_repos(current)))
+            _update_entry(kv, issue_id, idle_continuations=None)
+            return "continuation", None
         if turn >= turn_cap:
             return "continuation", None  # FR-013: turn cap ends cleanly
         if not human_turn and live.take_interrupt():
@@ -751,7 +935,9 @@ def _turn_loop(
             )
         else:
             prompt_text = CONTINUATION_GUIDANCE
+        prompted_by_human = human_turn
         human_turn = False
+        acted = False
 
         prompt_id = live.send_prompt(prompt_text)
         env.sessions.update(sid, state="running", turn=turn)
@@ -764,6 +950,7 @@ def _turn_loop(
                     raise RunnerFenced()
                 delta = ledger.observe(event)
                 live.observe(event, ledger.totals if delta is not None else None)
+                acted = acted or _acts(event, tracker_tools)
                 throttled = limit_from_retry(event, now)
                 if throttled is not None:
                     _record_limit(env, throttled)
@@ -790,6 +977,30 @@ def _turn_loop(
                     last_flush = _flush(env, issue_id, ledger)
         except SilenceTimeout as exc:
             return "failed", str(exc)
+
+        blocked = live.broker.blocked if live.broker is not None else None
+        if blocked:
+            live.broker.blocked = None
+            if not human_turn:  # a person interrupted and wrote: they are here, so go on
+                # `symphony_blocked`: the agent waits for a person, and the ticket with it.
+                _update_entry(kv, issue_id, blocked_needs=blocked["needs"])
+                return "blocked", blocked["reason"]
+        if idle_cap:
+            after = _workspace_fingerprint(sandbox, root)
+            changed = after is None or after != fingerprint
+            fingerprint = after
+            spoke = live.take_human_spoke()
+            if prompted_by_human or human_turn or spoke or not (turn > 1 or continuing):
+                idle = 0  # a person took part, or this was no continuation turn
+            elif changed or acted:
+                idle = 0
+            else:
+                idle += 1
+            _update_entry(kv, issue_id, idle_continuations=idle)
+            if idle >= idle_cap:
+                env.log("idle_continuations_blocked", issue_id=issue_id, turns=idle)
+                _update_entry(kv, issue_id, blocked_needs="other")
+                return "blocked", f"no progress in {idle} continuation turns"
 
         # Renew the code-hosting credential between turns: installation tokens live an
         # hour while attempts run for up to four (FR-017). Failing here is reported as
@@ -881,11 +1092,21 @@ def _finish(
     elif outcome == "failed":
         mark_retry_after_failure(kv, issue_id, entry, cfg, now, summary or "attempt failed")
     elif outcome == "blocked":
+        # Waiting for a person: no slot, no retry, no continuation until one acts. The daemon
+        # says so once on the ticket and watches it (`orchestrator._wait_for_person`). Not a
+        # failure: the attempt is not consumed and the failure count is untouched.
         entry.update(
             status="blocked",
+            blocked_reason=BLOCKED_ON_PERSON,
+            blocked_detail=summary,
+            blocked_at=now,
+            blocked_reported_at=None,
             runner_call_id=None,
+            retry_at=None,
+            stall_strikes=0,
+            idle_continuations=None,
             last_issue_updated_at=updated_at,
-            failure_summary=summary,
+            last_event_at=now,
             updated_at=now,
         )
         kv.put(state.issue_key(issue_id), entry)

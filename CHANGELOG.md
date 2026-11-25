@@ -7,6 +7,64 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.21] - 2026-11-25
+
+### Added
+
+- `symphony_blocked(reason, needs)`: a host tool the agent calls when it cannot make progress
+  without a person (`needs`: `answer`, `access`, `decision` or `other`). The run ends at the
+  end of the turn with outcome `blocked`, and the ticket waits: no slot, no dispatch, no
+  continuation. The daemon writes one short comment on the ticket saying what it waits for.
+  The ticket gets one new run when a person acts: an answer to one of the agent's
+  questions, a comment, a label or state change, any later edit, or `refresh`/`reevaluate`.
+  Symphony's own comments (a question reminder, an announcement) never reopen it: the
+  daemon reads the comments since its waiting comment and skips those whose id Symphony
+  recorded (`sym:<ns>:comment-own:<id>`), through the new tracker read `comments_since`
+  (Linear, GitHub, memory).
+  The wait is kept in Redis, so a daemon restart keeps it; the API (`/v1/issues` `status`
+  and `phase`, with `blocked: {needs, reason, at}`; `/v1/overview` `counts`), Tern and the
+  CLI show it as `blocked_on_person`. `WORKFLOW.md` and the GitHub example tell the agent to
+  call it instead of ending turns with "blocked" messages.
+- `agent.max_idle_continuations` (default 3, `0` off): a safety net for agents that do not
+  call the tool. That many continuation turns in a row with no new commit, no file change
+  (`git rev-parse HEAD`, `git status --porcelain` and `git diff HEAD` of each repository,
+  before and after the turn) and no tool call beyond reads and tracker queries end the run
+  the same way, with the reason "no progress in 3 continuation turns". The count goes on
+  across continuation dispatches; a turn in which a person wrote to the agent is progress.
+- Each run's session trace is attached to the ticket. At the end of every implementation or
+  investigation run the runner exports the omp session (`omp --export`) in the workspace,
+  reads it back (at most 25 MB), replaces every match of the merger precheck's secret
+  patterns and every credential value of the run (tracker key, App installation tokens,
+  gateway and MCP tokens) with `[REDACTED]`, and attaches it as
+  `session-trace-run-N.html`. The session report links it (`**Session trace**: <url>`,
+  with the number of redactions) or says why it is missing (too large, export or upload
+  failed); the run never fails over it. `agent.attach_trace: false` turns it off. Linear
+  only: GitHub issues hold no files.
+- The agent can read its own ticket's attachments: `symphony_ticket_attachments` lists them
+  (`id`, `title`, `kind`, the URL's host, `created_at`) and `symphony_fetch_attachment(id,
+  path)` downloads one into the workspace with the tracker credential on the host. Only the
+  current ticket's stored files (Linear's file storage, never a link or another ticket's
+  file), only inside the workspace, at most 25 MB. Offered with trackers that store files;
+  the prompt in `WORKFLOW.md` names them. Before, the agent got 401 on its own earlier
+  attachments.
+
+### Changed
+
+- The merger precheck's private-key pattern now spans the whole key block up to its `END`
+  line (it still flags the header line alone), so a redaction removes the key, not only its
+  first line.
+
+### Fixed
+
+- A ticket whose repository set changed (a `repo:` label added or removed, or a ticket that
+  first ran in the default repository) no longer reuses the old workspace. The workspace pod
+  and its session volume record the set they were built for; when the ticket's set differs,
+  the runner deletes both and builds a new workspace, with a GitHub token minted for the new
+  set and a fresh engine session (local mode: the workspace and session directories). The
+  session report notes the rebuild. A set that changes while a run works ends that run at the
+  next turn boundary, and the next dispatch gets the new workspace instead of continuing in
+  the stale one.
+
 ## [0.2.20] - 2026-11-24
 
 ### Added

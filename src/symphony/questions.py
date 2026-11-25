@@ -21,8 +21,9 @@ person answers, so the question outlives it here, keyed by the ask's call id:
   writes, the agent's included (`record_own`), whoever the account's owner is, since a person
   may run Symphony with their own API key and still answer. Bots and apps never answer.
 - Delivery: to the run still waiting on it (an `answer` intent); to a run of the ticket that
-  went on without it (`steer`, or `follow_up` while it waits on something else); with no
-  run, the ticket goes back to Rework and its next attempt reads the answer on the ticket. A
+  went on without it (`steer`, or `follow_up` while it waits on something else); to a ticket
+  waiting for a person (`symphony_blocked`), by queueing its next run at once; with no run,
+  the ticket goes back to Rework and its next attempt reads the answer on the ticket. A
   closed ticket only records it.
 
 External calls are best effort and retried at the next tick: posting, reminding, delivering
@@ -38,7 +39,7 @@ from collections.abc import Sequence
 
 import structlog
 
-from . import notify, prwatch, state, wake
+from . import notify, orchestrator, prwatch, state, wake
 from .prompt import PUBLIC_BRANCH_PREFIX
 from .reflector import LEARNINGS_BRANCH_PREFIX
 from .sessions import SessionStore, attempt_session_id
@@ -364,7 +365,7 @@ def _advance(client, ns: str, qid: str, *, kv, tracker, cfg, sessions: SessionSt
         return True
     if rec["state"] == "answered":
         if not rec.get("delivered"):
-            kind = _deliver(rec, kv=kv, tracker=tracker, cfg=cfg, sessions=sessions)
+            kind = _deliver(rec, kv=kv, tracker=tracker, cfg=cfg, sessions=sessions, now_ms=now_ms)
             _set(client, ns, qid, delivered=kind)
             rec["delivered"] = kind
             log.info("question_delivered", question=qid, issue_id=rec["issue_id"], kind=kind)
@@ -486,10 +487,16 @@ def _quote(text: str) -> str:
     return "\n".join(f"> {line}" for line in text.splitlines() or [""])
 
 
-def _deliver(rec: dict, *, kv, tracker, cfg, sessions: SessionStore) -> str:
+def _deliver(rec: dict, *, kv, tracker, cfg, sessions: SessionStore, now_ms: int) -> str:
     """Hand the answer to whoever is working the ticket now; the kind of delivery."""
     entry = kv.get(state.issue_key(rec["issue_id"])) or {}
     seq = entry.get("dispatch_seq")
+    if (entry.get("status") == "blocked"
+            and entry.get("blocked_reason") == orchestrator.BLOCKED_ON_PERSON):
+        # The ticket waits for a person, and this is one: its next run starts now, from it.
+        entry.update(orchestrator.reopen_blocked_fields(now_ms))
+        kv.put(state.issue_key(rec["issue_id"]), entry)
+        return "queued"
     if entry.get("status") == "running" and seq:
         sid = attempt_session_id(rec["issue_id"], seq)
         meta = sessions.meta(sid) or {}

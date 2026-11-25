@@ -29,6 +29,7 @@ from ..edge import (
     now_ms,
     pod_namespace,
     telemetry_env,
+    tracker_credentials,
 )
 from ..effects import stop_workspace_generation
 from ..endpoints import overrides as endpoint_overrides
@@ -155,6 +156,8 @@ def main() -> str:
     # A2: one MCP token per engine launch, role `implementer`, revoked when the attempt ends.
     mcp = McpLaunch(kv.client, ns, McpRepository(core, ns), gateway_url(cfg))
     mcp_tokens: list[str] = []
+    # Every App installation token this attempt handed the workspace, for redaction.
+    app_tokens: list[str] = []
     token_ttl_s = max(600, (runner_mod.compute_env_wall_deadline(started, cfg) - started) // 1000 + 600)
 
     def stage_mcp(write_file, agent_dir: str) -> None:
@@ -162,15 +165,22 @@ def main() -> str:
             mcp.stage(write_file, agent_dir, "implementer", f"{issue_id}:{seq}", token_ttl_s)
         )
 
-    def ensure_sandbox(issue: Issue, bound: Config) -> PodSandbox:
+    def ensure_sandbox(issue: Issue, bound: Config, replaced: list[str] | None = None) -> PodSandbox:
         nonlocal installation
         repos = runner_mod.target_repos(issue)
         runtime, component, component_path = resolve_workspace(bound, issue)
+        # Minted for the set the ticket names NOW, whatever the workspace was built for.
         installation = installation_credential(issue, bound, os.environ, now_ms)
         if installation is None:
             log.warning("github_app_not_configured", issue_id=issue_id)
         name = sandbox_name(issue.identifier)
         pod = kube.get_workspace(core, ns, name)
+        # The ticket's repository set changed since this workspace was built: its clone, its
+        # branch and the engine session on its volume are the old set's, so none of it is
+        # reused — a new workspace is built and `after_create` clones the new set.
+        previous = kube.discard_if_built_for_other(core, ns, bound, name, pod, repos)
+        if previous is not None:
+            return ensure_sandbox(issue, bound, previous)
         if pod is not None and any(
             source.secret_ref is not None
             for container in (pod.spec.containers or [])
@@ -198,7 +208,7 @@ def main() -> str:
             kube.delete_pod(core, ns, name, wait=True)
             pod = None
         if pod is None:
-            created = kube.create_workspace(core, ns, bound, name, runtime=runtime)
+            created = kube.create_workspace(core, ns, bound, name, runtime=runtime, repos=repos)
         else:
             kube.wait_workspace_ready(core, ns, name)
         # The clone hook needs these BEFORE it runs, which is why they belong to the
@@ -216,28 +226,30 @@ def main() -> str:
                 **({"SYMPHONY_COMPONENT_PATH": component_path} if component_path else {}),
             },
         )
+        wrapped.replaced_repos = replaced
         if (
             not created
             and repos
             and not workspace_matches_repo(wrapped, bound.workspace_root, repos[0])
         ):
             # The ticket was re-pointed at a different repository since this workspace
-            # was built. `after_create` — which owns the clone — runs only on creation,
-            # so reusing this one would work the issue against the previous repository's
-            # code with a credential scoped to the new one.
+            # was built (one older than the recorded set). `after_create` — which owns the
+            # clone — runs only on creation, so reusing this one would work the issue
+            # against the previous repository's code with a credential scoped to the new one.
             log.warning("workspace_repo_mismatch_recreating", pod=name, target_repo=repos[0])
-            kube.delete_pod(core, ns, name, wait=True)
-            return ensure_sandbox(issue, bound)
+            kube.discard_workspace(core, ns, name)
+            return ensure_sandbox(issue, bound, replaced or [])
         if not created:
             if not kill_agent_processes(wrapped):
                 # zombie survived the pkill: terminate and start clean (§3.7.3)
                 log.warning("zombie_survived_terminating_workspace", pod=name)
                 kube.delete_pod(core, ns, name, wait=True)
-                return ensure_sandbox(issue, bound)
+                return ensure_sandbox(issue, bound, replaced)
         kube.set_idle_since(core, ns, name, None)  # busy again: the reaper must not touch it
         # The credential helper must exist BEFORE after_create, which clones the repo.
         if installation is not None:
-            install_credential_helper(wrapped, installation.token())
+            app_tokens.append(installation.token())
+            install_credential_helper(wrapped, app_tokens[-1])
         prepare_provider(wrapped, core, ns, bound, stage_mcp)
         # Stage central skills from configured sources into the workspace pod.
         try:
@@ -265,7 +277,8 @@ def main() -> str:
         """Installation tokens live an hour; attempts run up to four (FR-017)."""
         try:
             if installation is not None and installation.needs_refresh():
-                install_credential_helper(wrapped, installation.token(force_refresh=True))
+                app_tokens.append(installation.token(force_refresh=True))
+                install_credential_helper(wrapped, app_tokens[-1])
             return True
         except Exception as exc:  # noqa: BLE001 — reported as its own failure reason
             log.error("credential_refresh_failed", error=str(exc))
@@ -305,6 +318,7 @@ def main() -> str:
         refresh_credentials=refresh_credentials,
         log=lambda event, **kw: log.warning(event, **kw),
         mcp_guidance=lambda: mcp.prompt_guidance("implementer"),
+        credentials=lambda: [*tracker_credentials(cfg), *app_tokens, *mcp_tokens],
     )
     try:
         outcome = runner_mod.run_attempt(env, issue_id, attempt, seq)

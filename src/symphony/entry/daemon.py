@@ -350,6 +350,7 @@ def _run(kv, stop: threading.Event, owner: str, store_ns: str, events: list) -> 
                         tick_kv, tracker, cfg, now_ms(), fx, owner,
                         admission_open=lambda: bool(authoritative() and not store.paused()),
                         wake_reasons=reasons,
+                        own_comment=lambda comment_id: questions.is_own(kv.client, ns, comment_id),
                     )
                     refresher.start(cfg)
                     questions_step(kv, ns, tracker, cfg)

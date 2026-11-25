@@ -50,7 +50,7 @@ def test_overview_counts_tokens_and_etag(api, redis_client):
     assert body["daemon"]["alive"] is True and body["daemon"]["paused"] is False
     assert body["daemon"]["heartbeat_at"].endswith("Z")
     assert body["counts"] == {"running": 1, "waiting_input": 1, "queued": 1, "retrying": 1,
-                              "in_review": 1, "merging": 1, "held": 0}
+                              "in_review": 1, "merging": 1, "held": 0, "blocked_on_person": 0}
     assert body["held"] == []
     assert body["tokens_today"] == 20 and body["cost_today"] == 0.75
     assert body["merger"] == {"reviewing": 1, "train": 0, "parked": 2}

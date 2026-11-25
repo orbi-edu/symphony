@@ -74,12 +74,19 @@ class Config:
     # Failed attempts in a row before Symphony stops retrying and asks a human (the ticket
     # becomes `blocked`). A clean exit resets the count. 0 retries forever.
     max_failed_attempts: int = 8
+    # Continuation turns in a row that change nothing (no commit, no file change, no tool
+    # call beyond reads and tracker queries) before the run ends as blocked on a person.
+    # 0 turns the safety net off.
+    max_idle_continuations: int = 3
     # How long `symphony_ask` waits for a human before the agent proceeds on its own
     # judgment (internals §3). The run never hangs on an absent human.
     input_timeout_ms: int = 900_000
     # A question still unanswered this long after it was asked gets one reminder that
     # mentions the person who decides, on the ticket and in Slack (`questions.py`). 0: none.
     ask_reminder_ms: int = 7_200_000
+    # At the end of each run the omp session is exported to HTML, redacted and attached to
+    # the ticket (`sessiontrace.py`); the session report links it.
+    attach_trace: bool = True
     # engine block: the agent execution engine (replaces the retired codex: block)
     engine_command: str = "omp --mode rpc"
     # Optional fallback for the role model. The published TeamConfig wins at runtime
@@ -995,8 +1002,12 @@ def parse_workflow(text: str, env: Mapping[str, str] | None = None) -> Config:
         max_failed_attempts=_typed(
             agent, "max_failed_attempts", int, defaults.max_failed_attempts
         ),
+        max_idle_continuations=_typed(
+            agent, "max_idle_continuations", int, defaults.max_idle_continuations
+        ),
         input_timeout_ms=_typed(agent, "input_timeout_ms", int, defaults.input_timeout_ms),
         ask_reminder_ms=_typed(agent, "ask_reminder_ms", int, defaults.ask_reminder_ms),
+        attach_trace=_typed(agent, "attach_trace", bool, defaults.attach_trace),
         stall_timeout_ms=_typed(agent, "stall_timeout_ms", int, defaults.stall_timeout_ms),
         engine_command=_typed(engine, "command", str, defaults.engine_command),
         engine_provider=_typed(engine, "provider", str, None),
@@ -1080,6 +1091,8 @@ def parse_workflow(text: str, env: Mapping[str, str] | None = None) -> Config:
         raise ConfigError("agent.input_timeout_ms must be positive")
     if cfg.ask_reminder_ms < 0:
         raise ConfigError("agent.ask_reminder_ms must be 0 (no reminder) or positive")
+    if cfg.max_idle_continuations < 0:
+        raise ConfigError("agent.max_idle_continuations must be 0 (off) or positive")
     if cfg.polling_interval_ms <= 0:
         raise ConfigError("polling.interval_ms must be positive")
     if bool(cfg.engine_provider) != bool(cfg.engine_model):

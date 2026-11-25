@@ -341,7 +341,9 @@ def test_startup_registers_host_tools_delta_events_and_no_ask_dialog(attempt):
     (tools,) = engine.commands("set_host_tools")
     names = [t["name"] for t in tools["tools"]]
     assert names == [
-        "linear_graphql", "symphony_create_issues", "symphony_attach_evidence", "symphony_ask"
+        "linear_graphql", "symphony_create_issues", "symphony_attach_evidence",
+        "symphony_ticket_attachments", "symphony_fetch_attachment", "symphony_ask",
+        "symphony_blocked",
     ]
     assert all(t["loadMode"] == "essential" for t in tools["tools"])
     assert engine.commands("set_event_filter")[0] | {"id": None} == {

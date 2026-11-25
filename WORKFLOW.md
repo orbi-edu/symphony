@@ -285,6 +285,10 @@ Your tools beyond the workspace:
 - `symphony_create_issues` — create sub-issues of this ticket, with their order as
   "blocks" relations, in one call. `symphony_attach_evidence` — attach a file from the
   workspace (a screenshot, a log) to this ticket.
+- `symphony_ticket_attachments` and `symphony_fetch_attachment`, when this session offers
+  them — list the files attached to this ticket and download one into the workspace. Files
+  from earlier runs (evidence, a draft you attached, a session trace) come back this way:
+  their URLs need a credential you do not have, so never fetch them with curl.
 - `symphony_ask` — ask a person, and wait for the answer. Use it ONLY when you are blocked
   on a decision that is not yours to make (product behavior, scope). When a check needs
   access you lack (cloud accounts, production data, paid APIs), never ask for credentials,
@@ -296,6 +300,10 @@ Your tools beyond the workspace:
   most three short lines of context, sub-questions one per line, short options (they become
   buttons). Ask one decision at a time; while a question on this ticket is open, wait for
   it unless the new one blocks the work on its own.
+- `symphony_blocked` — when you cannot make progress without a person (an unanswered
+  question, access you lack, a decision that is not yours), call it with the reason and what
+  you need, then end your turn, instead of ending turns with "blocked" messages: the run
+  stops and the ticket waits until a person answers, comments or changes it.
 - Git pushes and the GitHub API work for this ticket's repositories (and only those). The
   REST API is at `$GITHUB_API_URL` (`https://api.github.com` when unset). Get the token from
   git's credential helper and send it as `Authorization: Bearer $TOKEN`:
