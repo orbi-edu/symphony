@@ -50,8 +50,16 @@ class Merger:
     # are candidates for review. Set from merger.label_filter in WORKFLOW.md.
     label_filter_active: bool = True
     label_filter_labels: tuple[str, ...] = ("symphony", "symphony-learnings")
+    # `tracker.abandon_states` (`config.Config.abandons`): a PR whose ticket is in one is
+    # closed (`abandon.py`). The done state (`states["done"]`) never counts.
+    abandon_states: tuple[str, ...] = ("Cancelled", "Canceled", "Duplicate")
+    # Releases the live preview devices of a PR (`previews.PreviewManager.release_pr`); None
+    # without the GitHub App or the MCP servers: the preview sweep still releases them.
+    release_previews: Callable[[int], int] | None = None
     # Opaque ticket id (a public repository's branch) → identifier: one tracker read each.
     _opaque: dict[str, str | None] = field(default_factory=dict, repr=False)
+    # Identifier → (read at, ms; `tracker.state_of`): ticket states read once a minute.
+    _ticket_states: dict[str, tuple[int, dict | None]] = field(default_factory=dict, repr=False)
 
     @property
     def main(self) -> str:

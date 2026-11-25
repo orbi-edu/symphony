@@ -43,6 +43,7 @@ Symphony validates the state names when it loads `WORKFLOW.md`:
 - `rework` must be an active state.
 - `review` and `merging` must not be active states.
 - `done` must be a terminal state.
+- each `tracker.abandon_states` entry must be a terminal state, and `done` is never one.
 
 ```mermaid
 stateDiagram-v2
@@ -62,6 +63,15 @@ stateDiagram-v2
 ```
 
 `NeedsMaintainer` is not a tracker state. It is the `needs-maintainer` label on the pull request while the ticket stays in In Review. [merger.md](merger.md) describes the review and the train.
+
+### Canceled tickets
+
+A ticket moved to a terminal state that is not a success stops everything Symphony does for it. Those states are `tracker.abandon_states` (by default Canceled, Cancelled and Duplicate, when they are terminal states) and any state the tracker files as canceled (Linear's `canceled` type). Done is never one: a merged ticket is a success.
+
+- **The run and the workspace** end, as for any terminal state.
+- **Its open questions close.** The ticket's question is marked closed, its Slack message and the direct-message copies are edited to ":no_entry: *Ticket canceled*" with the question kept and no buttons, and no reminder follows. A later answer gets a polite refusal ("the ticket was canceled"). A question asked after the ticket came back to work stays open.
+- **Its pull requests close.** On its next review pass the merger finds the PR's ticket (the branch, title or body, as for a review) in such a state. It drops the PR from its queue, its parked reviews and the train's waiting list, posts one comment, `Closed by symphony-merger: <ticket> was moved to <state>. Reopen the PR to work on it again.` (in a public repository the ticket is not named), and closes the PR without merging it. It also releases the PR's preview devices ([assistant.md](assistant.md#pr-previews)).
+- **A person can undo it.** A PR that someone reopens is not closed again for the same ticket state: the merger reviews it as usual. A ticket moved back to an active state works again normally, and a later cancel closes its PRs again.
 
 ### Labels
 

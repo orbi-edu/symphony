@@ -34,6 +34,7 @@ from .base import (
 )
 
 TERMINAL_STATE_TYPES = ("completed", "canceled", "duplicate")  # WorkflowState.type closed values
+CANCELED_STATE_TYPES = ("canceled", "duplicate")  # given up on, not done (`Config.abandons`)
 IDS_BATCH = 50  # keep nested-connection query complexity well under Linear's limits
 IDENTIFIER = re.compile(r"\b([A-Za-z][A-Za-z0-9]{0,9}-\d{1,7})\b")
 UPLOAD_TIMEOUT_S = 300.0
@@ -43,7 +44,7 @@ UPLOADS_ORIGIN = "https://uploads.linear.app"
 
 ISSUE_FIELDS = """
       id identifier title description priority createdAt updatedAt url branchName
-      state { name }
+      state { name type }
       labels(first: 25) { nodes { name } }
       assignee { id name email }
       inverseRelations(first: 20) { nodes { type issue { id identifier state { name type } } } }
@@ -370,6 +371,7 @@ class LinearTracker:
             target_repos=target_repos,
             undispatchable_reason=repo_reason,
             dispatchable=make_dispatchable(state_type, bool(blockers), target_repo) and routed,
+            canceled=(node.get("state") or {}).get("type") in CANCELED_STATE_TYPES,
         )
 
     @staticmethod
@@ -545,7 +547,8 @@ class LinearTracker:
         kind = classify_state(name, self.active_states, self.terminal_states)
         if kind == "unknown" and ticket["state"].get("type") in TERMINAL_STATE_TYPES:
             kind = "terminal"
-        return {"name": name, "type": kind}
+        return {"name": name, "type": kind,
+                "canceled": ticket["state"].get("type") in CANCELED_STATE_TYPES}
 
     def comments_since(self, issue: str, since_ms: int) -> list[dict]:
         nodes = ((self._post(COMMENT_TIMES_QUERY, {"id": issue}).get("issue") or {})

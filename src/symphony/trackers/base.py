@@ -43,6 +43,9 @@ class Issue:
     target_repo: str | None = None
     target_repos: tuple[str, ...] = ()
     undispatchable_reason: str | None = None
+    # The tracker files the state as given up on (Linear's `canceled` type), whatever its name
+    # (`Config.abandons`).
+    canceled: bool = False
 
     @property
     def assignee_keys(self) -> tuple[str, ...]:
@@ -190,7 +193,9 @@ class TrackerAdapter(Protocol):
         ...
 
     def state_of(self, identifier: str) -> dict | None:
-        """`{name, type}`, `type` being "active" | "terminal" | "unknown"; None when unknown."""
+        """`{name, type, canceled?}`, `type` being "active" | "terminal" | "unknown", and
+        `canceled` true when the tracker files the state as given up on (Linear's `canceled`
+        type); None when unknown."""
         ...
 
     def attachments(self, identifier: str) -> list[dict]:

@@ -32,6 +32,17 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Seiji, instead of installing the build on a device itself.
 - PR answer runs get a session trace too, titled `Session trace (answer, run N)`
   (`session-trace-answer-run-N.html`); the session report marks them `(answer, run N, …)`.
+- Canceled tickets stop everything. A ticket finalized in an abandon state (new
+  `tracker.abandon_states`, by default Canceled, Cancelled and Duplicate when they are
+  terminal states, plus the tracker's canceled-type states such as Linear's `canceled`; Done
+  never) closes its open questions: their Slack message and DM copies read ":no_entry: *Ticket
+  canceled*" with the question kept and no buttons, no reminder follows, and a later answer is
+  refused ("the ticket was canceled"). The merger, on its own review pass and with the
+  ticket's state cached for a minute, drops the ticket's PRs from its queue, parked reviews and
+  train wait list, comments once (`Closed by symphony-merger: <ticket> was moved to <state>.
+  Reopen the PR to work on it again.`), closes them and releases their preview devices. A PR a
+  person reopens is not closed again for the same ticket state; a ticket back in an active
+  state works normally again.
 
 ### Changed
 

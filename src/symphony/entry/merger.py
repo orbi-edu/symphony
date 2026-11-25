@@ -187,7 +187,18 @@ def build(client, ns: str, cfg, env=os.environ, pulse: Pulse | None = None, *,
         pause=pulse.wait,
         wake=pulse.fire,
         ticket_labels=tuple(cfg.required_labels),
+        abandon_states=tuple(cfg.abandon_states),
+        release_previews=_preview_release(client, ns, repo, mcp, env),
     )
+
+
+def _preview_release(client, ns: str, repo: str, mcp: McpLaunch | None, env):
+    """Releases a closed PR's preview devices at once (`abandon.py`); None without the MCP
+    servers or the GitHub App."""
+    from .. import previews
+
+    mgr = previews.from_env(client, ns, mcp.repository if mcp is not None else None, env)
+    return (lambda n: mgr.release_pr(repo, n)) if mgr is not None else None
 
 
 def start_loops(m: Merger, client, ns: str, pulse: Pulse, stop: threading.Event, *, reviewers: int,

@@ -493,6 +493,28 @@ With `preview:` in the policy, the merger announces when a simulator preview is 
 - The announcement does not create a new polling loop: it runs during the review worker's
   normal pass.
 
+### T11. Canceled tickets close their pull requests
+
+A ticket in an abandon state (`tracker.abandon_states`, by default Canceled, Cancelled and
+Duplicate, plus the tracker's canceled-type states; never `tracker.states.done`) has no use for
+its pull requests ([concepts](concepts.md#canceled-tickets)). `merger/abandon.py`:
+
+- At the start of each review worker pass (one worker at a time, lease `abandon`), before
+  parked reviews settle and before a PR is picked, the merger reads the ticket of each open PR
+  (`ticket_of`) and its state (`tracker.state_of`, cached for a minute per ticket).
+- A PR whose ticket is in an abandon state is dropped from the parked reviews, the skips and
+  the records still waiting for the train (a record already in a batch is left to the train,
+  which drops a closed PR). The merger posts one comment, `**symphony-merger**: Closed by
+  symphony-merger: <ticket> was moved to <state>. Reopen the PR to work on it again.` (in a
+  public repository, "its ticket"), closes the PR without merging it, and releases its live
+  preview devices.
+- `abandoned:<pr>` (90 days) records `<ticket>:<state>` once the PR is closed
+  (`commented:<ticket>:<state>` between the comment and the close, so a retry does not comment
+  twice). A PR that a person reopens is not closed again for the same ticket state, and is
+  reviewed as usual. A ticket seen in any other state clears the record: a later cancel closes
+  the PR again.
+- A Done ticket never closes anything, even when the tracker files the state as canceled.
+
 ## Repository policy: `.symphony/merger.md`
 
 The merger reads the policy from `origin/main`. Thus a pull request cannot make the rules

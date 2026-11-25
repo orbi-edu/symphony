@@ -42,6 +42,7 @@ The `state` keys have no namespace prefix. All other keys have a namespace prefi
 | `telemetry:<issue_id>` | String (JSON) | The span rollup of the current attempt | 7 days idle |
 | `metrics:<yyyymm>` | String (JSON) | Monthly counters (dispatched, rework, pull requests opened and merged, learning pull requests, `retries: {failure, continuation}` redispatches) | 7 days idle; the daemon reads 12 months to keep them |
 | `hold:<issue_id>` | String (JSON) | A person holds the ticket: `{by, reason, at}` (section 12) | Never |
+| `abandoned:<issue_id>` | String (JSON) | The daemon finalized the ticket in an abandon state (`tracker.abandon_states`): `{state, identifier, at}`. Its questions asked before `at` close as canceled (`questions._advance`) | 7 days idle |
 | `repo:` | Label prefix | Not a key: the Linear label `repo:<owner/name>` routes a ticket to a repository | — |
 | `orchestrator:heartbeat` | String | Last daemon heartbeat (epoch ms) | 7 days idle |
 | `daemon:setup` | String (JSON) | Whether the daemon can work: `{status: "ready" \| "incomplete", reason, at}`, written each step (section 17) | 7 days idle |
@@ -119,7 +120,8 @@ The prefix of the keys below is `sym:<ns>:merger:<repo>:`.
 | `actions` | Stream | Operator actions (`bypass`, `requeue`, `release`) |
 | `actions:cursor` | String | The id of the last action that the merger applied |
 | `seq:<pr>:<role>` | Integer | Counter for the merger session ids |
-| `lease:train`, `lease:pr:<n>`, `lease:fixslot:<k>`, `lease:actions` | String | Lease owner, with `PX` expiry |
+| `abandoned:<pr>` | String | `<ticket>:<state>` the merger closed the PR for (`abandon.py`), or `commented:<ticket>:<state>` between the comment and the close | 90 days |
+| `lease:train`, `lease:pr:<n>`, `lease:fixslot:<k>`, `lease:actions`, `lease:abandon` | String | Lease owner, with `PX` expiry |
 
 ## 2. Sessions
 

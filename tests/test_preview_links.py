@@ -482,3 +482,15 @@ def test_bad_api_access_or_previews_is_refused(extra, error):
 
     with pytest.raises(ConfigError, match=error):
         workflow(extra)
+
+
+def test_a_closed_prs_devices_are_released_at_once(stack):
+    """The merger closed the PR (its ticket was canceled): every device of it goes back."""
+    for sha in (SHA_NEW, SHA_OLD):
+        stack.client.get(link(sha), headers=signed_in(stack))
+        stack.spawn.run()
+    assert len(stack.mgr.live()) == 2
+    assert stack.mgr.release_pr("Acme/App", 8) == 0
+    assert stack.mgr.release_pr("Acme/App", 7) == 2
+    assert stack.mgr.live() == []
+    assert {lease["status"] for lease in seiji_state(stack)["leases"]} == {"released"}

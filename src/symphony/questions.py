@@ -373,6 +373,10 @@ def _advance(client, ns: str, qid: str, *, kv, tracker, cfg, sessions: SessionSt
             _announce(client, ns, rec, tracker)
             _set(client, ns, qid, announced="1")
         return True
+    mark = kv.get(state.abandoned_key(rec["issue_id"]))
+    if mark and int(mark.get("at") or 0) >= rec["asked_at"]:
+        _cancel(client, ns, rec, mark.get("state") or "")
+        return True
     if "stakeholder" not in rec:
         rec["stakeholder"] = tracker.person(rec["issue_id"], rec.get("to") or None) or {}
         found = tracker.fetch_issues_by_ids([rec["issue_id"]])
@@ -404,9 +408,30 @@ def _advance(client, ns: str, qid: str, *, kv, tracker, cfg, sessions: SessionSt
                                      question=rec["question"])
         return True
     if cfg.ask_reminder_ms and not rec.get("reminded_at") and age >= cfg.ask_reminder_ms:
+        # The daemon marks a tracked ticket it finalizes; one it no longer tracked is read here,
+        # once, so a canceled ticket's person is never reminded.
+        found = tracker.state_of(rec["issue_id"]) or {}
+        if cfg.abandons(found.get("name"), bool(found.get("canceled"))):
+            _cancel(client, ns, rec, found.get("name") or "")
+            return True
         _remind(client, ns, rec, tracker, age)
         _set(client, ns, qid, reminded_at=now_ms)
     return False
+
+
+def _cancel(client, ns: str, rec: dict, state_name: str) -> None:
+    """The ticket was canceled (or is a duplicate): the question closes, its Slack message
+    and DM copies say so with the question kept and no buttons, and no reminder follows. A
+    later answer is refused (`closed: canceled`)."""
+    _set(client, ns, rec["id"], state="closed", closed="canceled", closed_state=state_name)
+    client.srem(_open(ns, rec["issue_id"]), rec["id"])
+    for where in (rec.get("slack"), rec.get("slack_reminder")):
+        if where:
+            notify.edit_question(where, ":no_entry: *Ticket canceled*",
+                                 f"It was moved to {state_name}." if state_name else "",
+                                 question=rec["question"])
+    log.info("question_canceled", question=rec["id"], issue_id=rec["issue_id"],
+             state=state_name)
 
 
 def _own(client, ns: str, rec: dict, comment_id: str) -> None:

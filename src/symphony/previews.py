@@ -759,6 +759,17 @@ class PreviewManager:
                                 preview.lease_id, preview.pr)
         self._forget(preview, name)
 
+    def release_pr(self, repo: str, pr: int) -> int:
+        """Release every live device of a PR now (the merger closed it: its ticket was
+        canceled). Returns how many."""
+        released = 0
+        for name, preview in self._load().items():
+            if preview.repo.lower() == repo.lower() and preview.pr == pr:
+                _log.info("preview_releasing", pr=pr, reason="abandoned")
+                self._release(preview, name)
+                released += 1
+        return released
+
     # -- background sweep -------------------------------------------------------
 
     def start(self) -> None:
