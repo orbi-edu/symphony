@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import datetime as dt
 import hashlib
 import json
 import os
@@ -21,6 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 import redis
+from history_fixture import empty_history_doc, history_doc
 from real_stack import seed_merger
 
 from symphony.api.setup import GITHUB_EVENTS
@@ -604,6 +606,16 @@ def audit_page(query: dict) -> dict:
     return {"items": items, "nextCursor": str(nxt) if nxt < len(AUDIT) else None}
 
 
+def history(state: dict, query: dict) -> dict:
+    """`GET /v1/telemetry/history`: the seeded rollups; none for a team without sessions."""
+    today = dt.datetime.now(dt.UTC).date()
+    if not state["sessions"]:
+        return {**empty_history_doc(today), "observed_at": iso_ago(1)}
+    frm = (query.get("from") or [None])[0]
+    doc = history_doc(today, dt.date.fromisoformat(frm) if frm else None, (query.get("bucket") or [None])[0])
+    return {**doc, "observed_at": iso_ago(1)}
+
+
 PROJECTIONS = {"/v1/repos": repos_doc, "/v1/infra": infra_doc, "/v1/telemetry": telemetry_doc,
                "/v1/learning": learning_doc}
 
@@ -657,6 +669,7 @@ class Fake:
         for issue in s["issues"]:
             if issue.get("phase") in ("queued", "retrying", "in_review", "merging"):
                 counts[issue["phase"]] += 1
+        counts["blocked_on_person"] = sum(1 for i in s["issues"] if i.get("status") == "blocked_on_person")
         tokens = sum((x.get("tokens") or {}).get("total", 0) for x in s["sessions"])
         cost = sum((x.get("tokens") or {}).get("cost", 0) for x in s["sessions"])
         return {
@@ -738,6 +751,8 @@ def make_handler(fake: Fake):
                 return s["providers"]
             if path == "/v1/repos":
                 return repos_doc(s)
+            if path == "/v1/telemetry/history":
+                return history(s, query)
             if path in PROJECTIONS:
                 return PROJECTIONS[path]()
             if path == "/v1/audit":

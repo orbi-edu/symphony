@@ -529,6 +529,7 @@ local function dashboard(state: any): Node
 			session_detail(state, V.find_session(state, sel))))
 	end
 	table.insert(parts, merger_line(state))
+	table.insert(parts, P.trends(state))
 	return h.col("dashboard", parts, { gap = "lg" })
 end
 
@@ -1863,7 +1864,7 @@ local LEGENDS = {
 	merger = { { "tab", "tabs" }, { "↑↓", "PR" }, { "r", "refresh" } },
 	repositories = { { "tab", "tabs" }, { "↑↓", "repository" }, { "r", "refresh" } },
 	infrastructure = { { "tab", "tabs" }, { "r", "refresh" } },
-	telemetry = { { "tab", "tabs" }, { "r", "refresh" } },
+	telemetry = { { "tab", "tabs" }, { "[ ]", "period" }, { "r", "refresh" } },
 	learnings = { { "tab", "tabs" }, { "r", "refresh" } },
 	audit = { { "tab", "tabs" }, { "m", "load more" }, { "r", "refresh" } },
 	admin = { { "tab", "tabs" }, { "r", "refresh" } },

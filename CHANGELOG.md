@@ -7,6 +7,36 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Telemetry history over the whole period. Each UTC day gets a rollup in Redis
+  (`metrics:day:<yyyymmdd>`, never expired, in the backup): dispatches, rework, runs and
+  attempts, ended sessions by kind and outcome, tokens (input, output, cache read and write),
+  the cost estimate in micro-USD, cost and tokens per model and per repository (50 named per
+  day, the rest `other`), the hour of the week each session started, pull requests opened and
+  merged with the time to merge, learning pull requests, merger results (reviewed, back to the
+  author, merged, needs a maintainer), questions asked and answered per channel with the time
+  to answer, attempts blocked on a person and attached session traces. Each event is counted
+  where it happens, once: a replayed event (a restart, a retried retrospective, a session
+  closed twice) does not count again. The monthly counters stay as they were.
+- `GET /v1/telemetry/history?from=&to=&bucket=day|week|month` (viewer): the rollups as
+  points (at most 120; the bucket is chosen or coarsened to fit), totals, per model, per
+  repository, per kind and a weekday × hour activity grid. Cached 60 seconds.
+- `symphony telemetry backfill [--force]` (`POST /v1/telemetry/backfill`, admin, audited
+  `telemetry.backfill`): rebuilds the session fields of past days from the ended sessions in
+  Redis and the archive objects on the backup target, streamed. Idempotent.
+- Sessions keep their usage (`meta.usage`: tokens and cost of every `message_end`), for every
+  kind: merger and assistant sessions too.
+- Tern **Telemetry**: a History section with a period picker (all, 90 d, 30 d, 7 d; `[` `]`)
+  and ten charts over the rollups: cost per bucket, tokens by type, sessions by kind,
+  outcomes (bars and donut), cost by model (donut and a table with a sparkline per model),
+  cost and sessions by repository (top 10), pull requests opened and merged with the mean
+  time to merge, the rework rate with its period average, questions with the answer channel
+  and the mean time to answer, and a weekday × hour activity heatmap. Each has a one-line
+  summary and an empty state.
+- Tern **Dashboard**: six tiles with 30-day sparklines (cost, sessions, PRs merged, rework
+  rate, questions waiting, blocked on a person) and a 30-day cost chart, below what it showed.
+
 ## [0.2.23] - 2026-11-25
 
 ### Fixed

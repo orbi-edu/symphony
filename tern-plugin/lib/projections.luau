@@ -477,12 +477,499 @@ function P.infra(state: any): Node
 	})
 end
 
+-- ── Telemetry history (`GET /v1/telemetry/history`) ──────────────────────
+-- Daily rollups, bucketed by the API (day, week or month; every bucket present, zero-filled, so
+-- the per-point series align with `points`). Costs are the engine price table's local estimate.
+
+P.PERIODS = { "all", "90d", "30d", "7d" }
+local PERIOD_DAYS: { [string]: number } = { ["90d"] = 90, ["30d"] = 30, ["7d"] = 7 }
+local PERIOD_LABEL = { all = "All", ["90d"] = "90 d", ["30d"] = "30 d", ["7d"] = "7 d" }
+
+-- The Telemetry history read for a period: `from` is its first UTC day; none for all.
+function P.history_path(period: string): string
+	local days = PERIOD_DAYS[period]
+	return if days then "/v1/telemetry/history?from=" .. fmt.day(1 - days) else "/v1/telemetry/history"
+end
+
+-- The Dashboard's trends: the last 30 days, a point a day.
+function P.trends_path(): string
+	return "/v1/telemetry/history?from=" .. fmt.day(-29) .. "&bucket=day"
+end
+
+local function num(v: any): number
+	return if type(v) == "number" then v else 0
+end
+
+local function cents(v: number): number
+	return math.round(v * 100) / 100
+end
+
+local function points(doc: any): { any }
+	return if type(doc) == "table" and type(doc.points) == "table" then doc.points else {}
+end
+
+-- One field of every point (0 where absent), times `scale`.
+local function column(doc: any, field: string, scale: number?): { number }
+	local out = {}
+	for i, p in points(doc) do
+		out[i] = num(p[field]) * (scale or 1)
+	end
+	return out
+end
+
+-- One field of every point, JSON null where the API has none (a gap in a line).
+local function gaps(doc: any, field: string, scale: number): { any }
+	local out = {}
+	for i, p in points(doc) do
+		local v = p[field]
+		out[i] = if type(v) == "number" then math.round(v * scale * 10) / 10 else tern.json.null
+	end
+	return out
+end
+
+-- A point's x label: its first day ("11-25") for a day or week, "2026-11" for a month.
+local function x_label(doc: any, p: any): string
+	local s = tostring(p.start or "")
+	return if doc.bucket == "month" then string.sub(s, 1, 7) else string.sub(s, 6, 10)
+end
+
+local function labels(doc: any): { string }
+	local out = {}
+	for i, p in points(doc) do
+		out[i] = x_label(doc, p)
+	end
+	return out
+end
+
+-- `{value, label}` points for `bars` and `spark`.
+local function labeled(doc: any, values: { number }): { any }
+	local out = {}
+	for i, p in points(doc) do
+		out[i] = { value = values[i] or 0, label = x_label(doc, p) }
+	end
+	return out
+end
+
+-- Points of the buckets where `field` is known (a mean over no event is none, not zero).
+local function known(doc: any, field: string, scale: number): { any }
+	local out = {}
+	for _, p in points(doc) do
+		if type(p[field]) == "number" then
+			table.insert(out, { value = math.round(p[field] * scale * 10) / 10, label = x_label(doc, p) })
+		end
+	end
+	return out
+end
+
+local function range_text(doc: any): string
+	if not doc.from then
+		return "no data yet"
+	end
+	return doc.from .. " to " .. tostring(doc.to) .. ", by " .. tostring(doc.bucket or "day")
+end
+
+-- The biggest `n` entries of a `{label, value}` list, the rest summed as "other".
+local function top(entries: { any }, n: number): { any }
+	table.sort(entries, function(a, b)
+		return a.value > b.value
+	end)
+	local out, rest = {}, 0
+	for i, e in entries do
+		if i <= n then
+			table.insert(out, e)
+		else
+			rest += e.value
+		end
+	end
+	if rest > 0 then
+		table.insert(out, { label = "other", value = rest })
+	end
+	return out
+end
+
+local RUN_OUTCOME = {
+	done = { "done", "success" }, continuation = { "continued", "info" }, failed = { "failed", "error" },
+	blocked = { "blocked", "warning" }, fenced = { "fenced", "muted" }, error = { "error", "error" },
+}
+local CHANNEL = { linear = "Linear", slack = "Slack", github = "GitHub", symphony = "Symphony" }
+
+local function cost_card(doc: any, t: any): Node
+	local total = num(t.cost_usd)
+	local body = nil
+	if total > 0 then
+		local cost = column(doc, "cost_usd")
+		for i, v in cost do
+			cost[i] = cents(v)
+		end
+		body = { h.chart("chart", "area", {
+			series = cost, labels = labels(doc), min = 0, last = fmt.money(total) .. " total",
+			summary = fmt.money(total) .. " estimated cost, " .. range_text(doc),
+		}) }
+	end
+	return h.chart_card("cost", "Estimated cost per " .. tostring(doc.bucket or "day"), body, "No cost recorded in this period.")
+end
+
+local function tokens_card(doc: any, t: any): Node
+	local body = nil
+	if num(t.tokens) > 0 then
+		body = { h.chart("chart", "area", {
+			series = {
+				{ label = "Input", values = column(doc, "tokens_input") },
+				{ label = "Output", values = column(doc, "tokens_output") },
+				{ label = "Cache read", values = column(doc, "tokens_cache_read") },
+				{ label = "Cache write", values = column(doc, "tokens_cache_write") },
+			},
+			labels = labels(doc), min = 0,
+			summary = fmt.count(t.tokens) .. " tokens: " .. fmt.count(num(t.tokens_input)) .. " input, "
+				.. fmt.count(num(t.tokens_output)) .. " output, " .. fmt.count(num(t.tokens_cache_read)) .. " cache read, "
+				.. fmt.count(num(t.tokens_cache_write)) .. " cache write",
+		}) }
+	end
+	return h.chart_card("tokens", "Tokens", body, "No tokens recorded in this period.")
+end
+
+local function kinds_card(doc: any, t: any): Node
+	local kinds = type(doc.by_kind) == "table" and doc.by_kind or {}
+	local body = nil
+	if num(t.sessions) > 0 and #kinds > 0 then
+		local series, other = {}, nil
+		for i, k in kinds do
+			if i <= 6 then
+				table.insert(series, { label = fmt.KIND[k.kind or ""] or tostring(k.kind), values = k.series or {} })
+			else
+				other = other or table.create(#points(doc), 0)
+				for j, v in k.series or {} do
+					other[j] += num(v)
+				end
+			end
+		end
+		if other then
+			table.insert(series, { label = "other", values = other })
+		end
+		local first = kinds[1]
+		body = { h.chart("chart", "line", {
+			series = series, labels = labels(doc), min = 0,
+			summary = fmt.plural(num(t.sessions), "session", "sessions") .. " ended; the most: "
+				.. (fmt.KIND[first.kind or ""] or tostring(first.kind)) .. " (" .. num(first.sessions) .. ")",
+		}) }
+	end
+	return h.chart_card("kinds", "Sessions by kind", body, "No session ended in this period.")
+end
+
+local function outcomes_card(t: any): Node
+	local entries = {}
+	local total = 0
+	for code, n in (type(t.outcomes) == "table" and t.outcomes) or {} do
+		if type(n) == "number" and n > 0 then
+			table.insert(entries, { label = (RUN_OUTCOME[code] or { tostring(code) })[1], code = code, value = n })
+			total += n
+		end
+	end
+	local body = nil
+	if total > 0 then
+		table.sort(entries, function(a, b)
+			return a.value > b.value
+		end)
+		local bars, segments = {}, {}
+		for i, e in entries do
+			bars[i] = { label = e.label, value = e.value, tone = (RUN_OUTCOME[e.code] or {})[2] or "muted" }
+			segments[i] = { label = e.label, value = e.value }
+		end
+		local done = num(type(t.outcomes) == "table" and t.outcomes.done)
+		local summary = fmt.plural(total, "run", "runs") .. " ended; " .. fmt.pct(done / total) .. " done"
+		body = { h.row("pair", {
+			h.with(h.chart("bars", "bars", { series = bars, summary = summary }), { grow = 1, basis = 0 }),
+			h.chart("donut", "donut", { series = segments, total = tostring(total), caption = "runs", summary = summary, size = "sm" }),
+		}, { gap = "lg", align = "center" }) }
+	end
+	return h.chart_card("outcomes", "Outcomes", body, "No run ended in this period.")
+end
+
+local function models_card(doc: any, t: any): Node
+	local models = type(doc.by_model) == "table" and doc.by_model or {}
+	local body = nil
+	if num(t.cost_usd) > 0 and #models > 0 then
+		local entries, rows = {}, {}
+		for i, m in models do
+			table.insert(entries, { label = tostring(m.model), value = cents(num(m.cost_usd)) })
+			if i <= 10 then
+				table.insert(rows, {
+					id = tostring(m.model),
+					cells = {
+						model = { ui.span(tostring(m.model), "mono") },
+						cost = { ui.span(fmt.money(m.cost_usd), "mono") },
+						tokens = { ui.span(fmt.count(m.tokens), "mono") },
+						trend = { spark = { values = m.cost_series or {}, title = "Estimated cost per " .. tostring(doc.bucket or "day") } },
+					},
+				})
+			end
+		end
+		body = {
+			h.chart("donut", "donut", {
+				series = top(entries, 6), unit = "$", total = fmt.money_short(t.cost_usd), caption = "estimated",
+				summary = "Estimated cost by model; the most: " .. tostring(models[1].model) .. " (" .. fmt.money(models[1].cost_usd) .. ")",
+			}),
+			h.data_table({
+				key = "t",
+				cols = {
+					{ id = "model", head = "Model", grow = 1, mono = true, priority = 9 },
+					{ id = "cost", head = "Estimated cost", align = "end", mono = true, priority = 8 },
+					{ id = "tokens", head = "Tokens", align = "end", mono = true, priority = 6 },
+					{ id = "trend", head = "Trend", priority = 7 },
+				},
+				rows = rows,
+				empty = "",
+			}),
+		}
+	end
+	return h.chart_card("models", "Cost by model", body, "No cost recorded in this period.")
+end
+
+local function repos_card(doc: any): Node
+	local repos = type(doc.by_repo) == "table" and doc.by_repo or {}
+	local body = nil
+	if #repos > 0 then
+		local cost, cost_total = {}, 0
+		for i, r in repos do
+			cost_total += num(r.cost_usd)
+			if i <= 10 then
+				table.insert(cost, { label = tostring(r.repo), value = cents(num(r.cost_usd)), title = fmt.money(r.cost_usd) })
+			end
+		end
+		-- A copy (decoded JSON tables have a protected metatable, so no table.clone).
+		local by_sessions: { any } = {}
+		for i, r in repos do
+			by_sessions[i] = r
+		end
+		table.sort(by_sessions, function(a, b)
+			return num(a.sessions) > num(b.sessions)
+		end)
+		local sessions, sessions_total = {}, 0
+		for i, r in by_sessions do
+			sessions_total += num(r.sessions)
+			if i <= 10 then
+				table.insert(sessions, { label = tostring(r.repo), value = num(r.sessions) })
+			end
+		end
+		body = {
+			h.muted("Estimated cost"),
+			h.chart("cost", "bars", { series = cost, summary = fmt.money(cost_total) .. " over " .. fmt.plural(#repos, "repository", "repositories") }),
+			h.muted("Sessions"),
+			h.chart("sessions", "bars", { series = sessions, summary = fmt.plural(sessions_total, "session", "sessions") .. "; the most: " .. tostring(by_sessions[1].repo) }),
+		}
+	end
+	return h.chart_card("repos", "By repository (top 10)", body, "No session in a repository in this period.")
+end
+
+local function prs_card(doc: any, t: any): Node
+	local body = nil
+	if num(t.prs_opened) + num(t.prs_merged) > 0 then
+		body = { h.chart("chart", "line", {
+			series = {
+				{ label = "Opened", values = column(doc, "prs_opened") },
+				{ label = "Merged", values = column(doc, "prs_merged") },
+			},
+			labels = labels(doc), min = 0,
+			summary = num(t.prs_opened) .. " opened, " .. num(t.prs_merged) .. " merged",
+		}) }
+		local ttm = known(doc, "mean_time_to_merge_ms", 1 / 3600000)
+		table.insert(body, h.muted("Mean time to merge (hours; the rollups keep sums, so a mean, not a median)"))
+		if #ttm > 0 then
+			table.insert(body, h.chart("ttm", "spark", {
+				series = ttm, unit = "h", min = 0,
+				summary = "Mean time to merge " .. fmt.duration(t.mean_time_to_merge_ms) .. " over " .. fmt.plural(num(t.time_to_merge_count), "merge", "merges"),
+			}))
+		else
+			table.insert(body, h.muted("No merge timed in this period."))
+		end
+	end
+	return h.chart_card("prs", "Pull requests", body, "No pull request opened or merged in this period.")
+end
+
+local function rework_card(doc: any, t: any): Node
+	local body = nil
+	if num(t.dispatched) > 0 then
+		local avg = num(t.rework_rate) * 100
+		body = { h.chart("chart", "line", {
+			series = gaps(doc, "rework_rate", 100), labels = labels(doc), min = 0, unit = "%",
+			marks = { { value = math.round(avg * 10) / 10, tone = "muted", title = "Period average " .. fmt.pct(t.rework_rate) } },
+			summary = "Rework " .. fmt.pct(t.rework_rate) .. " of " .. fmt.plural(num(t.dispatched), "dispatch", "dispatches") .. " (dashed: the period average)",
+		}) }
+	end
+	return h.chart_card("rework", "Rework rate", body, "Nothing dispatched in this period.")
+end
+
+local function questions_card(doc: any, t: any): Node
+	local body = nil
+	if num(t.questions_asked) + num(t.questions_answered) > 0 then
+		body = { h.chart("chart", "line", {
+			series = {
+				{ label = "Asked", values = column(doc, "questions_asked") },
+				{ label = "Answered", values = column(doc, "questions_answered") },
+			},
+			labels = labels(doc), min = 0,
+			summary = num(t.questions_asked) .. " asked, " .. num(t.questions_answered) .. " answered; mean time to answer " .. fmt.duration(t.mean_answer_ms),
+		}) }
+		local via, n = {}, 0
+		for ch, v in (type(t.answered_via) == "table" and t.answered_via) or {} do
+			if type(v) == "number" and v > 0 then
+				table.insert(via, { label = CHANNEL[ch] or tostring(ch), value = v })
+				n += v
+			end
+		end
+		table.sort(via, function(a, b)
+			return a.value > b.value
+		end)
+		local mean = known(doc, "mean_answer_ms", 1 / 3600000)
+		local side: { Node } = {}
+		if n > 0 then
+			table.insert(side, h.chart("via", "donut", {
+				series = via, total = tostring(n), caption = "answered", size = "sm",
+				summary = "Answered through " .. via[1].label .. " " .. fmt.pct(via[1].value / n) .. " of the time",
+			}))
+		end
+		if #mean > 0 then
+			table.insert(side, h.muted("Mean time to answer (hours)"))
+			table.insert(side, h.chart("answer", "spark", {
+				series = mean, unit = "h", min = 0, summary = "Mean time to answer " .. fmt.duration(t.mean_answer_ms),
+			}))
+		end
+		if #side > 0 then
+			table.insert(body, h.row("side", side, { gap = "lg", align = "center", wrap = true }))
+		end
+	end
+	return h.chart_card("questions", "Questions", body, "No question asked in this period.")
+end
+
+local function activity_card(doc: any): Node
+	local a = type(doc.activity) == "table" and doc.activity or {}
+	local body = nil
+	if num(a.total) > 0 and type(a.cells) == "table" then
+		local rows = a.rows or {}
+		local hours = a.cols or {}
+		local cols, tips = {}, {}
+		for i, c in hours do
+			if (i - 1) % 3 == 0 then
+				table.insert(cols, { at = i - 1, label = tostring(c) })
+			end
+		end
+		local best, best_at = -1, ""
+		for r, line in a.cells do
+			tips[r] = {}
+			for c, v in line do
+				local at = tostring(rows[r]) .. " " .. tostring(hours[c]) .. ":00"
+				tips[r][c] = at .. " UTC · " .. fmt.plural(num(v), "session", "sessions")
+				if num(v) > best then
+					best, best_at = num(v), at
+				end
+			end
+		end
+		body = { h.chart("chart", "heatmap", {
+			cells = a.cells, rows = rows, cols = cols, tips = tips,
+			summary = fmt.plural(num(a.total), "session", "sessions") .. " started; the busiest hour: " .. best_at .. " UTC",
+		}) }
+	end
+	return h.chart_card("activity", "Activity by weekday and hour (UTC)", body, "No session started in this period.", "80ch")
+end
+
+-- Telemetry's history block: the period picker over the charts.
+local function history(state: any): Node
+	local items = {}
+	for _, p in P.PERIODS do
+		table.insert(items, { id = p, label = PERIOD_LABEL[p] })
+	end
+	local doc = state.data.history
+	local line = if doc then "History " .. range_text(doc) .. " (UTC)" else "History"
+	local parts: { Node } = {
+		ui.node("row", { key = "bar", justify = "between", align = "center" }, {
+			ui.text({ ui.span(line, "strong"), ui.span(if doc and doc.observed_at then "  · read " .. fmt.ago(doc.observed_at) else "", "dim") }),
+			ui.node("tabs", { key = "period", variant = "segmented", active = state.period, items = items }),
+		}),
+	}
+	if not doc then
+		table.insert(parts, if state.errs.history
+			then h.error_card("charts", "Could not load the history", state.errs.history, "refresh")
+			else h.loading("charts", "Loading the history…"))
+	else
+		local t = type(doc.totals) == "table" and doc.totals or {}
+		table.insert(parts, h.row("charts", {
+			cost_card(doc, t), tokens_card(doc, t), kinds_card(doc, t), outcomes_card(t), models_card(doc, t),
+			repos_card(doc), prs_card(doc, t), rework_card(doc, t), questions_card(doc, t), activity_card(doc),
+		}, { wrap = true, gap = "md", align = "stretch" }))
+	end
+	return h.col("history", parts, { gap = "md" })
+end
+
+-- A Dashboard tile: the figure over its 30-day sparkline (none before the first rollup).
+local function spark_tile(key: string, label: string, value: string, sub: string, series: { any }, summary: string): Node
+	local body: { Node } = { ui.text({ ui.span(value, "title strong mono"), ui.span(if sub ~= "" then "  " .. sub else "", "muted") }) }
+	if #series > 0 then
+		table.insert(body, h.chart("spark", "spark", { series = series, min = 0, size = "sm", summary = summary }))
+	end
+	return h.with(h.card(key, { ui.span(label, "muted") }, body), { grow = 1, basis = 0, min = { w = "22ch" } })
+end
+
+-- The Dashboard's 30-day trends: stat tiles with a sparkline each, then the cost per day.
+function P.trends(state: any): Node
+	local doc = state.data.trends
+	if not doc then
+		if state.errs.trends then
+			return h.with(h.muted("Trends unavailable: " .. state.errs.trends), { key = "trends" })
+		end
+		return h.loading("trends", "Loading the last 30 days…")
+	end
+	local t = type(doc.totals) == "table" and doc.totals or {}
+	local ov = state.data.overview or {}
+	local c = type(ov.counts) == "table" and ov.counts or {}
+	local blocked = c.blocked_on_person
+	if type(blocked) ~= "number" then
+		blocked = 0
+		local issues = state.data.issues
+		for _, i in (type(issues) == "table" and issues.items) or {} do
+			if i.status == "blocked_on_person" then
+				blocked += 1
+			end
+		end
+	end
+	local cost = column(doc, "cost_usd")
+	for i, v in cost do
+		cost[i] = cents(v)
+	end
+	local asked = num(t.questions_asked)
+	local tiles = h.row("tiles", {
+		spark_tile("cost", "Estimated cost, 30 d", fmt.money(t.cost_usd), "", labeled(doc, cost),
+			fmt.money(t.cost_usd) .. " estimated in 30 days"),
+		spark_tile("sessions", "Sessions, 30 d", tostring(num(t.sessions)), "", labeled(doc, column(doc, "sessions")),
+			fmt.plural(num(t.sessions), "session", "sessions") .. " ended in 30 days"),
+		spark_tile("merged", "PRs merged, 30 d", tostring(num(t.prs_merged)), "of " .. num(t.prs_opened) .. " opened",
+			labeled(doc, column(doc, "prs_merged")), num(t.prs_merged) .. " merged of " .. num(t.prs_opened) .. " opened in 30 days"),
+		spark_tile("rework", "Rework rate, 30 d", fmt.pct(t.rework_rate), "", labeled(doc, column(doc, "rework_rate", 100)),
+			"Rework " .. fmt.pct(t.rework_rate) .. " of " .. fmt.plural(num(t.dispatched), "dispatch", "dispatches")),
+		spark_tile("questions", "Questions waiting", tostring(num(c.waiting_input)), asked .. " asked in 30 d",
+			labeled(doc, column(doc, "questions_asked")), num(c.waiting_input) .. " waiting now; " .. asked .. " asked in 30 days"),
+		spark_tile("blocked", "Blocked on a person", tostring(blocked), "", labeled(doc, column(doc, "blocked_on_person")),
+			blocked .. " blocked now; " .. num(t.blocked_on_person) .. " times in 30 days"),
+	}, { wrap = true, gap = "md", align = "stretch" })
+	local chart = if num(t.cost_usd) > 0
+		then h.chart("cost", "area", {
+			series = cost, labels = labels(doc), min = 0, last = fmt.money(t.cost_usd) .. " total",
+			summary = fmt.money(t.cost_usd) .. " estimated cost in the last 30 days",
+		})
+		else h.muted("No cost recorded in the last 30 days.")
+	return h.col("trends", {
+		tiles,
+		ui.text({ ui.span("Estimated cost per day", "strong"), ui.span("  last 30 days, a local estimate from the engine's price table", "muted") }),
+		chart,
+	}, { gap = "sm" })
+end
+
 -- ── Telemetry ─────────────────────────────────────────────────────────────
 
 function P.telemetry(state: any): Node
+	local hist = history(state)
 	local g = guard(state, "telemetry", "the telemetry")
 	if g then
-		return g
+		return page("telemetry", { g, hist })
 	end
 	local doc = state.data.telemetry
 	local t = type(doc.totals) == "table" and doc.totals or nil
@@ -497,6 +984,7 @@ function P.telemetry(state: any): Node
 	else
 		table.insert(parts, h.muted("Totals unknown: telemetry is unavailable."))
 	end
+	table.insert(parts, hist)
 	local model_rows = {}
 	for _, m in doc.models or {} do
 		table.insert(model_rows, {

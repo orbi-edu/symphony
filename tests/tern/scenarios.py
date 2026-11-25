@@ -27,11 +27,23 @@ def settle(h: Harness, needle: str) -> None:
     time.sleep(0.3)
 
 
+def charts(out: Path) -> None:
+    """The Dashboard and Telemetry, tall enough to show their charts."""
+    with Harness(size="1440 1900") as h:
+        h.run("plugin.symphony.dashboard")
+        settle(h, "Needs input")
+        settle(h, "Estimated cost per day")
+        h.shots("dashboard", out)
+        h.run("plugin.symphony.telemetry")
+        settle(h, "Activity by weekday")
+        h.shots("telemetry", out)
+        check(h)
+
+
 def views(out: Path) -> None:
     with Harness() as h:
         h.run("plugin.symphony.dashboard")
         settle(h, "Needs input")
-        h.shots("dashboard", out)
         h.key("Tab")
         settle(h, "from the one that needs you")
         h.key("down")
@@ -46,7 +58,7 @@ def views(out: Path) -> None:
         h.key("down")
         h.shots("merger", out)
         for view, needle in (("repositories", "Repositories Symphony dispatches"),
-                             ("infrastructure", "Daemon dispatching"), ("telemetry", "Agent usage"),
+                             ("infrastructure", "Daemon dispatching"),
                              ("learnings", "Retrospectives"), ("audit", "Everything people")):
             h.run(f"plugin.symphony.{view}")
             settle(h, needle)
@@ -284,7 +296,7 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=HERE.parent.parent / "docs" / "tern")
     parser.add_argument("only", nargs="*", help="scenario names (default: all)")
     args = parser.parse_args()
-    scenarios = {"views": views, "admin": admin, "assistant": assistant, "onboarding": onboarding,
+    scenarios = {"views": views, "charts": charts, "admin": admin, "assistant": assistant, "onboarding": onboarding,
                  "states": states, "setup": setup, "seiji": seiji, "real": real}
     for name in args.only or list(scenarios):
         scenarios[name](args.out)
