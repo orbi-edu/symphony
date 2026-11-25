@@ -7,6 +7,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.22] - 2026-11-25
+
 ### Added
 
 - Preview links on the pull request: when the merger finds a preview artifact for a head
