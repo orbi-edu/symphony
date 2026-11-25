@@ -103,6 +103,8 @@ sequenceDiagram
 | `GET /v1/repos` | viewer | — | Repository projection |
 | `GET /v1/infra` | viewer | — | Services and Kubernetes resources |
 | `GET /v1/telemetry` | viewer | `?limit=1..500` (default 200) | Tokens, cost, models, monthly counters, sessions |
+| `GET /v1/telemetry/history` | viewer | `?from=YYYY-MM-DD&to=YYYY-MM-DD&bucket=day\|week\|month` | The daily rollups as a series; see [Telemetry history](#telemetry-history) |
+| `POST /v1/telemetry/backfill` | admin | `?force=true` (optional) | `{days, kept, sessions, archive_objects, force, target}`. Audited `telemetry.backfill`; see [Telemetry history](#telemetry-history) |
 | `GET /v1/learning` | viewer | — | Learning proposals of the reflector |
 
 **Command** shape: `{id, action, target, state, submittedAt, finishedAt, result, revision}`. The
@@ -179,6 +181,54 @@ means "unknown", not "none".
 | `learning.items[].outcome` | `nothing_to_learn`, `pr_opened`, `completed`, `failed`, `pending` |
 
 The cost is a local estimate from the price table of omp. It is not a billed charge.
+
+#### Telemetry history
+
+`GET /v1/telemetry/history` reads the daily rollups (`metrics:day:<yyyymmdd>`,
+[internals](internals.md#key-reference); `src/symphony/rollups.py`). They never expire, so
+the history covers every day since the rollups exist. All days are UTC.
+
+- `from` defaults to the first day that has a rollup, `to` to today. `from` after `to` is 422.
+- Without `bucket`, the API takes the finest of `day`, `week` (Monday first) and `month` that
+  gives at most 120 points. A `bucket` that gives more is coarsened the same way; past 120
+  months, only the last 120 points remain (`from` then moves).
+- Every bucket of the range is in `points`, zero when nothing happened, so the series align.
+- One pipeline of `HGETALL`, one per day that has a rollup. Each answer is cached 60 seconds.
+
+The answer: `{observed_at, from, to, bucket, days, points, totals, by_model, by_repo, by_kind,
+activity}`. `from` and `to` are null when no day has a rollup. `days` is the number of days in
+the range that have one.
+
+| Field | Content |
+|---|---|
+| `points[]` | `{start, end}` (first and last day of the bucket) and the fields below |
+| `dispatched`, `rework`, `rework_rate` | Dispatches, those from the rework state, and `rework / dispatched` (null without dispatches) |
+| `runs`, `attempts` | Tickets finalized in a terminal state, and their attempts |
+| `prs_opened`, `prs_merged`, `learning_prs`, `time_to_merge_ms_sum`, `time_to_merge_count`, `mean_time_to_merge_ms` | Pull requests seen by retrospectives. The rollups keep sums, so there is a mean, not a median |
+| `tokens_input`, `tokens_output`, `tokens_cache_read`, `tokens_cache_write`, `tokens` | Tokens of the sessions that ended; `tokens` is the sum of the four |
+| `cost_micro_usd`, `cost_usd` | The cost estimate of those sessions |
+| `sessions`, `sessions_by_kind` | Ended sessions, and per kind (`implement`, `answer`, `review`, `oracle`, `arbiter`, `resolve`, `reflect`, `assist`) |
+| `outcomes` | Ended sessions per outcome (`done`, `continuation`, `failed`, `blocked`, `fenced`, `error`, …) |
+| `merger` | `{reviewed, back_to_author, merged, needs_maintainer}`: merger results, once per PR head |
+| `questions_asked`, `questions_answered`, `answered_via`, `questions_answer_ms_sum`, `mean_answer_ms` | Questions to people; `answered_via` per channel (`linear`, `slack`, `github`, `symphony`) |
+| `blocked_on_person`, `trace_attached` | Attempts that stopped to wait for a person; session traces attached to tickets |
+| `totals` | The same fields over the whole range |
+| `by_model[]` | `{model, cost_micro_usd, cost_usd, tokens, cost_series}`, cost first; `cost_series` is `cost_usd` per point. A day names 50 models at most; the others are `other` |
+| `by_repo[]` | `{repo, sessions, cost_micro_usd, cost_usd}`, cost first; 50 per day at most, the others `other` |
+| `by_kind[]` | `{kind, sessions, series}`, most sessions first; `series` per point |
+| `activity` | `{rows: ["Mon" … "Sun"], cols: ["00" … "23"], cells, max, total}`: sessions by the weekday and hour they started |
+
+A session counts in the day it ended. Each event counts once, even when a process replays it
+(a restarted runner, a retried retrospective, a session closed twice).
+
+`POST /v1/telemetry/backfill` rebuilds the session fields (sessions, outcomes, tokens, cost,
+models, repositories, activity) of past days. It reads the ended sessions still in Redis and
+the archive objects on the backup target ([backup.md](backup.md#the-archive)), streamed one at a
+time; without a target it reads Redis only. It rebuilds only the days that have no rollup;
+`force=true` rebuilds every day the sources cover. The other fields (dispatches, pull
+requests, questions, merger results) have no source but the live events: the backfill keeps
+them. Running it twice gives the same numbers. The months before the archive existed keep
+only their monthly counters (`telemetry.monthly`).
 
 ### Sessions
 
@@ -308,7 +358,8 @@ the preset's viewer route (Seiji: `POST {http_base}/v1/leases/{lease_id}/viewer`
 `{"control": <control>}`) with the stored headers. A relative `url` becomes absolute against
 `http_base`. Errors: 404 `viewer_unsupported` (no preset viewer), 409 `viewer_refused` (the
 server refused; the message is its error text, for example "the screen viewer supports iOS
-simulators only for now"), 502 `rejected` (the server refused the stored header) and 502
+simulators only for now"), 410 `lease_gone` (Seiji already ended the lease: it sat idle or
+reached its time limit), 502 `rejected` (the server refused the stored header) and 502
 `mcp_unreachable`.
 
 ### Merger

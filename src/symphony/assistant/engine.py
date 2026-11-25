@@ -1,7 +1,8 @@
 """The conversation engine: chat messages in, agent turns out, with no vendor knowledge.
 
 - **Mode:** `research …` runs the researcher, `plan …` the planner, anything else the
-  assistant. A follow-up without a mode word keeps the thread's role.
+  assistant. A follow-up without a mode word keeps the thread's role. A new role starts a new
+  session; the thread's sandbox stays.
 - **Thread → session:** one agent session per thread while it is alive. A follow-up is the
   next turn of that session. After `idle_s` (30 min) without a turn the session ends; the next
   message starts a fresh one with the thread's last messages as context.
@@ -10,10 +11,13 @@
 - **Delivery:** `WORKING` is posted at once, then edited with the streamed answer at most every
   `stream_interval_s`, then replaced by the final answer. An answer longer than the
   transport's `message_limit` continues in more messages.
-- **Proposals:** a planner's `propose_tickets` is stored and posted with buttons; a click goes
-  to `confirm.Confirmer`. A `propose_team_fact` is posted the same way; its click goes to
-  `facts.FactConfirmer`. A `share_file` with `ticket` posts an Attach button; its click goes
-  to `share.Evidence`.
+- **Proposals:** an assistant's or planner's `propose_tickets` is stored and posted with
+  buttons; a click goes to `confirm.Confirmer`. A `propose_team_fact` is posted the same way;
+  its click goes to `facts.FactConfirmer`. A `share_file` with `ticket` posts an Attach button;
+  its click goes to `share.Evidence`.
+- **Plan this:** an assistant's `offer_plan` puts a "Plan this" button (`plan:<id>`, stored
+  with `plans`) under the answer. A mapped person's click makes the thread's role planner and
+  queues a planner turn, like a `plan …` follow-up.
 - **Soul and memory:** a new session's instructions get the soul file (`soul.py`) after the
   built-in rules, and each asker's memory (`memory.py`) once per session. What `remember` and
   `forget` did ends the answer ("I'll remember: …", "I forgot: …").
@@ -26,7 +30,7 @@ import re
 import threading
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -37,9 +41,10 @@ from ..notify import QUESTION_ACTION_PREFIX
 from . import Action, Button, File, HistoryMessage, Inbound, Outbound, Ref, split_text
 from . import facts as team_facts
 from . import memory as mem
-from .confirm import Confirmer, buttons, mapped_login, render
+from .confirm import Confirmer, ProposalStore, buttons, mapped_login, render
 from .soul import Soul
 from .soul import source as soul_source
+from .tools import offer_plan_tool
 
 WORKING = "Working on it…"
 BUSY = "I am busy with other questions. I will answer when one ends."
@@ -49,6 +54,9 @@ STREAM_INTERVAL_S = 1.5
 HISTORY = 30
 THREAD_RETENTION_S = 24 * 3600
 ROLES = {"research": "researcher", "plan": "planner"}
+PROPOSING_ROLES = ("assistant", "planner")  # the roles with propose_tickets
+PLAN_THIS = "Plan this"
+ONLY_MAPPED_PLAN = "Only people mapped in notify.users can start the planner."
 _MODE = re.compile(r"\s*(research|plan)\b[\s:,-]*(.*)", re.IGNORECASE | re.DOTALL)
 _CITATION = re.compile(r"`?\b([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+):([A-Za-z0-9_./@+-]+):(\d+)\b`?")
 
@@ -134,6 +142,33 @@ INSTRUCTIONS = {
     ),
 }
 
+# Appended for the assistant when it has propose_tickets.
+ASSISTANT_PROPOSE_INSTRUCTIONS = (
+    "When the person asks for something you cannot do read-only (a change in a repository, "
+    "the tracker or anywhere else: create a skill, fix code, update docs, open a pull request), "
+    "do not stop at saying you cannot. Investigate enough to write a good ticket: the problem, "
+    "what to change, the acceptance criteria, how to verify, and the repository in `repo` (it "
+    "becomes the ticket's repo: label). Then call propose_tickets with one ticket, or a few: "
+    "the people in the thread confirm them and an agent does the work. Leave plans of many "
+    "tickets and deeper specs to the planner."
+)
+
+# Appended for the assistant when it has offer_plan.
+PLAN_OFFER_INSTRUCTIONS = (
+    "When the request needs a multi-step plan (many tickets, or a design to settle first), do "
+    "not plan it yourself: answer in two or three sentences and call offer_plan. Your answer "
+    "gets a Plan this button that hands the thread to the planner; the person can also start "
+    "a message with `plan`."
+)
+
+# Appended when propose_tickets and the sandbox are both offered.
+PROPOSAL_FILES_INSTRUCTIONS = (
+    "When you drafted files in the sandbox for the work (a skill, a patch, docs, data), carry "
+    "them to the ticket with propose_tickets' attachments instead of pasting them in the body. "
+    "Pack a directory first (tar czf /tmp/<name>.tgz -C <dir> .) and attach the archive. The "
+    "agent that takes the ticket fetches them with symphony_fetch_attachment."
+)
+
 # Stable section names that tests assert on.
 SPEC_SECTION_PROBLEM = "Problem"
 SPEC_SECTION_CURRENT_BEHAVIOUR = "Current behaviour"
@@ -180,7 +215,8 @@ SHARE_FILE_INSTRUCTIONS = (
 
 def instructions(role: str, *, transport: str, is_dm: bool, repos: list[str],
                  soul: Soul | None = None, has_sandbox: bool = False,
-                 has_share_file: bool = False,
+                 has_share_file: bool = False, can_propose: bool = False,
+                 can_offer_plan: bool = False,
                  mcp_guidance: str = "", openable: list[str] | None = None) -> str:
     """The session's instructions: the built-in role and safety rules, then the soul."""
     where = f"a {transport.capitalize()} {'direct message' if is_dm else 'thread'}"
@@ -194,6 +230,12 @@ def instructions(role: str, *, transport: str, is_dm: bool, repos: list[str],
         lines.append(SANDBOX_INSTRUCTIONS)
     if has_share_file:
         lines.append(SHARE_FILE_INSTRUCTIONS)
+    if can_propose and role == "assistant":
+        lines.append(ASSISTANT_PROPOSE_INSTRUCTIONS)
+    if can_offer_plan:
+        lines.append(PLAN_OFFER_INSTRUCTIONS)
+    if can_propose and has_sandbox:
+        lines.append(PROPOSAL_FILES_INSTRUCTIONS)
     if role == "planner":
         lines.append(PLANNER_SPEC_INSTRUCTIONS)
     if repos:
@@ -322,6 +364,8 @@ class Engine:
         sandbox_tool: Callable[[str, object], HostTool | None] | None = None,
         share_file_tool: Callable[[str, object, Outbound, str, str], HostTool | None] | None = None,
         evidence=None,  # share.Evidence: Attach / Dismiss clicks on a shared file
+        propose_tool: Callable[[str, mem.TurnNotes], HostTool] | None = None,
+        plans: ProposalStore | None = None,
         on_session_end: Callable[[str], None] | None = None,
         server_url: str = "https://github.com",
         reachable: Callable[[], list[str]] | None = None,
@@ -351,6 +395,11 @@ class Engine:
         # (thread key, notes, outbound, channel, thread) -> share_file, or None when it is off.
         self.share_file_tool = share_file_tool
         self.evidence = evidence
+        # (thread key, notes) -> propose_tickets for the assistant and the planner; it reads
+        # the thread's sandbox files for the current turn's asker.
+        self.propose_tool = propose_tool
+        # "Plan this" offers (`ProposalStore` kind `plan`); None: the assistant cannot offer.
+        self.plans = plans
         self.on_session_end = on_session_end  # (thread key) -> called when a session ends
         self.server_url = server_url
         self.clock = clock
@@ -487,6 +536,8 @@ class Engine:
             handler = self.facts.handle
         elif action.action_id.startswith("evidence:") and self.evidence is not None:
             handler = self.evidence.handle
+        elif action.action_id.startswith("plan:") and self.plans is not None:
+            handler = self._plan_click
         else:
             handler = self.confirmer.handle
 
@@ -571,7 +622,8 @@ class Engine:
         if turn.queued:
             self._safe_update(th, turn.ref, WORKING)
         if th.agent is not None and th.agent_role != turn.role:
-            self._end(th, "completed")
+            # A new role, a new session; the sandbox (files drafted so far) stays with the thread.
+            self._end(th, "completed", keep_sandbox=True)
         prompt = f"{turn.asker} asks:\n{turn.text}"
         th.notes.reset(turn.login, th.thread)
         th.turn_user_id = turn.user_id
@@ -585,9 +637,8 @@ class Engine:
                 "identifier": f"{th.transport} {'DM' if th.is_dm else th.channel}",
                 "title": turn.text.strip().split("\n", 1)[0][:120],
             }
-            session_tools = self._tools(th, cfg)
-            has_sandbox = any(t.name == "sandbox_run" for t in session_tools)
-            has_share_file = any(t.name == "share_file" for t in session_tools)
+            session_tools = self._tools(th, cfg, turn.role)
+            names = {t.name for t in session_tools}
             th.agent = self.agents.open(th.sid, turn.role, meta,
                                         lambda actor, text: self._from_tern(th, actor, text),
                                         tools=session_tools)
@@ -598,8 +649,10 @@ class Engine:
             guidance = self.mcp_guidance_fn(turn.role) if self.mcp_guidance_fn else ""
             openable = [r for r in (self.reachable() if self.reachable else []) if r not in repos]
             parts += [instructions(turn.role, transport=th.transport, is_dm=th.is_dm, repos=repos,
-                                   soul=soul, has_sandbox=has_sandbox,
-                                   has_share_file=has_share_file,
+                                   soul=soul, has_sandbox="sandbox_run" in names,
+                                   has_share_file="share_file" in names,
+                                   can_propose="propose_tickets" in names,
+                                   can_offer_plan="offer_plan" in names,
                                    mcp_guidance=guidance, openable=openable), context]
         parts.append(self._memory(th, cfg, turn))
         prompt = "\n\n".join(p for p in (*parts, prompt) if p)
@@ -622,18 +675,23 @@ class Engine:
         if noted:
             text = (text + "\n\n" if text else "") + noted
         facts = list(th.notes.facts) if self.facts is not None else []
+        offer = th.notes.plan if self.plans is not None else None
+        if offer and not text:
+            text = offer
         if not text and result.proposal is None and not facts:
             text = FAILED
         if text:
-            self._deliver(th, out, turn.ref, fmt(text))
+            body = fmt(text)
+            plan_button = self._offer(th, out, turn, offer, body) if offer else ()
+            self._deliver(th, out, turn.ref, body, plan_button)
         if result.proposal is not None:
             self._propose(th, out, cfg, result.proposal, turn, replace=not text)
         for i, fact in enumerate(facts):
             self._propose_fact(th, out, fact, turn,
                                replace=i == 0 and not text and result.proposal is None)
 
-    def _tools(self, th: _Thread, cfg) -> list:
-        """The engine's host tools for a new session; they act for the turn's asker."""
+    def _tools(self, th: _Thread, cfg, role: str) -> list:
+        """The engine's host tools for a new session of `role`; they act for the turn's asker."""
         tools = []
         if self.memory is not None and cfg.assistant_memory_enabled:
             tools += mem.memory_tools(
@@ -650,9 +708,13 @@ class Engine:
                                                  self.outbounds[th.transport], th.channel, th.thread)
                     if share is not None:
                         tools.append(share)
+        if self.propose_tool is not None and role in PROPOSING_ROLES:
+            tools.append(self.propose_tool(_thread_key(th), th.notes))
+        if self.plans is not None and role == "assistant":
+            tools.append(offer_plan_tool(th.notes))
         # share_device only for a role whose servers bring chat guidance (a device lab).
         if self.share_device_tool_fn is not None and self.mcp_guidance_fn is not None \
-                and self.mcp_guidance_fn(th.role):
+                and self.mcp_guidance_fn(role):
             out = self.outbounds[th.transport]
             tools.append(share_device_tool(out, th.channel, th.thread,
                                            lambda: th.turn_user_id, lambda: th.sid))
@@ -709,14 +771,63 @@ class Engine:
 
         return fmt
 
-    def _deliver(self, th: _Thread, out: Outbound, ref: Ref, text: str) -> Ref:
+    def _deliver(self, th: _Thread, out: Outbound, ref: Ref, text: str,
+                 last_buttons: Sequence[Button] = ()) -> Ref:
         parts = split_text(text, out.message_limit)
-        out.update(ref, parts[0])
+        out.update(ref, parts[0], last_buttons if len(parts) == 1 else ())
         last = ref
-        for part in parts[1:]:
-            last = out.post(th.channel, th.thread, part)
+        for i, part in enumerate(parts[1:], 2):
+            last = out.post(th.channel, th.thread, part, last_buttons if i == len(parts) else ())
         th.log.append(HistoryMessage("", text, is_bot=True))
         return last
+
+    def _offer(self, th: _Thread, out: Outbound, turn: _Turn, summary: str,
+               body: str) -> list[Button]:
+        """Store an `offer_plan` and return its button. The offer keeps the text of the message
+        that carries the button, to show it without the button once clicked."""
+        oid = self.plans.save({
+            "transport": th.transport, "channel": th.channel, "thread": th.thread,
+            "is_dm": th.is_dm, "summary": summary, "question": turn.text, "asker": turn.asker,
+            "text": split_text(body, out.message_limit)[-1],
+        })
+        return [Button(f"plan:{oid}", PLAN_THIS, "primary")]
+
+    def _plan_click(self, action: Action, out: Outbound) -> str:
+        """A "Plan this" click: a mapped person hands the thread to the planner, once."""
+        oid = action.action_id.split(":", 1)[1]
+        login = mapped_login(self.policy().notify_users, action.transport, action.user_id)
+        if login is None:
+            out.ack_action(action, ONLY_MAPPED_PLAN)
+            return "unmapped"
+        if not oid or not self.plans.claim(oid):
+            out.ack_action(action, "The planner is starting.")
+            return "busy"
+        try:
+            offer = self.plans.get(oid)  # read under the claim: a click that just ran counts
+            if offer is None:
+                out.ack_action(action, "This offer expired. Start a message with plan to plan it.")
+                return "expired"
+            if offer["status"] != "open":
+                out.ack_action(action, f"{offer['by']} already handed this to the planner.")
+                return "already_planned"
+            self.plans.update(oid, status="planned", by=login)
+        finally:
+            self.plans.release(oid)
+        out.ack_action(action)  # at once: Discord allows 3 s
+        try:
+            out.update(Ref(action.channel, action.message_id), offer["text"], ())
+        except Exception:  # noqa: BLE001 — the button stays; a second click says it is taken
+            pass
+        key = (offer["transport"], offer["channel"], offer["thread"])
+        with self._lock:
+            th = self._threads.get(key)
+            if th is None:
+                th = self._threads[key] = _Thread(*key, offer["is_dm"])
+            th.role = "planner"
+            turn = _Turn(f"Plan this: {offer['summary']}\n\nThe request it came from: "
+                         f"{offer['question']}", "planner", login, action.user_id, login=login)
+        self._accept(th, turn, note=f"{login} handed this thread to the planner.")
+        return "planned"
 
     def _propose(self, th: _Thread, out: Outbound, cfg, proposal: dict, turn: _Turn,
                  *, replace: bool) -> None:
@@ -743,14 +854,14 @@ class Engine:
         except Exception:  # noqa: BLE001
             pass
 
-    def _end(self, th: _Thread, outcome: str) -> None:
+    def _end(self, th: _Thread, outcome: str, *, keep_sandbox: bool = False) -> None:
         agent, th.agent = th.agent, None
         if agent is not None:
             try:
                 agent.close(outcome)
             except Exception:  # noqa: BLE001 — the session is gone either way
                 pass
-        if self.on_session_end is not None:
+        if self.on_session_end is not None and not keep_sandbox:
             try:
                 self.on_session_end(_thread_key(th))
             except Exception:  # noqa: BLE001 — sandbox cleanup is best-effort

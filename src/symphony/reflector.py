@@ -14,7 +14,7 @@ import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from . import discovery, state
+from . import discovery, rollups, state
 from .config import Config
 from .endpoints import github_api_url
 from .trackers.base import GitHubLike, TrackerAdapter, TrackerUnavailable
@@ -348,14 +348,19 @@ def run_retrospective(
     # stays "started", the sweep retries, and NOTHING gets inflated by the retry
     candidates = distill(harvest, cfg)
 
+    once = f"retro:{issue_id}:{entry.get('dispatch_seq')}"
     if pr is not None:
+        day: dict[str, int] = {"prs_opened": 1}
         state.bump_metric(kv, yyyymm, "prs_opened")
         merged_at = _parse_iso_ms(pr.get("merged_at") or (pr.get("pull_request") or {}).get("merged_at"))
         created_at = _parse_iso_ms(pr.get("created_at"))
         if merged_at:
             state.bump_metric(kv, yyyymm, "prs_merged")
+            day["prs_merged"] = 1
             if created_at:
                 state.bump_metric(kv, yyyymm, "time_to_merge_ms_sum", by=merged_at - created_at)
+                day.update(time_to_merge_ms_sum=merged_at - created_at, time_to_merge_count=1)
+        rollups.bump_kv(kv, now_ms, day, once=f"{once}:pr")
         for thread in harvest.review_threads:
             state.bump_metric_category(
                 kv, yyyymm, "review_comments", str(thread.get("category") or thread.get("severity") or "other")
@@ -413,6 +418,7 @@ def run_retrospective(
     token.update(status="done", outcome="learnings-pr-opened", learnings_pr=pr_url, at=now_ms)
     kv.put(state.retro_key(issue_id), token)
     state.bump_metric(kv, yyyymm, "learnings_prs")
+    rollups.bump_kv(kv, now_ms, {"learning_prs": 1}, once=f"{once}:learnings")
     return "learnings-pr-opened"
 
 

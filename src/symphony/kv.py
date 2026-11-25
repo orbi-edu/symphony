@@ -20,6 +20,8 @@ import json
 import os
 from typing import Any
 
+from . import rollups
+
 DEFAULT_TTL_S = 7 * 24 * 3600  # modal.Dict's 7-day idle expiry, kept for parity
 # Keys that must never expire, so reads never put a TTL on them: dispatch generations (an
 # expired tombstone would let an old Job address a reopened issue), the lease (it carries
@@ -130,6 +132,10 @@ class RedisKV:
         # tokens), but the daemon shares this Redis with nothing that deserves a stall.
         return list(self._r.scan_iter(count=500))
 
+    def bump_rollup(self, at_ms: int, fields, *, once: str | None = None) -> bool:
+        """A daily rollup bump (`rollups.bump`): HINCRBY in one script, never expired."""
+        return rollups.bump(self._r, at_ms, fields, once=once)
+
 
 class LeaseKV:
     """One daemon tick's optimistic writes, fenced by its authoritative Redis lease.
@@ -195,3 +201,8 @@ class LeaseKV:
 
     def remember_generation(self, key, seq):
         self.base.remember_generation(key, seq)
+
+    def bump_rollup(self, at_ms, fields, *, once=None):
+        # Counters, not lifecycle: the once-id, not the lease, keeps a stale tick from
+        # counting an event twice.
+        return self.base.bump_rollup(at_ms, fields, once=once)

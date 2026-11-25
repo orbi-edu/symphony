@@ -19,6 +19,11 @@ DISPATCH_PREFIX = "dispatch:"
 TOOLCALL_PREFIX = "toolcall:"
 RETRO_PREFIX = "retro:"
 METRICS_PREFIX = "metrics:"
+# Daily rollups (`rollups.py`): one hash per UTC day, the index of the days that have one, and
+# the events already counted (a replayed event is not counted twice). None of them expires.
+METRICS_DAY_PREFIX = "metrics:day:"
+METRICS_DAYS_KEY = "metrics:days"
+METRICS_ONCE_KEY = "metrics:once"
 TELEMETRY_PREFIX = "telemetry:"
 HOLD_PREFIX = "hold:"
 ANSWERED_PREFIX = "answered:"

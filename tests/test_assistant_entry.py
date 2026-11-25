@@ -145,9 +145,18 @@ def test_build_wires_the_engine_with_role_tools(redis_client, tmp_path):
     assert transports == {"slack": slack} and engine.outbounds == {"slack": slack}
     names = {role: [t.name for t in engine.agents.tools_for(role)]
              for role in ("assistant", "researcher", "planner")}
-    assert names["assistant"] == names["researcher"] == [
+    assert names["assistant"] == names["researcher"] == names["planner"] == [
         "symphony_status", "tracker_search", "open_repository"]
-    assert names["planner"] == ["symphony_status", "tracker_search", "open_repository",
-                                "propose_tickets"]
+    # The engine's own tools per role: the assistant and the planner propose tickets, the
+    # assistant can offer the planner.
+    from symphony.assistant.engine import _Thread
+
+    th = _Thread("slack", "C1", "t1", False)
+    cfg = holder.config
+    engine_tools = {role: {t.name for t in engine._tools(th, cfg, role)}
+                    for role in ("assistant", "researcher", "planner")}
+    assert {"propose_tickets", "offer_plan"} <= engine_tools["assistant"]
+    assert "propose_tickets" in engine_tools["planner"] and "offer_plan" not in engine_tools["planner"]
+    assert not {"propose_tickets", "offer_plan"} & engine_tools["researcher"]
     status = engine.agents.tools_for("assistant")[0].answer({}, 0)
     assert json.loads(status)["counts"]["running"] == 0

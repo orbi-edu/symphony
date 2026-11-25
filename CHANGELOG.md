@@ -7,6 +7,72 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.24] - 2026-11-25
+
+### Added
+
+- Telemetry history over the whole period. Each UTC day gets a rollup in Redis
+  (`metrics:day:<yyyymmdd>`, never expired, in the backup): dispatches, rework, runs and
+  attempts, ended sessions by kind and outcome, tokens (input, output, cache read and write),
+  the cost estimate in micro-USD, cost and tokens per model and per repository (50 named per
+  day, the rest `other`), the hour of the week each session started, pull requests opened and
+  merged with the time to merge, learning pull requests, merger results (reviewed, back to the
+  author, merged, needs a maintainer), questions asked and answered per channel with the time
+  to answer, attempts blocked on a person and attached session traces. Each event is counted
+  where it happens, once: a replayed event (a restart, a retried retrospective, a session
+  closed twice) does not count again. The monthly counters stay as they were.
+- `GET /v1/telemetry/history?from=&to=&bucket=day|week|month` (viewer): the rollups as
+  points (at most 120; the bucket is chosen or coarsened to fit), totals, per model, per
+  repository, per kind and a weekday × hour activity grid. Cached 60 seconds.
+- `symphony telemetry backfill [--force]` (`POST /v1/telemetry/backfill`, admin, audited
+  `telemetry.backfill`): rebuilds the session fields of past days from the ended sessions in
+  Redis and the archive objects on the backup target, streamed. Idempotent.
+- Sessions keep their usage (`meta.usage`: tokens and cost of every `message_end`), for every
+  kind: merger and assistant sessions too.
+- Tern **Telemetry**: a History section with a period picker (all, 90 d, 30 d, 7 d; `[` `]`)
+  and ten charts over the rollups: cost per bucket, tokens by type, sessions by kind,
+  outcomes (bars and donut), cost by model (donut and a table with a sparkline per model),
+  cost and sessions by repository (top 10), pull requests opened and merged with the mean
+  time to merge, the rework rate with its period average, questions with the answer channel
+  and the mean time to answer, and a weekday × hour activity heatmap. Each has a one-line
+  summary and an empty state.
+- Tern **Dashboard**: six tiles with 30-day sparklines (cost, sessions, PRs merged, rework
+  rate, questions waiting, blocked on a person) and a 30-day cost chart, below what it showed.
+- The assistant proposes tickets too. In Ask mode, a request it cannot carry out read-only (a
+  change in a repository or the tracker: create a skill, fix code, update docs, open a pull
+  request) no longer ends at "I can't": it investigates, writes the ticket (problem, what to
+  change, acceptance criteria, how to verify, the repository) and calls `propose_tickets`. The
+  proposal, its Create / Create and start / Dismiss buttons, the mapped-click gate and the
+  `assistant.tickets_created` audit are the planner's. The planner keeps multi-ticket plans and
+  specs.
+- **Plan this**: for a request that needs a multi-step plan, the assistant answers briefly with
+  a Plan this button (`offer_plan`). A click by a person mapped in `notify.users` makes the
+  thread's role planner and starts a planner turn with the thread as context, like a `plan …`
+  follow-up; anyone else gets a private refusal. A change of role in a thread now keeps the
+  thread's sandbox.
+- Files from the sandbox travel with a proposal: each ticket of `propose_tickets` accepts
+  `attachments: [{path, title}]`, read at the call with `share_file`'s reader and refusals (the
+  clones or `/tmp`, no `.git` or credential files, no file holding a credential, 25 MB each),
+  at most 10 files and 50 MB per proposal, from a mapped asker. They wait beside the proposal
+  (`sym:<ns>:assistant:proposalfile:*`, 7 days, left out of backups). Create attaches each one
+  to its ticket once (a double click or a retry never attaches twice) and the body says to
+  fetch them with `symphony_fetch_attachment`; Dismiss deletes them.
+
+### Changed
+
+- A host tool call that answers with `HostToolError` is not recorded: a refused
+  `propose_tickets` no longer counts as the turn's proposal, and the agent can call it again.
+- An expired proposal answers "This proposal expired. Ask the assistant again."
+
+### Fixed
+
+- A preview link opened after Seiji released its device for sitting idle showed "Could not
+  open the preview" (HTTP 502) on every reload: Symphony still had the lease on record and
+  asked Seiji for a viewer of a lease that had ended. Now the link forgets that lease and
+  starts the build again (the progress page, then the viewer), and the Slack button says the
+  simulator was released and starts a new one on the next click. The viewer route answers
+  410 `lease_gone` for such a lease.
+
 ## [0.2.23] - 2026-11-25
 
 ### Fixed

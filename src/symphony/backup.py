@@ -13,7 +13,8 @@
 The backup holds the keys under `sym:<ns>:` and `admin:<ns>:`, and the `state` families
 without a namespace prefix that the daemon cannot rebuild (`CORE_KEPT`). It leaves out the
 API rate limit counters (`sym:<ns>:ratelimit:*`, a minute long), the files the assistant keeps
-for an "Attach" click (`sym:<ns>:assistant:evidence:*`, an hour long) and the `state` families
+for an "Attach" click (`sym:<ns>:assistant:evidence:*`, an hour long) or with a ticket proposal
+(`sym:<ns>:assistant:proposalfile:*`, as long as the proposal) and the `state` families
 that reconcile rebuilds from the tracker or that live only while a process runs (`CORE_SKIPPED`).
 The `state` keys carry no namespace: Symphony runs one Redis per namespace
 (`deploy/redis.yaml` is in the namespaced kustomization), so the header's namespace names them.
@@ -90,6 +91,9 @@ CORE_KEPT = {
     "hold:": "a person's hold never expires; losing it would release a stopped ticket",
     "generation:": "dispatch fencing tombstones; losing one lets an old Job address a reopened ticket",
     "metrics:": "monthly counters that feed telemetry; the tracker cannot rebuild them",
+    "metrics:day:": "daily rollups behind the telemetry history; only the session fields can be backfilled",
+    "metrics:days": "the index of the days that have a rollup; the history reads it",
+    "metrics:once": "events already counted in the daily rollups; losing it lets a replay count twice",
     "retro:": "retrospective tokens; losing one repeats a retrospective and its learnings PR",
     "lessons:usage_age": "learning decay counters; the tracker cannot rebuild them",
     "totals:tokens": "the token ledger totals; the tracker cannot rebuild them",
@@ -117,9 +121,11 @@ def kept_core(key: str) -> bool:
 
 
 def _volatile(namespace: str) -> tuple[str, ...]:
-    # Rate limit counters live a minute; a file waiting for an "Attach" click lives an hour
-    # and may be megabytes (`assistant/share.py`).
-    return (f"sym:{namespace}:ratelimit:", f"sym:{namespace}:assistant:evidence:")
+    # Rate limit counters live a minute; a file waiting for an "Attach" click lives an hour,
+    # a file a ticket proposal carries as long as the proposal, and either may be megabytes
+    # (`assistant/share.py`, `assistant/confirm.py`).
+    return (f"sym:{namespace}:ratelimit:", f"sym:{namespace}:assistant:evidence:",
+            f"sym:{namespace}:assistant:proposalfile:")
 
 
 def _kept(namespace: str) -> frozenset[str]:

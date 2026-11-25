@@ -1,17 +1,24 @@
 """Proposals and their confirmation: nothing reaches the tracker until a mapped person clicks.
 
-A planner's `propose_tickets` call is stored at `sym:<ns>:assistant:proposal:<id>` (7 days) and
-shown with three buttons: "Create", "Create and start" (adds the tracker's required labels, so
-the daemon picks the tickets up) and "Dismiss". Only a person mapped in `notify.users` may
-click them; the audit actor is that person's GitHub login.
+A `propose_tickets` call (the assistant's or the planner's) is stored at
+`sym:<ns>:assistant:proposal:<id>` (7 days) and shown with three buttons: "Create", "Create and
+start" (adds the tracker's required labels, so the daemon picks the tickets up) and "Dismiss".
+Only a person mapped in `notify.users` may click them; the audit actor is that person's GitHub
+login.
 
 Creation is idempotent per proposal: a claim key lets one click work at a time, and every
 created ticket is recorded by key (`:records`), so a double click, or a retry after a
 failure, never creates a ticket twice.
+
+Files drafted in the sandbox (`attachments`) are read when the call is made and wait at
+`sym:<ns>:assistant:proposalfile:<id>` (`ProposalFiles`, the proposal's TTL, left out of
+backups). Create attaches each one to its ticket once, recorded beside the tickets, and drops
+them; Dismiss drops them.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import secrets
 from collections.abc import Callable
@@ -26,6 +33,8 @@ CLAIM_TTL_S = 600
 ONLY_MAPPED = "Only people mapped in notify.users can create tickets."
 CHOICES = ("create", "start", "dismiss")
 AUDIT_ACTION = "assistant.tickets_created"
+ATTACHED_LINE = ("Files drafted in the assistant's sandbox are attached; fetch them with "
+                 "symphony_fetch_attachment.")
 
 
 def mapped_login(notify_users: dict, transport: str, user_id: str) -> str | None:
@@ -63,6 +72,8 @@ def render(proposal: dict) -> str:
             extra.append(f"part of {titles[t['parent']]!r}")
         if t.get("blocked_by"):
             extra.append("after " + ", ".join(repr(titles[b]) for b in t["blocked_by"]))
+        if t.get("attachments"):
+            extra.append("with " + ", ".join(a["name"] for a in t["attachments"]))
         lines.append(f"{n}. {t['title']}" + (f" ({'; '.join(extra)})" if extra else ""))
     lines += ["", "Nothing is created until someone mapped in notify.users clicks Create."]
     return "\n".join(lines)
@@ -89,11 +100,41 @@ class _Records:
         self.client.hset(self.key, f"rel:{blocker}>{blocked}", "1")
         self.client.expire(self.key, PROPOSAL_TTL_S)
 
+    def attached(self, key: str, n: int) -> bool:
+        return bool(self.client.hexists(self.key, f"file:{key}:{n}"))
+
+    def save_attached(self, key: str, n: int) -> None:
+        self.client.hset(self.key, f"file:{key}:{n}", "1")
+        self.client.expire(self.key, PROPOSAL_TTL_S)
+
+
+class ProposalFiles:
+    """The bytes of the sandbox files a proposal carries, one key each, as long as a proposal
+    lives. Backups leave them out (`backup._volatile`): they may be megabytes."""
+
+    def __init__(self, client, namespace: str) -> None:
+        self.client = client
+        self.prefix = f"sym:{namespace}:assistant:proposalfile:"
+
+    def put(self, data: bytes) -> str:
+        fid = secrets.token_hex(8)
+        self.client.set(self.prefix + fid, base64.b64encode(data).decode(), ex=PROPOSAL_TTL_S)
+        return fid
+
+    def get(self, fid: str) -> bytes | None:
+        raw = self.client.get(self.prefix + fid)
+        return base64.b64decode(raw) if raw is not None else None
+
+    def drop(self, fids: list[str]) -> None:
+        if fids:
+            self.client.delete(*(self.prefix + f for f in fids))
+
 
 class ProposalStore:
     def __init__(self, client, namespace: str, kind: str = "proposal") -> None:
-        """`kind` names the key space: `proposal` (tickets), `fact` (team facts) or
-        `evidence` (a shared file to attach to a ticket, `share.py`)."""
+        """`kind` names the key space: `proposal` (tickets), `fact` (team facts),
+        `evidence` (a shared file to attach to a ticket, `share.py`) or `plan` (a "Plan this"
+        offer, `engine.py`)."""
         self.client = client
         self.prefix = f"sym:{namespace}:assistant:{kind}:"
 
@@ -144,12 +185,14 @@ class Confirmer:
         tracker: Callable[[], object],
         policy: Callable[[], Policy],
         audit: Callable[[str, str, str], None],
+        files: ProposalFiles | None = None,
         logger=None,
     ) -> None:
         self.store = store
         self.tracker = tracker
         self.policy = policy
         self.audit = audit  # (actor, target, reason)
+        self.files = files
         self.log = logger
 
     def handle(self, action: Action, out: Outbound) -> str:
@@ -166,7 +209,7 @@ class Confirmer:
             return "unmapped"
         proposal = self.store.get(pid)
         if proposal is None:
-            out.ack_action(action, "This proposal expired. Ask the planner again.")
+            out.ack_action(action, "This proposal expired. Ask the assistant again.")
             return "expired"
         if proposal["status"] in ("created", "dismissed"):
             out.ack_action(action, f"This proposal is already {proposal['status']}.")
@@ -178,6 +221,7 @@ class Confirmer:
         try:
             if choice == "dismiss":
                 self.store.update(pid, status="dismissed", by=login)
+                self._drop_files(proposal)
                 out.update(_ref(action), f"Dismissed by {login}. No tickets were created.", ())
                 return "dismissed"
             return self._create(pid, proposal, choice == "start", login, policy, action, out)
@@ -198,6 +242,7 @@ class Confirmer:
             return "failed"
         identifiers = [m["identifier"] for m in made]
         self.store.update(pid, status="created", by=login, created=made, started=start)
+        self._drop_files(proposal)
         lines = [f"Created by {login}" + (" and started" if start else "") + ":"]
         lines += [f"- {m['identifier']}: {m['title']} {m['url']}".rstrip() for m in made]
         labels = ", ".join(f"`{label}`" for label in policy.required_labels)
@@ -213,16 +258,18 @@ class Confirmer:
                          + (f" and add {labels}." if labels else "."))
         out.update(_ref(action), "\n".join(lines), ())
         try:
-            self.audit(login, f"proposal:{pid}", ", ".join(identifiers))
+            files = sum(len(t.get("attachments") or []) for t in proposal["tickets"])
+            self.audit(login, f"proposal:{pid}", ", ".join(identifiers)
+                       + (f"; {files} file(s) attached" if files else ""))
         except Exception as exc:  # noqa: BLE001 — the tickets exist; the log keeps the trace
             if self.log is not None:
                 self.log.warning("assistant_audit_failed", proposal=pid, error=type(exc).__name__)
         return "created"
 
     def create(self, pid: str, proposal: dict, *, start: bool, policy: Policy) -> list[dict]:
-        """Creates the proposal's tickets once each, in creation order, and links every
-        `blocked_by` as a tracker relation. Returns `[{key, identifier, url, title}]` in the
-        proposal's order."""
+        """Creates the proposal's tickets once each, in creation order, attaches their files
+        once each, and links every `blocked_by` as a tracker relation. Returns
+        `[{key, identifier, url, title}]` in the proposal's order."""
         tracker = self.tracker()
         records = self.store.records(pid)
         state = policy.start_state if start else policy.ticket_state
@@ -234,6 +281,7 @@ class Confirmer:
             if t.get("parent") and not start:
                 # A sub-ticket starts in the first active state; without "start" it waits.
                 tracker.move(identifier, state)
+            self._attach(tracker, records, t, identifier)
             for blocker in t.get("blocked_by") or []:
                 if records.relation(blocker, t["key"]):
                     continue
@@ -248,18 +296,39 @@ class Confirmer:
         return [{"key": t["key"], "title": t["title"], "identifier": records.issue(t["key"])["identifier"],
                  "url": records.issue(t["key"]).get("url") or ""} for t in proposal["tickets"]]
 
+    def _attach(self, tracker, records: _Records, t: dict, identifier: str) -> None:
+        for n, a in enumerate(t.get("attachments") or []):
+            if records.attached(t["key"], n):
+                continue
+            data = self.files.get(a["file"]) if self.files is not None else None
+            if data is None:
+                tracker.comment(identifier, f"{a['name']} was drafted in the assistant's sandbox "
+                                            "but expired before this ticket was created; it is "
+                                            "not attached.")
+            else:
+                tracker.attach_evidence(identifier, title=a["title"], kind=a["kind"],
+                                        filename=a["name"], content_type=a["content_type"],
+                                        data=data)
+            records.save_attached(t["key"], n)
+
+    def _drop_files(self, proposal: dict) -> None:
+        if self.files is not None:
+            self.files.drop([a["file"] for t in proposal["tickets"]
+                             for a in t.get("attachments") or []])
+
     @staticmethod
     def _create_one(tracker, records: _Records, proposal: dict, t: dict, *, state: str,
                     base: list[str]) -> None:
         parent = t.get("parent")
+        body = t["body"] + (f"\n\n{ATTACHED_LINE}" if t.get("attachments") else "")
         if parent is None:
             repo = t.get("repo") or proposal.get("default_repo")
             labels = [*base, *(t.get("labels") or []), *([f"repo:{repo}"] if repo else [])]
-            record = tracker.create_issue(t["title"], t["body"], labels=list(dict.fromkeys(labels)),
+            record = tracker.create_issue(t["title"], body, labels=list(dict.fromkeys(labels)),
                                           state=state, repo=repo)
             records.save_issue(t["key"], record)
             return
-        item = SubIssue(key=t["key"], title=t["title"], description=t["body"],
+        item = SubIssue(key=t["key"], title=t["title"], description=body,
                         labels=tuple(t.get("labels") or ()))
         parent_id = records.issue(parent)["identifier"]
         try:

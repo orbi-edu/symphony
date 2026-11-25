@@ -39,7 +39,7 @@ from collections.abc import Sequence
 
 import structlog
 
-from . import notify, orchestrator, prwatch, state, wake
+from . import notify, orchestrator, prwatch, rollups, state, wake
 from .prompt import PUBLIC_BRANCH_PREFIX
 from .reflector import LEARNINGS_BRANCH_PREFIX
 from .sessions import SessionStore, attempt_session_id
@@ -191,6 +191,7 @@ def ask(client, ns: str, *, qid: str, issue_id: str, identifier: str, sid: str, 
     pipe.sadd(_open(ns, issue_id), qid)
     pipe.expire(_open(ns, issue_id), RETAIN_S)
     pipe.execute()
+    rollups.bump(client, now_ms, {"questions:asked": 1}, once=f"ask:{qid}")
     wake.wake(client, ns, wake.DAEMON, f"question:{qid}")
 
 
@@ -211,6 +212,11 @@ def submit(client, ns: str, qid: str, text: str, *, by: str, via: str, now_ms: i
     _set(client, ns, qid, **fields)
     client.zadd(_index(ns), {qid: rec["asked_at"]})
     client.srem(_open(ns, rec["issue_id"]), qid)
+    rollups.bump(client, now_ms, {
+        "questions:answered": 1,
+        f"questions:answered_via:{rollups.token(via)}": 1,
+        "questions:answer_ms_sum": max(0, now_ms - int(rec.get("asked_at") or now_ms)),
+    }, once=f"answer:{qid}")
     wake.wake(client, ns, wake.DAEMON, f"question:{qid}:answered")
     rec.update(fields)
     return True, rec

@@ -50,6 +50,10 @@ local PATHS = {
 local PROJECTION_MS = 10000
 local PROJECTIONS = { repos = true, infra = true, telemetry = true, learning = true, audit = true }
 local VIEW_DATA = { repositories = "repos", infrastructure = "infra", telemetry = "telemetry", learnings = "learning", audit = "audit" }
+-- The history rollups (`GET /v1/telemetry/history`, cached 60 s by the API): Telemetry's period
+-- and the Dashboard's last 30 days, read every HISTORY_MS.
+local HISTORY_MS = 60000
+local HISTORY = { history = true, trends = true }
 -- `GET /v1/setup` is read every SETUP_MS until it says complete (setup contract §4).
 local SETUP_MS = 30000
 -- Admin › Assistant: every read of memory is audited, so these are read once when the tab opens,
@@ -60,6 +64,10 @@ local function read_path(state: any, name: string): string?
 	if name == "assistant_person" then
 		local login = state.sel.assistant
 		return if login then "/v1/assistant/memory/" .. fmt.urlencode(login) else nil
+	elseif name == "history" then
+		return P.history_path(state.period)
+	elseif name == "trends" then
+		return P.trends_path()
 	end
 	return PATHS[name] or ("/v1/" .. name)
 end
@@ -75,9 +83,13 @@ end
 
 local function needs(state: any): { string }
 	local v = state.view
-	if v == "dashboard" or v == "sessions" then
-		-- Issues carry `held` (internals §12): the session detail offers "Return to Symphony" from it.
+	-- Issues carry `held` (internals §12): the session detail offers "Return to Symphony" from it.
+	if v == "dashboard" then
+		return { "issues", "trends" }
+	elseif v == "sessions" then
 		return { "issues" }
+	elseif v == "telemetry" then
+		return { "telemetry", "history" }
 	elseif v == "tickets" then
 		return { "issues" }
 	elseif v == "merger" then
@@ -123,9 +135,9 @@ local poll: (state: any) -> ()
 
 local function fetch(state: any, name: string)
 	local cx = state.cx
-	if PROJECTIONS[name] or name == "setup" then
+	if PROJECTIONS[name] or HISTORY[name] or name == "setup" then
 		local last = state.read_at[name]
-		local every = if name == "setup" then SETUP_MS else PROJECTION_MS
+		local every = if name == "setup" then SETUP_MS elseif HISTORY[name] then HISTORY_MS else PROJECTION_MS
 		if last and state.data[name] and tern.now() - last < every then
 			return
 		end
@@ -143,7 +155,8 @@ local function fetch(state: any, name: string)
 		apimod.invalidate(state.api, path)
 	end
 	apimod.get(state.api, path, function(changed, data, err)
-		if state.stopped then
+		-- A read for a path the state no longer asks for (another Telemetry period) is dropped.
+		if state.stopped or read_path(state, name) ~= path then
 			return
 		end
 		if err then
@@ -1356,6 +1369,18 @@ local function set_view(state: any, view: string)
 	poll(state)
 end
 
+-- Telemetry's history period: the copy already read for it shows until the new read lands.
+local function set_period(state: any, period: string)
+	if period == state.period or not table.find(P.PERIODS, period) then
+		return
+	end
+	state.period = period
+	state.data.history = state.api.cache[P.history_path(period)]
+	state.errs.history = nil
+	state.read_at.history = nil
+	poll(state)
+end
+
 -- The catalog's providers for the model picker: the ones the team already uses first.
 local function catalog_providers(state: any): { any }
 	local used = {}
@@ -1747,6 +1772,8 @@ local function key(state: any, k: Key, cx: any): boolean?
 		local step = if n == "[" then -1 else 1
 		if state.view == "sessions" then
 			state.filter = cycle(V.FILTERS, state.filter, step)
+		elseif state.view == "telemetry" then
+			set_period(state, cycle(P.PERIODS, state.period, step))
 		elseif state.view == "admin" then
 			state.admin_tab = cycle(V.ADMIN_TABS, state.admin_tab, step)
 			poll(state)
@@ -1896,6 +1923,7 @@ M.def = {
 			view = view,
 			admin_tab = s.admin_tab or args[2] or "models",
 			filter = s.filter or "active",
+			period = if table.find(P.PERIODS, s.period) then s.period else "all",
 			sel = {},
 			data = {},
 			errs = {},
@@ -1957,6 +1985,8 @@ M.def = {
 				set_view(state, ev.item)
 			elseif ev.id == "main.sessions.bar.filter" and type(ev.item) == "string" then
 				state.filter = ev.item
+			elseif ev.id == "main.telemetry.history.bar.period" and type(ev.item) == "string" then
+				set_period(state, ev.item)
 			elseif ev.id == "main.admin.sub" and type(ev.item) == "string" then
 				state.admin_tab = ev.item
 				poll(state)
@@ -1994,7 +2024,7 @@ M.def = {
 		end
 	end,
 	save = function(state: any)
-		return { view = state.view, admin_tab = state.admin_tab, filter = state.filter }
+		return { view = state.view, admin_tab = state.admin_tab, filter = state.filter, period = state.period }
 	end,
 }
 

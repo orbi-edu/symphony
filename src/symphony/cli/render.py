@@ -313,6 +313,8 @@ ERROR_TEXT = {
     "lease_not_held": "No live Symphony session holds this lease. Watch only a device that an "
                       "agent holds now.",
     "viewer_refused": "The MCP server refused the viewer link.",
+    "lease_gone": "The MCP server already ended this lease (it sat idle or reached its time "
+                  "limit).",
     "viewer_unsupported": "This MCP server has no viewer.",
     "rejected": "The MCP server refused the stored credential. Store it again with "
                 "`symphony admin mcp headers`.",
@@ -740,6 +742,7 @@ _ACTION_LABEL = {
     "assistant.memory_forget": "assistant: forget memory item", "assistant.memory_wipe": "assistant: wipe memory",
     "backup.export": "backup: download", "backup.restore": "backup: restore",
     "backup.run": "backup: run now", "backup.archive.get": "backup: archive download",
+    "telemetry.backfill": "telemetry: backfill",
 }
 
 
@@ -873,4 +876,13 @@ def backup_run(doc: dict) -> str:
     if archived.get("name"):
         text += (f"\nArchived {archived.get('sessions', 0)} sessions and "
                  f"{archived.get('audit', 0)} audit entries in {archived['name']}.")
+    return text
+
+
+def telemetry_backfill(doc: dict) -> str:
+    text = (f"Rebuilt {doc.get('days', 0)} days from {doc.get('sessions', 0)} sessions "
+            f"({doc.get('archive_objects', 0)} archive objects on "
+            f"{_target_text(doc.get('target'))}).")
+    if doc.get("kept"):
+        text += f" Kept {doc['kept']} days that have a rollup already (--force rebuilds them)."
     return text

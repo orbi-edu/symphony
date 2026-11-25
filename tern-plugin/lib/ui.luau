@@ -110,6 +110,22 @@ function M.data_table(props: { [string]: any }): Node
 	return ui.node("table", props)
 end
 
+-- A `chart` node (heatmap, bars, spark, line, area or donut). Series take the theme's chart
+-- palette unless a point names a `tone`.
+function M.chart(key: string, kind: string, props: { [string]: any }): Node
+	local p: { [string]: any } = { key = key, kind = kind }
+	for k, v in props do
+		p[k] = v
+	end
+	return ui.node("chart", p)
+end
+
+-- A titled tile of a wrapping row of charts: its body, or the `empty` line when there is no data.
+function M.chart_card(key: string, title: string, body: { Node }?, empty: string, min_w: string?): Node
+	local nodes: { Node } = if body and #body > 0 then body else { M.muted(empty) }
+	return M.with(M.card(key, { ui.span(title, "strong") }, nodes), { grow = 1, basis = 0, min = { w = min_w or "44ch" } })
+end
+
 -- A confirm strip for the dock (design guide): the consequence in one sentence, Cancel (esc)
 -- and the action (enter) at its right. Destructive actions take the error tone, consequential
 -- ones the accent tone; while it is open its action is the screen's one primary.

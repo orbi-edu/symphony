@@ -109,6 +109,7 @@ is operator detail for logs, and the CLI never shows it.
 | `symphony backup run` | Admin. What the nightly CronJob does, now: archive, back up, delete the backups beyond `backup.keep` |
 | `symphony backup list` | Admin. The backups on the target: name, size, when |
 | `symphony backup archive list` / `symphony backup archive get NAME [-o FILE]` | Admin. The archive objects; `get` prints one as JSONL (sessions, events, transcript entries, audit entries) |
+| `symphony telemetry backfill [--force]` | Admin. Rebuilds the session fields of the daily rollups (sessions, outcomes, tokens, cost, models, repositories, activity) from the ended sessions in Redis and the archive objects on the backup target, for the days that have no rollup; `--force` rebuilds every day they cover. Prints the days rebuilt and kept. Running it twice gives the same numbers ([api.md](api.md#telemetry-history)) |
 
 There is no OAuth login and no provider subscription. Every model uses an API key.
 

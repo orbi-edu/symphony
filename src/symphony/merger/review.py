@@ -398,6 +398,7 @@ def hand_off(m: Merger, policy: Policy, run, report: str, edit: str | None = Non
     save_baseline(m, n, rec["head_sha"], get("findings"), prior_rounds(m, n), "approved")
     m.store.put_rec(rec)
     cancel_ci(m.gh, rec["head_sha"], policy.ci_workflow)
+    m.count("reviewed", n, rec["head_sha"])
     try:
         cm.publish_review(m, rec, m.store.put_rec)
         m.git.remove_worktree(wt_name(n))
@@ -518,6 +519,7 @@ def ci_sent_back(m: Merger, rec: dict, failed: list[str]) -> None:
         m.gh.edit_comment(rec["comment"], cm.compose(cm.NOT_MERGED_TITLE, rec["head_sha"], outcome,
                                                      cm.ci_line("failed", rec["head_sha"], failed), rec["body"], drafted))
     m.store.unpark(n)
+    m.count("back_to_author", n, rec["head_sha"])
     cm.say(m, "back_to_author", n, rec.get("title", ""), rec["author"], rec.get("comment") or m.pr_url(n),
            "CI failed", is_bot=cm.is_bot_author(rec), ticket=rec.get("issue"))
     m.move_ticket(rec.get("issue"), "rework", f"The merger sent the PR back: {outcome}\n\n{rec.get('comment') or m.pr_url(n)}")

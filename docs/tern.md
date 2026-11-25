@@ -106,6 +106,20 @@ a new tab) and, on a session that holds a device, **Watch device** (`w`, see
 [Watch a device](#watch-a-device)). Pause and resume the daemon at the top; a pause asks for a
 reason of at least 8 characters.
 
+Below the merger line, **the last 30 days** (`GET /v1/telemetry/history?from=<29 days ago>&bucket=day`):
+six tiles, each a figure over a daily sparkline, and the estimated cost per day as an area chart.
+
+| Tile | Figure | Sparkline (a point a day) |
+|---|---|---|
+| Estimated cost, 30 d | the 30 days' estimated cost | estimated cost |
+| Sessions, 30 d | sessions that ended | sessions that ended |
+| PRs merged, 30 d | PRs merged, "of N opened" | PRs merged |
+| Rework rate, 30 d | rework ÷ dispatches | the day's rework rate |
+| Questions waiting | sessions that wait for an answer now (the overview's `waiting_input`) | questions asked |
+| Blocked on a person | tickets blocked on a person now (the overview's `blocked_on_person`) | times a ticket got blocked on a person |
+
+Costs are local estimates from the engine's price table, not a bill.
+
 ![Dashboard](tern/dashboard-light.png)
 ![Dashboard, dark theme](tern/dashboard-dark.png)
 
@@ -290,6 +304,7 @@ caused by missing data never shows as "none".
 
 ![Infrastructure](tern/infrastructure-light.png)
 ![Telemetry](tern/telemetry-light.png)
+![Telemetry, dark theme](tern/telemetry-dark.png)
 ![Audit](tern/audit-light.png)
 
 The Dashboard also shows the providers' **rate limits** seen in the last hour. Tickets **held by a
@@ -300,6 +315,33 @@ with **Return to Symphony** (`symphony release`).
 
 Reasons that go to the audit log (pause, bypass, publish) need at least 8 characters. The field
 warns you and reopens before it sends anything.
+
+### Telemetry charts
+
+Between the usage totals and the tables, **History** charts the daily rollups of
+`GET /v1/telemetry/history` ([api.md](api.md)). The period picker at its right (`[` and `]`, or a
+click) picks **All** (from the first rollup), **90 d**, **30 d** or **7 d**; All is the default.
+The API picks the bucket (a day, a week or a month, at most 120 points), and every day is UTC.
+The x axis names a day `11-25`, a week by its ISO number (`W48`) and a month by its name
+(`Nov`); the charts in the narrow cards show five of those labels, the first and the last
+among them. Each chart has a one-line summary with its headline number, and says so when the
+period has no data.
+
+| Chart | What it shows |
+|---|---|
+| Estimated cost per bucket | area chart of the estimated cost, labeled with the period's total |
+| Tokens | input, output, cache read and cache write per bucket |
+| Sessions by kind | sessions that ended per bucket, a line per kind (the six biggest, then "other") |
+| Outcomes | bars and a donut of how the period's runs ended (done, continued, failed, blocked, …) |
+| Cost by model | donut of the estimated cost per model, and a table with each model's cost, tokens and a sparkline of its cost per bucket |
+| By repository (top 10) | bars of the estimated cost and of the sessions per repository |
+| Pull requests | PRs opened and merged per bucket, and a sparkline of the mean time to merge (the rollups keep sums, so it is a mean, not a median) |
+| Rework rate | rework ÷ dispatches per bucket, with the period average as a dashed line |
+| Questions | questions asked and answered per bucket, a donut of where they were answered (Linear, Slack, GitHub, Symphony) and the mean time to answer |
+| Activity | heatmap of session starts by weekday and hour (UTC) |
+
+The charts use Tern's `chart` node (heatmap, bars, spark, line, area, donut) and take their
+colors from the theme's chart palette and tones.
 
 ## Offline
 
@@ -371,9 +413,10 @@ budget and your runs; use Symphony's panel to watch the devices that agents hold
 uv run pytest tests/tern/test_tern_plugin.py      # flows against the fake API and the test CLI
 uv run pytest tests/tern/test_tern_real_stack.py  # the real stack: Redis, API, CLI and symphony acp
 uv run python tests/tern/scenarios.py             # regenerates the docs/tern screenshots (light and dark)
+uv run pytest tests/tern/test_tern_views.py       # the Telemetry and Dashboard charts' node shapes (needs luau)
 ```
 
-All of them start `tern serve` with an isolated `TERN_CONFIG_DIR` and the plugin loaded as a fixture
+The first three start `tern serve` with an isolated `TERN_CONFIG_DIR` and the plugin loaded as a fixture
 (`STENCIL_FIXTURE_ROOT`). They fail if Tern logs a plugin error. The fake-API tests
 (`tests/tern/fake_api.py`, which reads the merger through the real `MergerStore` in a disposable
 Redis) use the test CLI `tests/tern/bin/symphony`. Its `seiji` state adds a Seiji server and two
@@ -385,5 +428,12 @@ Secret is in memory, because there is no cluster, and MCP servers are in a local
 They use the real CLI with an isolated HOME and no keychain, run `symphony login` and `symphony
 tern install`, and open the chat through the real `symphony acp`. The MCP test there reaches the
 MCP mock (`scripts/mocks/mcp`), which answers only when the stored header arrives.
+
+`test_tern_views.py` runs without Tern: it copies the plugin's modules next to a stub of the
+`tern` global (`tests/tern/tern_stub.luau`), renders Telemetry and the Dashboard with the `luau`
+CLI (`tests/tern/render_views.luau`) and checks the charts' kinds, series lengths, summaries and
+empty states. It skips when `luau` is not installed. Its history documents, and the fake API's
+`GET /v1/telemetry/history`, come from `tests/tern/history_fixture.py`: seeded daily rollups
+bucketed like the API.
 
 ![Live chat on the real stack](tern/real-chat-light.png)

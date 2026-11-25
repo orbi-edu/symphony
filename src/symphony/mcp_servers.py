@@ -1597,6 +1597,9 @@ async def request_viewer(definition: Mapping[str, Any], stored: Mapping[str, str
     if response.status_code >= 300:
         detail = body.get("error") if isinstance(body, dict) else None
         message = detail if isinstance(detail, str) else f"the server answered HTTP {response.status_code}"
+        if response.status_code == 404 and message.startswith("no active lease"):
+            # Seiji ended the lease (idle or its time limit) before the holder released it.
+            raise McpError("lease_gone", message[:500], 410)
         raise McpError("viewer_refused", message[:500], 409)
     if not isinstance(body, dict) or not isinstance(body.get("url"), str):
         raise McpError("protocol_error", "the viewer answer has no url", 502)

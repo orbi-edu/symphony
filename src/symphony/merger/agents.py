@@ -62,7 +62,7 @@ class HostTool:
     # Extra validation beyond the schema: an error message, or None when the call is fine.
     check: Callable[[dict], str | None] | None = None
     # The text answered for a valid call (given the call's index in its tool's list). Raising
-    # HostToolError answers its message as a tool error.
+    # HostToolError answers its message as a tool error, and the call is not recorded.
     answer: Callable[[dict, int], str] | None = None
 
     def definition(self) -> dict:
@@ -504,6 +504,8 @@ class _Run:
                 text = tool.answer(args, index) if tool.answer else "recorded"
                 is_error = False
             except HostToolError as exc:
+                # Not carried out, so not recorded: the agent may call it again.
+                self.calls[name].pop()
                 text, is_error = str(exc), True
         self.reply({"type": "host_tool_result", "id": frame["id"],
                     "result": {"content": [{"type": "text", "text": text}]}, "isError": is_error})

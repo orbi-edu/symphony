@@ -131,6 +131,34 @@ def test_a_host_tool_error_answers_as_a_tool_error(runner):
     agent.close("completed")
 
 
+def test_a_refused_proposal_is_not_the_turns_proposal(runner):
+    """A propose_tickets whose files are refused is a tool error and does not count: the agent
+    calls it again, and only the call that went through is the turn's proposal."""
+    from symphony.merger.agents import HostToolError
+
+    def refuse(tickets):
+        if any(t.get("attachments") for t in tickets):
+            raise HostToolError("refused: .git/config is inside a .git directory")
+        return 0
+
+    run, spawn, store = runner
+    agent = run.open("assist:slack:C1:t5:1", "assistant", {}, lambda actor, text: None,
+                     tools=[tools.propose_tool((), refuse)])
+    proc = spawn.spawned[0][3]
+    ticket = {"key": "a", "title": "T", "body": "B"}
+    bad = {"summary": "s", "tickets": [{**ticket, "attachments": [{"path": ".git/config",
+                                                                    "title": "x"}]}]}
+    good = {"summary": "s", "tickets": [ticket]}
+    proc.push({"type": "host_tool_call", "id": "h1", "toolName": "propose_tickets", "arguments": bad})
+    proc.push({"type": "host_tool_call", "id": "h2", "toolName": "propose_tickets", "arguments": good})
+    proc.run("never reached")
+    result = agent.ask("make the ticket", lambda t: None, 10)
+    answers = {m["id"]: m for m in proc.sent if m.get("type") == "host_tool_result"}
+    assert answers["h1"]["isError"] is True and answers["h2"]["isError"] is False
+    assert result.status == "completed" and result.proposal == good
+    agent.close("completed")
+
+
 def test_a_tern_follow_up_reaches_the_engine(runner):
     run, spawn, store = runner
     got = []

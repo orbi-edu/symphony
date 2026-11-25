@@ -229,6 +229,14 @@ function M.money(v: any): string
 	return "$" .. string.format("%.2f", v)
 end
 
+-- A figure that must stay short (a donut's middle): 12.5 → "$12.50", 196.14 → "$196", 45210 → "$45.2k".
+function M.money_short(v: any): string
+	if type(v) ~= "number" or v < 100 then
+		return M.money(v)
+	end
+	return "$" .. (if v >= 1000 then M.count(v) else string.format("%.0f", v))
+end
+
 -- 45210 → "45.2k"; 1200000 → "1.2M".
 function M.count(v: any): string
 	if type(v) ~= "number" then
@@ -240,6 +248,45 @@ function M.count(v: any): string
 		return string.format("%.1f", v / 1e3) .. "k"
 	end
 	return tostring(math.floor(v))
+end
+
+-- 0.125 → "13%", 0.042 → "4.2%"; "—" when unknown.
+function M.pct(v: any): string
+	if type(v) ~= "number" then
+		return "—"
+	end
+	local p = v * 100
+	return (if p == math.floor(p) or p >= 10 then string.format("%.0f", p) else string.format("%.1f", p)) .. "%"
+end
+
+-- A duration in milliseconds: "45 s", "12 min", "3.2 h", "1.5 d"; "—" when unknown.
+function M.duration(ms: any): string
+	if type(ms) ~= "number" then
+		return "—"
+	end
+	local s = ms / 1000
+	if s < 60 then
+		return string.format("%.0f", s) .. " s"
+	elseif s < 3600 then
+		return string.format("%.0f", s / 60) .. " min"
+	elseif s < 86400 then
+		return string.format("%.1f", s / 3600) .. " h"
+	end
+	return string.format("%.1f", s / 86400) .. " d"
+end
+
+-- The UTC calendar day `offset` days from today, "YYYY-MM-DD" (Howard Hinnant's civil_from_days).
+function M.day(offset: number): string
+	local z = os.time() // 86400 + offset + 719468
+	local era = (if z >= 0 then z else z - 146096) // 146097
+	local doe = z - era * 146097
+	local yoe = (doe - doe // 1460 + doe // 36524 - doe // 146096) // 365
+	local doy = doe - (365 * yoe + yoe // 4 - yoe // 100)
+	local mp = (5 * doy + 2) // 153
+	local d = doy - (153 * mp + 2) // 5 + 1
+	local m = if mp < 10 then mp + 3 else mp - 9
+	local y = yoe + era * 400 + (if m <= 2 then 1 else 0)
+	return string.format("%04d-%02d-%02d", y, m, d)
 end
 
 -- Total tokens of a session meta `tokens` field (a table or a number).
