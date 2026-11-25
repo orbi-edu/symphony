@@ -533,13 +533,65 @@ local function x_label(doc: any, p: any): string
 	return if doc.bucket == "month" then string.sub(s, 1, 7) else string.sub(s, 6, 10)
 end
 
-local function labels(doc: any): { string }
+local MONTHS = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" }
+
+-- Days since 1970-01-01 of a civil date (Howard Hinnant's days_from_civil).
+local function days_from_civil(y: number, m: number, d: number): number
+	y = if m <= 2 then y - 1 else y
+	local era = (if y >= 0 then y else y - 399) // 400
+	local yoe = y - era * 400
+	local doy = (153 * (if m > 2 then m - 3 else m + 9) + 2) // 5 + d - 1
+	local doe = yoe * 365 + yoe // 4 - yoe // 100 + doy
+	return era * 146097 + doe - 719468
+end
+
+-- The ISO week number (1-53) of a civil date.
+local function iso_week(y: number, m: number, d: number): number
+	local days = days_from_civil(y, m, d)
+	local weekday = (days + 3) % 7 + 1 -- Monday 1 … Sunday 7
+	local thursday = days - weekday + 4 -- the Thursday of the same week names its year
+	local year = y
+	if thursday < days_from_civil(y, 1, 1) then
+		year = y - 1
+	elseif thursday >= days_from_civil(y + 1, 1, 1) then
+		year = y + 1
+	end
+	return (thursday - days_from_civil(year, 1, 1)) // 7 + 1
+end
+
+-- A short axis label: "11-25" for a day, "W47" for a week, "Nov" for a month.
+local function axis_label(doc: any, p: any): string
+	local s = tostring(p.start or "")
+	local y, m, d = tonumber(string.sub(s, 1, 4)), tonumber(string.sub(s, 6, 7)), tonumber(string.sub(s, 9, 10))
+	if not (y and m and d) then
+		return s
+	elseif doc.bucket == "month" then
+		return MONTHS[m] or s
+	elseif doc.bucket == "week" then
+		return "W" .. iso_week(y, m, d)
+	end
+	return string.sub(s, 6, 10)
+end
+
+-- The x labels of a chart. `most` keeps that many, spread evenly (the first and the last
+-- included) and blanks the others, so a narrow card does not draw them over each other.
+local function labels(doc: any, most: number?): { string }
 	local out = {}
+	local n = #points(doc)
+	local keep: { [number]: boolean }? = nil
+	if most and n > most then
+		keep = {}
+		for k = 0, most - 1 do
+			keep[1 + math.round(k * (n - 1) / (most - 1))] = true
+		end
+	end
 	for i, p in points(doc) do
-		out[i] = x_label(doc, p)
+		out[i] = if keep == nil or keep[i] then axis_label(doc, p) else ""
 	end
 	return out
 end
+
+local NARROW = 5 -- labels on the x axis of a card in the four-column grid
 
 -- `{value, label}` points for `bars` and `spark`.
 local function labeled(doc: any, values: { number }): { any }
@@ -602,7 +654,7 @@ local function cost_card(doc: any, t: any): Node
 			cost[i] = cents(v)
 		end
 		body = { h.chart("chart", "area", {
-			series = cost, labels = labels(doc), min = 0, last = fmt.money(total) .. " total",
+			series = cost, labels = labels(doc, NARROW), min = 0, last = fmt.money(total) .. " total",
 			summary = fmt.money(total) .. " estimated cost, " .. range_text(doc),
 		}) }
 	end
@@ -619,7 +671,7 @@ local function tokens_card(doc: any, t: any): Node
 				{ label = "Cache read", values = column(doc, "tokens_cache_read") },
 				{ label = "Cache write", values = column(doc, "tokens_cache_write") },
 			},
-			labels = labels(doc), min = 0,
+			labels = labels(doc, NARROW), min = 0,
 			summary = fmt.count(t.tokens) .. " tokens: " .. fmt.count(num(t.tokens_input)) .. " input, "
 				.. fmt.count(num(t.tokens_output)) .. " output, " .. fmt.count(num(t.tokens_cache_read)) .. " cache read, "
 				.. fmt.count(num(t.tokens_cache_write)) .. " cache write",
@@ -648,7 +700,7 @@ local function kinds_card(doc: any, t: any): Node
 		end
 		local first = kinds[1]
 		body = { h.chart("chart", "line", {
-			series = series, labels = labels(doc), min = 0,
+			series = series, labels = labels(doc, NARROW), min = 0,
 			summary = fmt.plural(num(t.sessions), "session", "sessions") .. " ended; the most: "
 				.. (fmt.KIND[first.kind or ""] or tostring(first.kind)) .. " (" .. num(first.sessions) .. ")",
 		}) }
@@ -769,7 +821,7 @@ local function prs_card(doc: any, t: any): Node
 				{ label = "Opened", values = column(doc, "prs_opened") },
 				{ label = "Merged", values = column(doc, "prs_merged") },
 			},
-			labels = labels(doc), min = 0,
+			labels = labels(doc, NARROW), min = 0,
 			summary = num(t.prs_opened) .. " opened, " .. num(t.prs_merged) .. " merged",
 		}) }
 		local ttm = known(doc, "mean_time_to_merge_ms", 1 / 3600000)
@@ -791,7 +843,7 @@ local function rework_card(doc: any, t: any): Node
 	if num(t.dispatched) > 0 then
 		local avg = num(t.rework_rate) * 100
 		body = { h.chart("chart", "line", {
-			series = gaps(doc, "rework_rate", 100), labels = labels(doc), min = 0, unit = "%",
+			series = gaps(doc, "rework_rate", 100), labels = labels(doc, NARROW), min = 0, unit = "%",
 			marks = { { value = math.round(avg * 10) / 10, tone = "muted", title = "Period average " .. fmt.pct(t.rework_rate) } },
 			summary = "Rework " .. fmt.pct(t.rework_rate) .. " of " .. fmt.plural(num(t.dispatched), "dispatch", "dispatches") .. " (dashed: the period average)",
 		}) }

@@ -136,6 +136,17 @@ def test_telemetry_charts_cover_the_history(render):
 
     (cost,) = charts(cards["cost"])
     assert cost["kind"] == "area" and len(cost["series"]) == n and len(cost["labels"]) == n
+    # Narrow cards keep five axis labels, the first and the last among them; the wide
+    # Questions chart keeps every label.
+    for key in ("cost", "tokens", "kinds", "prs", "rework"):
+        lines = [c for c in charts(cards[key]) if c["kind"] in ("area", "line")]
+        assert len(lines) == 1, key
+        shown = [label for label in lines[0]["labels"] if label]
+        assert len(lines[0]["labels"]) == n and len(shown) == 5, key
+        assert lines[0]["labels"][0] == doc["points"][0]["start"][5:]
+        assert lines[0]["labels"][-1] == doc["points"][-1]["start"][5:]
+    (questions_line,) = by_kind(cards["questions"], "line")
+    assert all(questions_line["labels"]) and len(questions_line["labels"]) == n
     assert cost["last"].startswith("$") and cost["last"].endswith("total")
     assert "estimated" in cost["summary"]
 
@@ -198,6 +209,21 @@ def test_telemetry_period_and_weekly_buckets(render):
     (cost,) = charts(at(hist, "charts", "cost"))
     assert len(cost["series"]) == len(doc["points"])
     assert at(hist, "charts", "cost")["p"]["head"][0]["t"] == "Estimated cost per week"
+    weeks = [f"W{dt.date.fromisoformat(p['start']).isocalendar().week}" for p in doc["points"]]
+    shown = [(i, label) for i, label in enumerate(cost["labels"]) if label]
+    assert len(shown) == 5 and all(label == weeks[i] for i, label in shown)
+    assert shown[0][0] == 0 and shown[-1][0] == len(weeks) - 1
+
+
+def test_monthly_buckets_have_month_names(render):
+    doc = history_doc(TODAY, TODAY - dt.timedelta(days=1200), "week")  # coarsened to months
+    assert doc["bucket"] == "month"
+    out = render({"t": {"view": "telemetry", "data": base_data(history=doc)}})["t"]
+    (cost,) = charts(at(child(page(out), "history"), "charts", "cost"))
+    names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    shown = [(i, label) for i, label in enumerate(cost["labels"]) if label]
+    assert len(shown) == 5
+    assert all(label == names[int(doc["points"][i]["start"][5:7]) - 1] for i, label in shown)
 
 
 def test_telemetry_empty_history_shows_empty_states(render):

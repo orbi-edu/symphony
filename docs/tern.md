@@ -322,8 +322,10 @@ Between the usage totals and the tables, **History** charts the daily rollups of
 `GET /v1/telemetry/history` ([api.md](api.md)). The period picker at its right (`[` and `]`, or a
 click) picks **All** (from the first rollup), **90 d**, **30 d** or **7 d**; All is the default.
 The API picks the bucket (a day, a week or a month, at most 120 points), and every day is UTC.
-Each chart has a one-line summary with its headline number, and says so when the period has no
-data.
+The x axis names a day `11-25`, a week by its ISO number (`W48`) and a month by its name
+(`Nov`); the charts in the narrow cards show five of those labels, the first and the last
+among them. Each chart has a one-line summary with its headline number, and says so when the
+period has no data.
 
 | Chart | What it shows |
 |---|---|
