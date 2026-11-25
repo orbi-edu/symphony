@@ -7,6 +7,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.21] - 2026-11-25
+
 ### Added
 
 - `symphony_blocked(reason, needs)`: a host tool the agent calls when it cannot make progress
