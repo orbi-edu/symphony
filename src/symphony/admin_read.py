@@ -25,6 +25,7 @@ from typing import Any
 from . import endpoints, state
 from .discovery import DISCOVERY_KEY
 from .discovery import REFRESH_EVERY_MS as DISCOVERY_EVERY_MS
+from .orchestrator import BLOCKED_ON_PERSON
 from .repos import parse_designation
 from .telemetry import MAX_MODELS, OTHER
 
@@ -45,6 +46,7 @@ _RUN_REASONS = {
     "interrupting": "Interruption is pending; this generation occupies capacity until its stop is confirmed.",
     "retry_queued": "Retry is queued under the daemon's retry policy.",
     "blocked": "Execution requires a human decision.",
+    "blocked_on_person": "The agent waits for a person: an answer, access or a decision.",
     "parked": "Execution is parked for external review or tracker progress.",
     "unknown": "Lifecycle status is not available.",
 }
@@ -147,14 +149,29 @@ def _attr(value: Any, key: str, default: Any = None) -> Any:
     return value.get(key, default) if isinstance(value, dict) else getattr(value, key, default)
 
 
+def _status(entry: dict) -> str:
+    """The record's status, with a ticket that waits for a person told apart from one that
+    ran out of retries: both are `blocked` in the record, and they need different people."""
+    status = entry.get("status")
+    if status == "blocked" and entry.get("blocked_reason") == BLOCKED_ON_PERSON:
+        return "blocked_on_person"
+    return status if status in _RUN_REASONS else "unknown"
+
+
+def _blocked(entry: dict) -> dict | None:
+    """What a ticket blocked on a person waits for: `{needs, reason, at}`."""
+    if _status(entry) != "blocked_on_person":
+        return None
+    return {"needs": _name(entry.get("blocked_needs")), "reason": _text(entry.get("blocked_detail"), 500),
+            "at": _iso(entry.get("blocked_at"))}
+
+
 def _run(issue_id: str, entry: dict) -> dict | None:
     seq = _count(entry.get("dispatch_seq"))
     if not seq:
         return None
     identifier = _text(entry.get("identifier"), 160) or issue_id
-    status = entry.get("status")
-    if status not in _RUN_REASONS:
-        status = "unknown"
+    status = _status(entry)
     tokens = entry.get("tokens")
     tokens = tokens if isinstance(tokens, dict) else {}
     events = []
@@ -848,7 +865,8 @@ class LiveReader:
             "claimed": "queued",
             "retry_queued": "retrying",
             "parked": "in_review",
-        }.get(entry.get("status"))
+            "blocked_on_person": "blocked_on_person",
+        }.get(_status(entry))
 
     def holds(self) -> dict[str, dict]:
         """Tickets a person took over (internals §12): issue id → `{by, reason, at}` (ISO `at`).
@@ -875,7 +893,8 @@ class LiveReader:
         metas = self._attempt_sessions(entries)
         holds = self.holds()
         counts = dict.fromkeys(
-            ("running", "waiting_input", "queued", "retrying", "in_review", "merging", "held"), 0
+            ("running", "waiting_input", "queued", "retrying", "in_review", "merging", "held",
+             "blocked_on_person"), 0
         )
         identifiers = {}
         for (issue_id, entry), meta in zip(entries, metas, strict=True):
@@ -982,6 +1001,7 @@ class LiveReader:
                     "status": run["status"],
                     "phase": "held" if issue_id in holds else self._phase(entry, meta),
                     "held": holds.get(issue_id),
+                    "blocked": _blocked(entry),
                     "tracker_state": _text(entry.get("tracker_state"), 80),
                     "attempt": run["attempt"],
                     "seq": run["seq"],

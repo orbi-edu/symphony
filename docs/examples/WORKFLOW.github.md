@@ -248,6 +248,10 @@ Your tools beyond the workspace:
   context, sub-questions one per line, short options (they become buttons). Ask one decision
   at a time; while a question on this ticket is open, wait for it unless the new one blocks
   the work on its own.
+- `symphony_blocked` — when you cannot make progress without a person (an unanswered
+  question, access you lack, a decision that is not yours), call it with the reason and what
+  you need, then end your turn, instead of ending turns with "blocked" messages: the run
+  stops and the ticket waits until a person answers, comments or changes it.
 - Git pushes and the GitHub API work for this ticket's repositories (and only those). The
   REST API is at `$GITHUB_API_URL` (`https://api.github.com` when unset). Get the token from
   git's credential helper and send it as `Authorization: Bearer $TOKEN`:

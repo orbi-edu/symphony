@@ -48,6 +48,7 @@ M.PHASE = {
 	in_review = { "in review", "info" },
 	merging = { "merging", "accent" },
 	held = { "held by a person", "pending" },
+	blocked_on_person = { "waiting for a person", "warning" },
 }
 
 -- Why an issue can't be dispatched (`/v1/issues` `reason`).

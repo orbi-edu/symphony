@@ -389,7 +389,8 @@ def session_detail(meta: dict) -> str:
 _PHASE_LABEL = {"running": "running", "waiting_input": "waiting for an answer",
                 "queued": "queued", "retrying": "retrying", "in_review": "in review",
                 "merging": "merging", "held": "held", "blocked": "blocked", "claimed": "queued",
-                "retry_queued": "retrying", "parked": "parked", "interrupting": "interrupting"}
+                "retry_queued": "retrying", "parked": "parked", "interrupting": "interrupting",
+                "blocked_on_person": "waiting for a person"}
 # Why an issue cannot be dispatched (`/v1/issues` `reason`).
 _BLOCK_LABEL = {
     "no_repo_designation": "the ticket names no repository",

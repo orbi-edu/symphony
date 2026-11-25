@@ -28,6 +28,10 @@ from .omp_rpc import split_frames
 from .workspace import dns_name, workspace_key
 
 IDLE_ANNOTATION = "symphony.dev/idle-since"
+# The repository set a workspace was built for (`repos_record`), on its pod and on its
+# session volume: the clone and the engine session belong to that set, so a ticket whose set
+# changes gets a new workspace (`workspace_built_for`, `discard_workspace`).
+REPOS_ANNOTATION = "symphony.dev/repos"
 # The cluster autoscaler does not remove a node that runs a pod with this set to "false".
 SAFE_TO_EVICT_ANNOTATION = "cluster-autoscaler.kubernetes.io/safe-to-evict"
 
@@ -138,6 +142,9 @@ class PodSandbox:
         # hook reads ${SYMPHONY_TARGET_REPO} — feature 003).
         self.env = dict(env or {})
         self.environment_file: str | None = None
+        # The repository set of the workspace this one replaced, when the ticket's set changed
+        # since it was built (`discard_workspace`); the runner drops the old engine session.
+        self.replaced_repos: list[str] | None = None
 
     def _exports(self, extra: dict[str, str] | None = None) -> str:
         source = (
@@ -327,7 +334,17 @@ def session_pvc_name(pod_name: str) -> str:
     return f"{pod_name}-omp"
 
 
-def _workspace_manifest(cfg, name: str, image: str) -> dict:
+def repos_record(repos) -> str:
+    """A repository set as the workspace records it: owner/name, case-folded, sorted."""
+    return " ".join(sorted({str(repo).casefold() for repo in repos}))
+
+
+def _repos_annotation(repos) -> dict:
+    record = repos_record(repos)
+    return {"annotations": {REPOS_ANNOTATION: record}} if record else {}
+
+
+def _workspace_manifest(cfg, name: str, image: str, repos=()) -> dict:
     mem = f"{cfg.sandbox['memory_mib']}Mi"
     cpu = str(cfg.sandbox["cpu"])
     volume: dict = (
@@ -364,6 +381,7 @@ def _workspace_manifest(cfg, name: str, image: str) -> dict:
         "metadata": {
             "name": name,
             "labels": {"app": cfg.app_name, "component": "workspace"},
+            **_repos_annotation(repos),
         },
         "spec": {
             **spec_extra,
@@ -401,7 +419,7 @@ def _workspace_manifest(cfg, name: str, image: str) -> dict:
     }
 
 
-def _session_pvc_manifest(cfg, pod_name: str) -> dict:
+def _session_pvc_manifest(cfg, pod_name: str, repos=()) -> dict:
     spec: dict = {
         "accessModes": ["ReadWriteOnce"],
         "resources": {"requests": {"storage": cfg.session_volume_size}},
@@ -414,6 +432,7 @@ def _session_pvc_manifest(cfg, pod_name: str) -> dict:
         "metadata": {
             "name": session_pvc_name(pod_name),
             "labels": {"app": cfg.app_name, "component": "workspace-sessions"},
+            **_repos_annotation(repos),
         },
         "spec": spec,
     }
@@ -442,8 +461,9 @@ def workspace_stopped(pod) -> bool:
     return pod is None or workspace_ended(pod)
 
 
-def create_workspace(core, ns: str, cfg, name: str, runtime: str | None = None) -> bool:
-    """Create the workspace pod (and its session PVC) and wait for it to run.
+def create_workspace(core, ns: str, cfg, name: str, runtime: str | None = None, repos=()) -> bool:
+    """Create the workspace pod (and its session PVC) and wait for it to run. Both record
+    the repository set they are built for (`REPOS_ANNOTATION`).
 
     Returns True when THIS caller created it; False when it lost the create race and
     reattached — the same AlreadyExistsError contract Sandbox.create had, and the
@@ -452,13 +472,15 @@ def create_workspace(core, ns: str, cfg, name: str, runtime: str | None = None) 
     ApiException = _api_exception()
     if cfg.sessions_enabled:
         try:
-            core.create_namespaced_persistent_volume_claim(ns, _session_pvc_manifest(cfg, name))
+            core.create_namespaced_persistent_volume_claim(ns, _session_pvc_manifest(cfg, name, repos))
         except ApiException as exc:
             if exc.status != 409:  # already exists: a previous attempt's sessions — the point
                 raise
     created = True
     try:
-        core.create_namespaced_pod(ns, _workspace_manifest(cfg, name, agent_image_for(cfg, runtime)))
+        core.create_namespaced_pod(
+            ns, _workspace_manifest(cfg, name, agent_image_for(cfg, runtime), repos)
+        )
     except ApiException as exc:
         if exc.status != 409:
             raise
@@ -523,6 +545,56 @@ def delete_session_pvc(core, ns: str, pod_name: str) -> None:
     except ApiException as exc:
         if exc.status != 404:
             raise
+
+
+def get_session_pvc(core, ns: str, pod_name: str):
+    ApiException = _api_exception()
+    try:
+        return core.read_namespaced_persistent_volume_claim(session_pvc_name(pod_name), ns)
+    except ApiException as exc:
+        if exc.status == 404:
+            return None
+        raise
+
+
+def _recorded_repos(obj) -> str | None:
+    annotations = getattr(getattr(obj, "metadata", None), "annotations", None) or {}
+    return annotations.get(REPOS_ANNOTATION)
+
+
+def workspace_built_for(core, ns: str, name: str, pod, cfg) -> str | None:
+    """The repository set (`repos_record`) the workspace was built for: the pod's record,
+    else its session volume's — a reaped pod leaves the volume, and the engine session in it
+    is about that set. None when neither records one (built before the record existed)."""
+    record = _recorded_repos(pod) if pod is not None else None
+    if record is None and cfg.sessions_enabled:
+        record = _recorded_repos(get_session_pvc(core, ns, name))
+    return record
+
+
+def discard_workspace(core, ns: str, name: str, timeout_s: float = 120) -> None:
+    """Delete the workspace pod and its session volume and wait until both are gone, so the
+    next `create_workspace` starts from nothing: the clone, the branch checkout and the
+    engine session all belong to the repository set the workspace was built for."""
+    delete_pod(core, ns, name, wait=True, timeout_s=timeout_s)
+    delete_session_pvc(core, ns, name)
+    deadline = time.monotonic() + timeout_s
+    while get_session_pvc(core, ns, name) is not None:
+        if time.monotonic() > deadline:
+            raise WorkspaceDead(f"session volume of {name} still deleting after {int(timeout_s)}s")
+        time.sleep(2)
+
+
+def discard_if_built_for_other(core, ns: str, cfg, name: str, pod, repos) -> list[str] | None:
+    """Discard the workspace when it records a repository set other than `repos`; the set
+    it was built for when it did, None when it is kept (same set, or no record to compare)."""
+    record = repos_record(repos)
+    built_for = workspace_built_for(core, ns, name, pod, cfg)
+    if not record or built_for is None or built_for == record:
+        return None
+    log.warning("workspace_repos_changed_recreating", pod=name, built_for=built_for, repos=record)
+    discard_workspace(core, ns, name)
+    return built_for.split()
 
 
 def set_idle_since(core, ns: str, name: str, at_ms: int | None) -> None:

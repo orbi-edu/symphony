@@ -94,6 +94,43 @@ ASK_DEFINITION = {
     },
     "loadMode": "essential",
 }
+BLOCKED_TOOL = "symphony_blocked"
+BLOCKED_NEEDS = ("answer", "access", "decision", "other")
+BLOCKED_REASON_MAX = 500
+BLOCKED_RESULT = (
+    "Recorded. This run ends when your turn ends, and Symphony leaves one comment on the "
+    "ticket saying what it waits for. The ticket starts again when a person answers your "
+    "question, comments, or changes its labels or state. Update the Workpad if needed, then "
+    "end your turn: do not post a 'blocked' comment yourself."
+)
+BLOCKED_DEFINITION = {
+    "name": BLOCKED_TOOL,
+    "label": "Wait for a person",
+    "description": (
+        "Stop working until a person acts, when you cannot make progress without one: an "
+        "unanswered question, missing access (a repository or service you cannot reach), a "
+        "decision only a person can make. The run ends at the end of this turn and the "
+        "ticket waits, without new runs, until someone answers, comments or changes the "
+        "ticket. Call it instead of ending turns with 'blocked' messages. Ask with "
+        "symphony_ask first when one question would unblock you."
+    ),
+    "parameters": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["reason", "needs"],
+        "properties": {
+            "reason": {
+                "type": "string",
+                "description": (
+                    "What you are waiting for, in one or two sentences a person can act on. "
+                    "At most 500 characters."
+                ),
+            },
+            "needs": {"enum": list(BLOCKED_NEEDS)},
+        },
+    },
+    "loadMode": "essential",
+}
 # "(1) … (2) … (3) …" or "1) … 2) … 3) …" on one line: a list squeezed into a paragraph.
 _INLINE_ITEM = re.compile(r"(?:^|(?<=\s))\(?\d{1,2}\)(?=\s)")
 
@@ -261,8 +298,9 @@ class ToolInputError(Exception):
 
 def tool_definitions(tracker: TrackerAdapter) -> list[dict]:
     """The `set_host_tools` payload: every tracker tool, the tracker-backed Symphony tools
-    (`symphony_create_issues`, `symphony_attach_evidence`) and `symphony_ask`. Essential load
-    mode keeps them top-level, so workflow prompts can name them directly."""
+    (`symphony_create_issues`, `symphony_attach_evidence`), `symphony_ask` and
+    `symphony_blocked`. Essential load mode keeps them top-level, so workflow prompts can name
+    them directly."""
     tools = [
         {
             "name": spec.name,
@@ -272,7 +310,8 @@ def tool_definitions(tracker: TrackerAdapter) -> list[dict]:
         }
         for spec in tracker.agent_tool_specs()
     ]
-    return [*tools, CREATE_ISSUES_DEFINITION, EVIDENCE_DEFINITION, ASK_DEFINITION]
+    return [*tools, CREATE_ISSUES_DEFINITION, EVIDENCE_DEFINITION, ASK_DEFINITION,
+            BLOCKED_DEFINITION]
 
 
 def subissue_key(issue_id: str, key: str) -> str:
@@ -420,6 +459,9 @@ class HostToolBroker:
         self._threads: list[threading.Thread] = []
         self._known = {spec.name for spec in tracker.agent_tool_specs()}
         self._closed = False
+        # `symphony_blocked`'s request, `{reason, needs}`: the turn loop ends the run at the
+        # end of the turn in which it was set.
+        self.blocked: dict | None = None
 
     # -- dispatch ----------------------------------------------------------------
     def handle(self, frame: dict) -> None:
@@ -443,6 +485,8 @@ class HostToolBroker:
         try:
             if name == ASK_TOOL:
                 self._ask(call_id, args)
+            elif name == BLOCKED_TOOL:
+                self._blocked(call_id, args)
             elif name in (CREATE_ISSUES_TOOL, EVIDENCE_TOOL):
                 if not self._owns():
                     self._respond(
@@ -565,6 +609,29 @@ class HostToolBroker:
         if len(data) != size:
             raise RuntimeError(f"short read of {path}: {len(data)} of {size} bytes")
         return data
+
+    # -- symphony_blocked ----------------------------------------------------------
+    def _blocked(self, call_id: str, args: dict) -> None:
+        reason = " ".join(str(args.get("reason") or "").split())
+        needs = args.get("needs")
+        if not reason or needs not in BLOCKED_NEEDS:
+            self._respond(
+                call_id,
+                "symphony_blocked needs a reason and `needs`, one of " + ", ".join(BLOCKED_NEEDS),
+                is_error=True,
+            )
+            return
+        if len(reason) > BLOCKED_REASON_MAX:
+            self._respond(call_id, f"reason is over {BLOCKED_REASON_MAX} characters; shorten it",
+                          is_error=True)
+            return
+        if not self._owns():
+            self._respond(call_id, "this attempt no longer owns the issue; stop working on it",
+                          is_error=True)
+            return
+        self.blocked = {"reason": reason, "needs": needs}
+        self._log("agent_blocked_on_person", issue_id=self.issue_id, needs=needs)
+        self._respond(call_id, BLOCKED_RESULT, is_error=False)
 
     # -- symphony_ask --------------------------------------------------------------
     def _ask(self, call_id: str, args: dict) -> None:

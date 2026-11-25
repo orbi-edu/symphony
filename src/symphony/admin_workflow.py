@@ -110,6 +110,7 @@ _FIELDS = {
     "agent.max_turns": _Field("max_turns", "integer"),
     "agent.max_retry_backoff_ms": _Field("max_retry_backoff_ms", "integer"),
     "agent.max_failed_attempts": _Field("max_failed_attempts", "integer", 0),
+    "agent.max_idle_continuations": _Field("max_idle_continuations", "integer", 0),
     "agent.stall_timeout_ms": _Field("stall_timeout_ms", "integer", -_MAX_INTEGER),
     "agent.input_timeout_ms": _Field("input_timeout_ms", "integer"),
     "agent.ask_reminder_ms": _Field("ask_reminder_ms", "integer", 0),

@@ -590,6 +590,8 @@ local function tickets(state: any): Node
 			word, tone = held_text(it.held), "warning"
 		elseif fmt.ISSUE_REASON[it.reason or ""] then
 			word, tone = "blocked: " .. fmt.ISSUE_REASON[it.reason], "error"
+		elseif type(it.blocked) == "table" and type(it.blocked.reason) == "string" then
+			word = word .. ": " .. fmt.cut(it.blocked.reason, 60)
 		end
 		local pr: Spans = { ui.span("—", "dim") }
 		if type(it.pr_url) == "string" then

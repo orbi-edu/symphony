@@ -126,7 +126,7 @@ The `reason` has 8 to 1000 characters. After the API accepts a command, it calls
 
 ```text
 {daemon: {alive, paused, heartbeat_at, setup},
- counts: {running, waiting_input, queued, retrying, in_review, merging, held},
+ counts: {running, waiting_input, queued, retrying, in_review, merging, held, blocked_on_person},
  tokens_today, cost_today,
  merger: {reviewing, train, parked},   # sums of all repositories
  config_generation,
@@ -140,9 +140,12 @@ yet) or `null` (no report yet). It comes from the Redis record `daemon:setup`.
 
 #### Issues
 
-Each item has `issue_id, identifier, title, repo, status, phase, held, tracker_state, attempt,
-seq, session_id, session_state, input_request, model, tokens, cost, pr_url, reason,
-updated_at, evidence_count`. `phase` is `held` when a person holds the ticket. `reason` tells
+Each item has `issue_id, identifier, title, repo, status, phase, held, blocked, tracker_state,
+attempt, seq, session_id, session_state, input_request, model, tokens, cost, pr_url, reason,
+updated_at, evidence_count`. `phase` is `held` when a person holds the ticket. `status` and
+`phase` are `blocked_on_person` while the agent waits for a person
+([concepts](concepts.md#waiting-for-a-person)); then `blocked` is `{needs, reason, at}`, with
+`needs` one of `answer`, `access`, `decision` or `other`, and null otherwise. `reason` tells
 why the daemon cannot dispatch the ticket: `no_repo_designation`,
 `malformed_repo_designation`, `mixed_owner_repo_designation`, `repo_not_authorized`, or null.
 

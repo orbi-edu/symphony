@@ -131,6 +131,8 @@ Each line gives one feature and how it is verified. "Mocked" means the
 | O5 | Planning ticket → task tree with blocks; only unblocked children dispatch | `test_linear_tools.py`, `test_github_tracker.py`, Mocked 4 |
 | O6 | Investigation tickets with no pull request (read-only token) | `test_ghapp.py`, `test_runner_live.py`, Mocked 3 |
 | O7 | An agent question takes its answer where people give it: the ticket (the question's thread; with one open question, any reply to Symphony or a new comment), the ticket's pull request (with one open question), Slack, Tern and the CLI; never from Symphony or a bot | `test_questions.py`, `test_api_webhooks.py`, `test_review_watch.py` |
+| O8 | An agent blocked on a person waits instead of looping: `symphony_blocked`, or `agent.max_idle_continuations` idle continuation turns, end the run; the ticket stays `blocked_on_person` (one comment, kept across restarts) until an answer, a comment or a label/state change | `test_waiting_for_person.py`, `test_hosttools.py` |
+| O9 | A changed repository set gets a new workspace (pod, session volume, token, engine session); a change mid-run ends the run at the turn boundary | `test_repo_set_change.py` |
 
 ## R. Merger review
 

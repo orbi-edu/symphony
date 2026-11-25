@@ -310,6 +310,10 @@ def render_session_report(entry: dict, rollup: dict | None = None) -> str:
         f"- Cost: **~US$ {cost:.4f}** — *estimate*, computed locally from the engine's "
         "bundled price table, not a billed charge"
     )
+    replaced = entry.get("repos_changed_from")
+    if isinstance(replaced, list):
+        was = ", ".join(f"`{repo}`" for repo in replaced) or "another repository"
+        lines.append(f"- Workspace: rebuilt when the ticket's repositories changed (was {was})")
 
     if rollup and rollup.get("spans"):
         lines += ["", "**Session trace**", ""]

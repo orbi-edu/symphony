@@ -53,7 +53,7 @@ from . import runner as runner_mod
 from .config import Config, base_branches_env, resolve_workspace
 from .edge import log, now_ms
 from .entry.run_issue import engine_env, engine_launch, installation_credential
-from .kube import runner_job_name
+from .kube import repos_record, runner_job_name
 from .mcp_servers import McpLaunch, overlay_args
 from .omp_rpc import OmpClient, OmpError
 from .sessions import SessionStore
@@ -127,6 +127,8 @@ class HostSandbox(LocalSandbox):
     def __init__(self, root: str, name: str, env: dict[str, str], base_env: dict[str, str]) -> None:
         super().__init__(root, name, env)
         self._base_env = base_env
+        # The repository set of the workspace this one replaced (`LocalEffects._ensure_sandbox`).
+        self.replaced_repos: list[str] | None = None
 
     def exec_script(self, script: str, timeout_s: float | None = None) -> tuple[int, str]:
         try:
@@ -231,6 +233,10 @@ class LocalEffects:
 
     def _pgid_file(self, name: str) -> Path:
         return self.root / "run" / f"{name}.pgid"
+
+    def _repos_file(self, name: str) -> Path:
+        """The repository set the workspace was built for (`kube.repos_record`)."""
+        return self.root / "run" / f"{name}.repos"
 
     def credential_dir(self, name: str) -> Path:
         return self.root / "credentials" / name
@@ -383,12 +389,25 @@ class LocalEffects:
         # Two engines in one workspace corrupt the session: a leftover from a previous
         # process of this stack goes before anything touches the directory.
         self._stop_leftover(record.sandbox_name)
+        wanted = repos_record(repos)
+        record_file = self._repos_file(record.sandbox_name)
+        built_for = record_file.read_text().strip() if record_file.exists() else None
+        if path.exists() and wanted and built_for is not None and built_for != wanted:
+            # Built for another repository set: the clone, the branch and the engine session
+            # are that set's. Same rule as the pod path — nothing of it is reused.
+            log.warning("workspace_repos_changed_recreating", workspace=str(path),
+                        built_for=built_for, repos=wanted)
+            shutil.rmtree(path)
+            shutil.rmtree(self.session_dir(record.sandbox_name), ignore_errors=True)
+            sandbox.replaced_repos = built_for.split()
         created = not path.exists()
         if not created and repos and not workspace_matches_repo(sandbox, str(path), repos[0]):
             # Same rule as the pod path: `after_create` owns the clone and only runs on
             # creation, so a workspace of another repository is rebuilt, never reused.
             log.warning("workspace_repo_mismatch_recreating", workspace=str(path), target_repo=repos[0])
             shutil.rmtree(path)
+            shutil.rmtree(self.session_dir(record.sandbox_name), ignore_errors=True)
+            sandbox.replaced_repos = []
             created = True
         path.mkdir(parents=True, exist_ok=True)
         hook_log = lambda event, **kw: log.warning(event, **kw)  # noqa: E731
@@ -399,6 +418,7 @@ class LocalEffects:
                 # A half-built workspace must not be mistaken for a ready one next time.
                 shutil.rmtree(path, ignore_errors=True)
                 raise
+            record_file.write_text(wanted + "\n")
         run_hook(sandbox, "before_run", bound, log=hook_log)
         return sandbox
 
@@ -520,6 +540,7 @@ class LocalEffects:
             shutil.rmtree(path, ignore_errors=True)
         shutil.rmtree(self.session_dir(name), ignore_errors=True)
         shutil.rmtree(self.credential_dir(name), ignore_errors=True)
+        self._repos_file(name).unlink(missing_ok=True)
         with self._lock:
             for call_id in [c for c, r in self._attempts.items() if r.issue_id == issue_id and not r.alive()]:
                 del self._attempts[call_id]

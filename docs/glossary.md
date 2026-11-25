@@ -27,7 +27,7 @@ All Symphony documents use these terms with these meanings only.
 | **Gateway** | The sandbox gateway (`symphony-gateway`). It is the only Symphony service that a workspace can reach. It accepts telemetry and proxies agents' MCP requests to remote MCP servers. |
 | **Generation** | The version number of the published team configuration. Generation 0 is the built-in default. |
 | **Hold** | A person's claim on a ticket. A held ticket gets no dispatch, retry or continuation. `release` ends the hold. |
-| **Host tool** | A tool that the engine calls but the runner executes on the trusted side, for example the tracker tool, `symphony_create_issues`, `symphony_attach_evidence` and `symphony_ask`. |
+| **Host tool** | A tool that the engine calls but the runner executes on the trusted side, for example the tracker tool, `symphony_create_issues`, `symphony_attach_evidence`, `symphony_ask` and `symphony_blocked`. |
 | **Implementer** | The role of the agent that does the ticket's work and opens the pull request. |
 | **Intent** | A durable request from a person to a running session: `steer`, `follow_up`, `interrupt` or `answer`. |
 | **Investigation** | A ticket with the investigation label. The deliverable is a written report. The agent gets a read-only GitHub token. |

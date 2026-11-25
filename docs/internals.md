@@ -197,12 +197,16 @@ human questions go through `symphony_ask`.
 | `linear_graphql` (`tracker.kind: linear`) | Runner, through the tracker adapter | `{query: string, variables?: object}` | The GraphQL response |
 | `github_graphql` (`tracker.kind: github`) | Runner, through the tracker adapter, with the GitHub App token | `{query: string, variables?: object}` | The GraphQL response |
 | `symphony_ask` | Runner: `request_input`, then a wait for an `answer` intent | `{question: string, options?: string[]}` | The answer text, or a fallback text after the timeout (see below) |
+| `symphony_blocked` | Runner: recorded by the broker, read by the turn loop at the end of the turn | `{reason: string (≤ 500), needs: "answer" \| "access" \| "decision" \| "other"}` | A text that tells the agent to end its turn |
 | `symphony_create_issues` | Runner, through `tracker.create_sub_issues` | `{issues: [{key, title, description, labels?: string[], blocked_by?: string[]}]}` (at least one item) | `[{key, identifier, url}]` |
 | `symphony_attach_evidence` | Runner, through `tracker.attach_evidence` | `{path, title, kind: "screenshot" \| "video" \| "log" \| "report"}` | `{url}` |
 | `submit_finding`, `submit_review`, `submit_verdict`, `submit_arbitration`, `submit_resolution` | Merger | See [merger.md](merger.md#typed-output) | — |
 
 Rules for the runner tools:
 
+- `symphony_blocked` ends the run at the end of the turn with outcome `blocked`: the
+  ticket waits for a person ([concepts](concepts.md#waiting-for-a-person)). It refuses an
+  empty reason, a reason over 500 characters and an unknown `needs`.
 - `symphony_ask` waits for `agent.input_timeout_ms` (default 15 minutes). If no person
   answers, the result is a fallback that says to proceed with the agent's best judgment and
   record the assumption in the Workpad. Thus the run never stops on a question.
