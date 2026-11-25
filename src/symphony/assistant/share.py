@@ -16,6 +16,9 @@ request proposed as evidence on a ticket.
   tracker until a person mapped in `notify.users` clicks Attach. A claim key lets one click
   work at a time, and the proposal's status, read again under the claim, attaches it once.
   The audit entry `assistant.evidence_attached` names that person.
+- **Proposal files** (`proposal_attacher`): the `attachments` of a `propose_tickets` call go
+  through the same reader when the call is made, at most `tools.MAX_ATTACHMENTS` files and
+  `tools.MAX_ATTACHMENT_BYTES` per proposal, and wait in `confirm.ProposalFiles` for Create.
 """
 
 from __future__ import annotations
@@ -31,8 +34,9 @@ from collections.abc import Callable, Sequence
 from ..merger.agents import HostTool, HostToolError, _obj
 from ..merger.rules import SECRETS
 from . import Action, Button, FileTooLarge, Outbound, Ref
-from .confirm import ProposalStore, mapped_login
+from .confirm import ProposalFiles, ProposalStore, mapped_login
 from .sandbox import NEEDS_MAPPING, SandboxError
+from .tools import MAX_ATTACHMENT_BYTES
 
 TOOL = "share_file"
 MAX_BYTES = 25 * 1024 * 1024
@@ -90,9 +94,10 @@ def read_script(path: str, roots: Sequence[str], max_bytes: int) -> str:
 
 
 def read_file(sandbox, path: str, clones: Sequence[str], scratch: Sequence[str] = SCRATCH_ROOTS,
-              max_bytes: int = MAX_BYTES) -> bytes:
+              max_bytes: int = MAX_BYTES, tool: str = TOOL) -> bytes:
     """The bytes of one file of the sandbox (`sandbox.exec_script`). A relative path is read
-    in the thread's only clone. Raises Refused with what the agent can do about it."""
+    in the thread's only clone. Raises Refused with what the agent can do about it; `tool`
+    names the reader in those messages."""
     if not path.strip() or "\x00" in path or "\n" in path:
         raise Refused("path must be one file path")
     prefix = ""
@@ -108,11 +113,11 @@ def read_file(sandbox, path: str, clones: Sequence[str], scratch: Sequence[str] 
     if code == 3:
         raise Refused(f"no such file in the sandbox: {path}")
     if code == 4:
-        raise Refused(f"refused: {path} resolves outside {', '.join(roots)}; share_file reads "
+        raise Refused(f"refused: {path} resolves outside {', '.join(roots)}; {tool} reads "
                       "only files under the repository clones and /tmp. Copy the file there first.")
     if code == 5:
         size = next((int(x.split()[1]) for x in lines if x.startswith("symphony:too-large ")), 0)
-        raise Refused(f"refused: {path} is {size_text(size)}, over share_file's limit of "
+        raise Refused(f"refused: {path} is {size_text(size)}, over {tool}'s limit of "
                       f"{max_bytes // (1024 * 1024)} MB. {TOO_LARGE_HINT}")
     if code == 6:
         raise Refused(f"refused: {path} is inside a .git directory or is a credential file; "
@@ -349,3 +354,51 @@ def share_file_tool(*, files: Callable[[], tuple[object, list[str]]],
         check=check,
         answer=answer,
     )
+
+
+def proposal_attacher(*, files: Callable[[], tuple[object, list[str]]],
+                      login: Callable[[], str | None], store: ProposalFiles,
+                      scratch: Sequence[str] = SCRATCH_ROOTS) -> Callable[[list[dict]], int]:
+    """`propose_tickets`' reader of `attachments`, for the current turn's mapped asker. It
+    reads every file of the call with `read_file`, stores the bytes in `store`, and records on
+    each attachment `file` (its id there), `name`, `size`, `content_type` and `kind`. Returns
+    how many files it read; raises HostToolError (nothing stored) on the first refusal."""
+
+    def attach(tickets: list[dict]) -> int:
+        wanted = [a for t in tickets for a in t.get("attachments") or []]
+        if not wanted:
+            return 0
+        if login() is None:
+            raise HostToolError(NEEDS_MAPPING)
+        try:
+            sandbox, clones = files()
+        except SandboxError as exc:
+            raise HostToolError(str(exc)) from exc
+        read: list[tuple[dict, bytes]] = []
+        total = 0
+        for a in wanted:
+            path = a["path"].strip()
+            try:
+                data = read_file(sandbox, path, clones, scratch, tool="propose_tickets")
+            except (Refused, SandboxError) as exc:
+                raise HostToolError(f"{exc} Nothing was proposed: fix the attachments and call "
+                                    "propose_tickets again.") from exc
+            except Exception as exc:  # noqa: BLE001 — a dead pod or a cluster error
+                raise HostToolError(f"could not read {path} from the sandbox: "
+                                    f"{str(exc)[:200] or type(exc).__name__}") from exc
+            total += len(data)
+            if total > MAX_ATTACHMENT_BYTES:
+                raise HostToolError(
+                    f"refused: the attachments add up to more than "
+                    f"{MAX_ATTACHMENT_BYTES // (1024 * 1024)} MB, the limit per proposal. Nothing "
+                    "was proposed: attach fewer or smaller files (tar czf packs and compresses "
+                    "them) and call propose_tickets again.")
+            read.append((a, data))
+        for a, data in read:
+            name = posixpath.basename(a["path"].strip())
+            kind_of = content_type(name)
+            a.update(file=store.put(data), name=name, size=len(data), content_type=kind_of,
+                     kind=evidence_kind(kind_of))
+        return len(read)
+
+    return attach

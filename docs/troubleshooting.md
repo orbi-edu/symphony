@@ -403,7 +403,8 @@ Run `symphony assistant status`. It shows whether the assistant runs, each trans
 | Sign | Cause | Fix |
 |---|---|---|
 | "Only people mapped in notify.users can create tickets." | The person who clicked is not in `notify.users` | Map their GitHub login to their Slack or Discord ID ([configuration.md](configuration.md#notify)) |
-| "This proposal expired. Ask the planner again." | The proposal is older than 7 days | Ask the planner again |
+| "This proposal expired. Ask the assistant again." | The proposal is older than 7 days | Ask again in the thread |
+| A created ticket has the comment "… was drafted in the assistant's sandbox but expired before this ticket was created" | A file of the proposal expired before the click | Ask the assistant to share the file again and attach it |
 | "These tickets are being created." | Another click is running | Wait. A double click never creates a ticket twice |
 | A ticket has the comment "Blocked by ENG-12. The tracker did not record the link: …" | The tracker refused the blocking relation | Add the relation by hand in the tracker |
 | `assistant_tickets_failed` in the log | The tracker refused a ticket | Read the error. Click again: the tickets that exist are not created again |

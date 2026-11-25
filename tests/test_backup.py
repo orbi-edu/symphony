@@ -109,11 +109,13 @@ def rewrite(docs: list[dict], *, rehash: bool) -> io.BytesIO:
 def test_round_trip_restores_every_key_and_ttl(redis_client):
     seed(redis_client)
     redis_client.set(f"sym:{NS}:ratelimit:token:abc:1", "4", ex=60)
+    redis_client.set(f"sym:{NS}:assistant:proposalfile:abc", "ZHJhZnQ=", ex=600)
     redis_client.set("sym:other:teamconfig", "{}")
     for key, value in TRANSIENT.items():
         redis_client.set(key, value)
     before = snapshot(redis_client)
     del before[f"sym:{NS}:ratelimit:token:abc:1"]  # volatile, never exported
+    del before[f"sym:{NS}:assistant:proposalfile:abc"]
 
     blob = exported(redis_client)
     docs = lines_of(blob)
