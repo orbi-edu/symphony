@@ -27,7 +27,7 @@ from tests.conftest import FakeKV
 from symphony import wake
 from symphony.hosttools import HostToolBroker
 from symphony.sessions import SessionStore
-from symphony.trackers.base import TrackerUnavailable
+from symphony.trackers.base import TrackerInputError, TrackerUnavailable
 from symphony.trackers.linear import LinearTracker
 from symphony.workspace import LocalSandbox
 
@@ -271,6 +271,39 @@ def test_attach_evidence_uploads_and_attaches(mock, broker, tmp_path):
         {"title": "Login page", "url": url, "kind": "screenshot"}]
     assert broker.session_store.meta("i1:1")["evidence"] == [
         {"title": "Login page", "url": url, "kind": "screenshot"}]
+
+
+def test_the_agent_reads_back_its_tickets_files_only(mock, broker, tmp_path):
+    """An earlier run's draft comes back through the host, with the API key the agent does
+    not have; another ticket's file and a link attachment are refused."""
+    draft = b"# Draft\n\nv1 of the report\n"
+    (tmp_path / "draft.md").write_bytes(draft)
+    url = broker.attach_evidence({"path": "draft.md", "title": "Report draft", "kind": "report"})["url"]
+    assert httpx.get(url).status_code == 401, "what the agent would get on its own"
+    other = control(mock.base, "POST", "issues", {"title": "Other", "state": "Todo",
+                                                  "labels": ["symphony"]})
+    foreign = tracker().attach_evidence(other["id"], title="Foreign", kind="log",
+                                        filename="other.log", content_type="text/plain",
+                                        data=b"not yours\n")
+    gql(mock.base, "mutation($i: AttachmentCreateInput!) { attachmentCreate(input: $i) "
+        "{ success } }", {"i": {"issueId": broker.ticket["id"], "title": "PR",
+                               "url": "https://github.com/acme/app/pull/1"}})
+
+    listed = {a["title"]: a for a in broker.ticket_attachments()}
+    assert set(listed) == {"Report draft", "PR"}
+    assert listed["Report draft"]["host"] == "127.0.0.1" and listed["Report draft"]["kind"] == "report"
+    assert listed["PR"]["host"] == "github.com" and listed["PR"]["created_at"]
+
+    assert broker.fetch_attachment({"id": listed["Report draft"]["id"], "path": "prev/draft.md"}) == {
+        "path": "prev/draft.md", "bytes": len(draft)}
+    assert (tmp_path / "prev" / "draft.md").read_bytes() == draft
+    foreign_id = next(a["id"] for a in tracker().ticket_attachments(other["id"])
+                      if a["url"] == foreign["url"])
+    with pytest.raises(TrackerInputError, match="no attachment"):
+        broker.fetch_attachment({"id": foreign_id, "path": "other.log"})
+    with pytest.raises(TrackerInputError, match="links to github.com"):
+        broker.fetch_attachment({"id": listed["PR"]["id"], "path": "pr.html"})
+    assert not (tmp_path / "other.log").exists() and not (tmp_path / "pr.html").exists()
 
 
 def test_upload_url_enforces_the_signed_request(mock):

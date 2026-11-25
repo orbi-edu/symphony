@@ -16,7 +16,11 @@ MACHINE_LOCAL = re.compile(r"/Users/[A-Za-z][\w.-]*/|/home/[a-z][\w.-]*/|[A-Za-z
 SECRETS = (
     ("AWS access key", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
     ("GitHub token", re.compile(r"\b(?:ghp|gho|ghs|ghu|ghr)_[A-Za-z0-9]{36}\b|\bgithub_pat_[A-Za-z0-9_]{50,}\b")),
-    ("private key", re.compile(r"-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----")),
+    # The header alone flags a diff line; the optional rest spans the block up to its END
+    # line, so a redaction (`sessiontrace`) removes the key, not only its first line.
+    ("private key", re.compile(
+        r"-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----(?:[\s\S]*?-----END (?:[A-Z]+ )?PRIVATE KEY-----)?"
+    )),
     ("Slack token", re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}\b")),
     ("API key", re.compile(r"\bsk-(?:ant-|proj-)?[A-Za-z0-9_-]{32,}\b")),
     ("Linear API key", re.compile(r"\blin_api_[A-Za-z0-9]{32,}\b")),

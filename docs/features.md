@@ -131,6 +131,8 @@ Each line gives one feature and how it is verified. "Mocked" means the
 | O5 | Planning ticket → task tree with blocks; only unblocked children dispatch | `test_linear_tools.py`, `test_github_tracker.py`, Mocked 4 |
 | O6 | Investigation tickets with no pull request (read-only token) | `test_ghapp.py`, `test_runner_live.py`, Mocked 3 |
 | O7 | An agent question takes its answer where people give it: the ticket (the question's thread; with one open question, any reply to Symphony or a new comment), the ticket's pull request (with one open question), Slack, Tern and the CLI; never from Symphony or a bot | `test_questions.py`, `test_api_webhooks.py`, `test_review_watch.py` |
+| O8 | The agent reads its own ticket's attachments (`symphony_ticket_attachments`, `symphony_fetch_attachment`): downloaded on the host with the tracker credential, only the current ticket's stored files, written inside the workspace, at most 25 MB | `test_ticket_attachments.py`, `mocks/test_mock_linear.py` |
+| O9 | Session trace on the ticket: each run's omp session exported to HTML, secrets redacted, attached and linked in the session report (`agent.attach_trace`) | `test_sessiontrace.py` |
 
 ## R. Merger review
 

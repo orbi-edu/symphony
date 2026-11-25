@@ -310,6 +310,18 @@ def render_session_report(entry: dict, rollup: dict | None = None) -> str:
         f"- Cost: **~US$ {cost:.4f}** — *estimate*, computed locally from the engine's "
         "bundled price table, not a billed charge"
     )
+    # One line per run: the attached trace (`sessiontrace`) or why it is not there.
+    for trace in entry.get("traces") or []:
+        if not isinstance(trace, dict):
+            continue
+        if trace.get("url"):
+            redacted = _int(trace.get("redactions"))
+            lines.append(
+                f"- **Session trace**: {trace['url']} (run {trace.get('run', '?')}, "
+                f"{redacted} {'redaction' if redacted == 1 else 'redactions'})"
+            )
+        elif trace.get("note"):
+            lines.append(f"- Session trace (run {trace.get('run', '?')}): {trace['note']}")
 
     if rollup and rollup.get("spans"):
         lines += ["", "**Session trace**", ""]

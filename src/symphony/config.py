@@ -80,6 +80,9 @@ class Config:
     # A question still unanswered this long after it was asked gets one reminder that
     # mentions the person who decides, on the ticket and in Slack (`questions.py`). 0: none.
     ask_reminder_ms: int = 7_200_000
+    # At the end of each run the omp session is exported to HTML, redacted and attached to
+    # the ticket (`sessiontrace.py`); the session report links it.
+    attach_trace: bool = True
     # engine block: the agent execution engine (replaces the retired codex: block)
     engine_command: str = "omp --mode rpc"
     # Optional fallback for the role model. The published TeamConfig wins at runtime
@@ -997,6 +1000,7 @@ def parse_workflow(text: str, env: Mapping[str, str] | None = None) -> Config:
         ),
         input_timeout_ms=_typed(agent, "input_timeout_ms", int, defaults.input_timeout_ms),
         ask_reminder_ms=_typed(agent, "ask_reminder_ms", int, defaults.ask_reminder_ms),
+        attach_trace=_typed(agent, "attach_trace", bool, defaults.attach_trace),
         stall_timeout_ms=_typed(agent, "stall_timeout_ms", int, defaults.stall_timeout_ms),
         engine_command=_typed(engine, "command", str, defaults.engine_command),
         engine_provider=_typed(engine, "provider", str, None),

@@ -114,6 +114,9 @@ class TrackerAdapter(Protocol):
     terminal states)."""
 
     kind: str  # "linear" | "github" | "memory"
+    # Tickets keep uploaded files (evidence, session traces) the agent can read back with
+    # `ticket_attachments`/`fetch_attachment`. False: evidence is text in a comment.
+    stores_files: bool
 
     def fetch_issues_by_states(self, states: Sequence[str]) -> list[Issue]: ...
 
@@ -191,6 +194,18 @@ class TrackerAdapter(Protocol):
 
     def attachments(self, identifier: str) -> list[dict]:
         """The ticket's evidence: `[{title, url, kind}]` (`kind` may be "")."""
+        ...
+
+    def ticket_attachments(self, issue: str) -> list[dict]:
+        """The files attached to the ticket, for the agent to read back:
+        `[{id, title, kind, url, created_at}]` (`kind` may be ""). [] when the tracker keeps
+        no files on tickets."""
+        ...
+
+    def fetch_attachment(self, issue: str, attachment_id: str, *, max_bytes: int) -> bytes:
+        """The bytes of attachment `attachment_id`, downloaded with the tracker credential.
+        It must be one of `issue`'s attachments and a file the tracker stores; otherwise, or
+        over `max_bytes`, TrackerInputError."""
         ...
 
     def identifier_in(self, text: str, repo: str | None = None) -> str | None:

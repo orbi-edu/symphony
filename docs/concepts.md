@@ -305,6 +305,8 @@ The tool is idempotent for each key: a second call with the same key does not ma
 
 The agent attaches evidence with the `symphony_attach_evidence` host tool. Linear takes any file of at most 25 MB. GitHub has no public API to upload a file to an issue, so it takes only text evidence, as a collapsible comment of at most 65,536 characters.
 
+With Linear, a later run reads the ticket's files back: `symphony_ticket_attachments` lists them and `symphony_fetch_attachment` downloads one into the workspace. The runner downloads it with the tracker credential, so the agent never holds it. At the end of each run the runner also attaches the run's session trace, redacted, and the session report links it ([security](security.md#session-traces-and-ticket-attachments)).
+
 ## Monorepos and components
 
 A monorepo — one repository with several independently buildable services — poses two challenges for Symphony: the right SDK must be in the workspace, and only the relevant service's build and tests should run.

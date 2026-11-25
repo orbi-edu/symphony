@@ -199,6 +199,8 @@ human questions go through `symphony_ask`.
 | `symphony_ask` | Runner: `request_input`, then a wait for an `answer` intent | `{question: string, options?: string[]}` | The answer text, or a fallback text after the timeout (see below) |
 | `symphony_create_issues` | Runner, through `tracker.create_sub_issues` | `{issues: [{key, title, description, labels?: string[], blocked_by?: string[]}]}` (at least one item) | `[{key, identifier, url}]` |
 | `symphony_attach_evidence` | Runner, through `tracker.attach_evidence` | `{path, title, kind: "screenshot" \| "video" \| "log" \| "report"}` | `{url}` |
+| `symphony_ticket_attachments` (trackers that store files) | Runner, through `tracker.ticket_attachments` | `{}` | `[{id, title, kind, host, created_at}]` |
+| `symphony_fetch_attachment` (trackers that store files) | Runner, through `tracker.fetch_attachment` | `{id, path}` | `{path, bytes}` |
 | `submit_finding`, `submit_review`, `submit_verdict`, `submit_arbitration`, `submit_resolution` | Merger | See [merger.md](merger.md#typed-output) | — |
 
 Rules for the runner tools:
@@ -244,7 +246,9 @@ Rules for the runner tools:
   session not updated for 10 minutes when its ticket's live attempt is another one; a
   question it was waiting on stays open.
 - The runner always offers `symphony_create_issues` and `symphony_attach_evidence`, for every
-  tracker. The tracker adapter does the work (see [section 16](#16-tracker-interface)).
+  tracker, and `symphony_ticket_attachments` and `symphony_fetch_attachment` for a tracker
+  that stores files (`stores_files`: Linear, memory). The tracker adapter does the work (see
+  [section 16](#16-tracker-interface)).
 - `symphony_create_issues` makes each item a child of the current ticket. Each child gets the
   `repo:` labels and the required label of the parent. `blocked_by` names keys from this call
   or from an earlier call, and each becomes a blocking relation. The records
@@ -255,7 +259,51 @@ Rules for the runner tools:
 - Linear stores evidence as a file attachment. GitHub has no public upload API, so the GitHub
   tracker accepts only UTF-8 text evidence. It writes a collapsible comment of at most 65,536
   characters. It refuses binary files with an error that tells the agent why.
+- `symphony_ticket_attachments` lists the current ticket's attachments: earlier runs'
+  evidence, session traces, drafts and links people added. Only the host of each URL is
+  shown; the URL stays in the runner.
+- `symphony_fetch_attachment` resolves the id against the current ticket's attachments
+  through the tracker API, never a URL from the agent, so another ticket's file is refused.
+  Linear downloads only a file in its storage (`uploads.linear.app`, or the API endpoint's
+  host against the mock), with the API key in `Authorization`, as Linear's file storage
+  authentication describes; a link attachment (a pull request) is refused and never gets the
+  key. At most 25 MB. The file is written at `path`, relative and inside the workspace: `..`
+  and absolute paths are refused, missing directories are created only below a directory
+  that resolves (symlinks included) inside the workspace, and a symlink or a directory at
+  `path` is refused. The bytes go to the sandbox on stdin, never in argv. GitHub lists `[]`
+  and refuses a fetch: its evidence is a comment.
 - The `toolcall:` cache makes each call idempotent for one dispatch.
+
+### Session trace
+
+At the end of each run of an implementation or investigation attempt, the runner attaches the
+run's omp session to the ticket (`sessiontrace.py`, `agent.attach_trace`, default on). It
+skips a run that never started the engine or has no session file, an answer run, an attempt
+that lost its dispatch, and a tracker that stores no files.
+
+1. After the engine got SIGTERM and the generation was swept, and before the workspace is
+   released, the runner runs `<engine binary> --export <session file> <tmp>/session-trace.html`
+   in the workspace. The session file is the `sessionFile` of `get_state` (`session_path` on
+   the claim), in the `--session-dir` of the attempt.
+2. It reads the page back with the evidence reader (inside the temporary directory, at most
+   25 MB) and removes the directory.
+3. omp does not redact the export. The page holds the session base64-encoded in its
+   `session-data` script. The runner decodes it and replaces with `[REDACTED]` every match of
+   the merger precheck's secret patterns (`merger.rules.SECRETS`: AWS, GitHub, Slack, OpenAI
+   and Anthropic style, Linear keys and whole private-key blocks) and every credential value
+   of the run of 12 characters or more: the tracker credential (`edge.tracker_credentials`),
+   each GitHub App installation token handed to the workspace, the gateway bridge token and
+   the MCP tokens.
+   A page without that script is not attached.
+4. `tracker.attach_evidence(kind="report", title="Session trace (run N)",
+   filename="session-trace-run-N.html", content_type="text/html")`; `N` is the claim's `runs`.
+5. The claim gets `traces[]`: `{run, url, redactions}`, or `{run, note}` when the trace is not
+   attached ("trace too large to attach: 26.3 MB", "trace not attached: the upload failed").
+   The session report has one line per run: `**Session trace**: <url> (run N, K redactions)`
+   or the note.
+
+A failed export, read or upload is logged (`session_trace_failed`, `session_trace_too_large`,
+`session_trace_upload_failed`) and never changes the outcome of the run or its report.
 
 ## 4. Team configuration
 
@@ -740,10 +788,13 @@ Each method that takes an `issue` or an `identifier` accepts the `Issue.id` or t
 | `create_issue(title, body, labels, state, repo)` | A new ticket on the board; missing labels are created. Returns `{identifier, url}` |
 | `state_of(identifier)` | `{name, type}`, with `type` `active`, `terminal` or `unknown` |
 | `attachments(identifier)` | The evidence of the ticket: `[{title, url, kind}]` |
+| `ticket_attachments(issue)` | The files on the ticket, for the agent: `[{id, title, kind, url, created_at}]`. GitHub: `[]` |
+| `fetch_attachment(issue, attachment_id, max_bytes)` | The bytes of one of the ticket's attachments, downloaded with the tracker credential. Another ticket's id, a link that is not a stored file, or a file over `max_bytes` raises `TrackerInputError`. GitHub: always refused |
 | `identifier_in(text, repo)` | The first ticket identifier in a branch name, a pull request title or a body. `repo` lets the GitHub tracker read a bare `#n` after a closing keyword |
 | `search(query, limit)` | Tickets whose title or body holds `query`, newest first: `[{identifier, title, state, url}]`. Linear filters the board; GitHub runs issue search over the board owner; read-only (the assistant's `tracker_search`) |
 | `add_blocked_by(issue, blocker)` | `blocker` blocks `issue`, any two tickets of the board (Linear `blocks` relation, GitHub issue dependency, across repositories too). True when new, False when already there; a refusal raises `TrackerInputError` |
 | `kind` | `linear`, `github` or `memory` |
+| `stores_files` | True when tickets keep uploaded files (Linear, memory): the attachment tools are offered and the session trace is attached. False for GitHub |
 
 A transport error, a 5xx or a 429 raises `TrackerUnavailable`. The daemon never reads it as "the
 ticket is gone". A request that the tracker cannot serve raises `TrackerInputError`, with a

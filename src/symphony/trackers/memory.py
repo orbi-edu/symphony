@@ -27,6 +27,7 @@ from .base import (
 
 class MemoryTracker:
     kind = "memory"
+    stores_files = True
 
     def __init__(
         self,
@@ -49,6 +50,8 @@ class MemoryTracker:
         self.people: dict[str, list[dict]] = {}  # issue id -> [{name, email, mention}], author first
         self.relations: list[tuple[str, str]] = []  # (blocker id, blocked id)
         self.evidence: dict[str, list[dict]] = {}  # issue id -> [{title, url, kind}]
+        # attachment id -> {issue, title, kind, url, created_at, data}
+        self.files: dict[str, dict] = {}
         self.labels: set[str] = set()  # labels the board has, beyond those on issues
         self.parents: dict[str, str] = {}  # child id -> parent id
         self._seq = itertools.count(1)
@@ -225,6 +228,9 @@ class MemoryTracker:
         entry = {"title": title, "url": f"memory://evidence/{found.identifier}/{filename}",
                  "kind": kind}
         self.evidence.setdefault(found.id, []).append(entry)
+        self.files[f"att-{len(self.files) + 1}"] = {
+            **entry, "issue": found.id, "created_at": "2026-01-01T00:00:00.000Z", "data": data,
+        }
         return entry
 
     def create_issue(
@@ -245,6 +251,25 @@ class MemoryTracker:
     def attachments(self, identifier: str) -> list[dict]:
         found = self._find(identifier)
         return list(self.evidence.get(found.id, [])) if found else []
+
+    def ticket_attachments(self, issue: str) -> list[dict]:
+        found = self._find(issue)
+        return [
+            {"id": file_id, "title": f["title"], "kind": f["kind"], "url": f["url"],
+             "created_at": f["created_at"]}
+            for file_id, f in self.files.items() if found is not None and f["issue"] == found.id
+        ]
+
+    def fetch_attachment(self, issue: str, attachment_id: str, *, max_bytes: int) -> bytes:
+        found = self._require(issue)
+        file = self.files.get(attachment_id)
+        if file is None or file["issue"] != found.id:
+            raise TrackerInputError(f"no attachment {attachment_id!r} on this ticket")
+        if len(file["data"]) > max_bytes:
+            raise TrackerInputError(
+                f"attachment {attachment_id!r} is larger than {max_bytes // (1024 * 1024)} MB"
+            )
+        return file["data"]
 
     def identifier_in(self, text: str, repo: str | None = None) -> str | None:
         """The first known identifier in `text`, as a whole word."""

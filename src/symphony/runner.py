@@ -18,11 +18,12 @@ from __future__ import annotations
 import random
 import re
 import secrets
+import shlex
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
-from . import discovery, endpoints, metrics, prwatch, state
+from . import discovery, endpoints, metrics, prwatch, sessiontrace, state
 from .config import Config, bind_role_model, resolve_workspace
 from .hosttools import HostToolBroker, tool_definitions
 from .omp_rpc import CommandFailed, OmpClient, OmpError, ReadTimeout, RunWatcher, SilenceTimeout
@@ -78,6 +79,9 @@ class RunnerEnv:
     intent_block_ms: int = INTENT_BLOCK_MS
     # The attempt prompt's extra paragraph for the role's MCP servers (`McpLaunch.prompt_guidance`).
     mcp_guidance: Callable[[], str] = field(default=lambda: "")
+    # The credential values this run holds (tracker key, App tokens, gateway tokens), all
+    # redacted from the session trace before it is attached (`sessiontrace`).
+    credentials: Callable[[], list[str]] = field(default=lambda: [])
 
 
 class RunnerFenced(Exception):
@@ -654,10 +658,42 @@ def _run_session(env, issue_id, attempt, seq, bridge_token, issue, sid, repos):
                     except Exception as exc:  # noqa: BLE001 — the generation kill follows
                         env.log("engine_sigterm_failed", sid=sid, error=str(exc))
                 env.kill_agent(sandbox)
+                if client is not None:
+                    _attach_trace(env, sandbox, issue_id, bridge_token)
             if kv.owns():
                 env.release_sandbox(sandbox)
 
     return _finish(env, issue_id, outcome, issue, failure_summary)
+
+
+def _attach_trace(env: RunnerEnv, sandbox: SandboxLike, issue_id: str, bridge_token: str) -> None:
+    """The run's session trace on the ticket, for the session report (`agent.attach_trace`).
+    After the engine stopped (its session file is complete) and before the workspace is
+    released. An answer run is no implementation run, and a superseded attempt must not
+    write to the ticket. Nothing here fails the run."""
+    kv, cfg = env.kv, env.cfg
+    try:
+        entry = kv.get(state.issue_key(issue_id)) or {}
+        session_path = entry.get("session_path")
+        if (
+            not cfg.attach_trace
+            or not env.tracker.stores_files
+            or not session_path
+            or entry.get("mode") == prwatch.ANSWER_MODE
+            or not kv.owns()
+        ):
+            return
+        run = int(entry.get("runs") or entry.get("attempt") or 1)
+        record = sessiontrace.attach(
+            sandbox, env.tracker, issue_id,
+            omp=shlex.split(cfg.engine_command)[0], session_path=session_path, run=run,
+            credentials=[bridge_token, *env.credentials()], log=env.log,
+        )
+        entry = kv.get(state.issue_key(issue_id)) or entry
+        entry["traces"] = [*(entry.get("traces") or []), record]
+        kv.put(state.issue_key(issue_id), entry)
+    except Exception as exc:  # noqa: BLE001 — fenced or not, the trace never fails the run
+        env.log("session_trace_failed", issue_id=issue_id, error=str(exc)[:300])
 
 
 def _turn_loop(

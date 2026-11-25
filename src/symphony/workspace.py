@@ -37,8 +37,11 @@ AGENT_PROCESS_PATTERN = (
 class SandboxLike(Protocol):
     name: str
 
-    def exec_script(self, script: str, timeout_s: float | None = None) -> tuple[int, str]:
-        """Runs `bash -lc <script>` INSIDE the sandbox; returns (exit_code, output)."""
+    def exec_script(
+        self, script: str, timeout_s: float | None = None, *, stdin: str | None = None
+    ) -> tuple[int, str]:
+        """Runs `bash -lc <script>` INSIDE the sandbox, `stdin` (when given) on its standard
+        input; returns (exit_code, output). Payloads travel on stdin, never in argv."""
         ...
 
 
@@ -179,12 +182,15 @@ class LocalSandbox:
         self.id = name
         self.env = dict(env or {})
 
-    def exec_script(self, script: str, timeout_s: float | None = None) -> tuple[int, str]:
+    def exec_script(
+        self, script: str, timeout_s: float | None = None, *, stdin: str | None = None
+    ) -> tuple[int, str]:
         try:
             done = subprocess.run(
                 ["bash", "-lc", script],
                 cwd=self.root,
                 env={**os.environ, **self.env},
+                input=stdin,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
