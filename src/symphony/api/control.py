@@ -79,6 +79,7 @@ class Services:
     projection: Any = None
     secrets: Any = None  # setup_secrets.SecretStore
     mcp: Any = None  # mcp_servers.McpRepository
+    previews: Any = None  # previews.PreviewManager: preview links (`api/previews.py`)
     # Webhook signing secrets; None reads LINEAR_/GITHUB_WEBHOOK_SECRET from the env per request.
     linear_secret: str | None = None
     github_secret: str | None = None

@@ -255,6 +255,14 @@ class FakeGitHub(GitHub):
         self._maybe_fail("set_draft")
         self.prs[n]["draft"] = draft
 
+    def close(self, n: int) -> None:
+        self._maybe_fail("close")
+        self.prs[n]["state"] = "closed"
+
+    def reopen(self, n: int) -> None:
+        """A person reopens the PR on GitHub."""
+        self.prs[n]["state"] = "open"
+
     def merge(self, n: int, sha: str, method: str) -> tuple[bool, str]:
         self._maybe_fail("merge")
         with self.lock:

@@ -7,6 +7,55 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.22] - 2026-11-25
+
+### Added
+
+- Preview links on the pull request: when the merger finds a preview artifact for a head
+  (T10), it also keeps one **Preview** comment on the PR, edited in place, with a link per
+  build (newest first, the last 5): `<SYMPHONY_PUBLIC_URL>/v1/previews/open?repo=&pr=&sha=`.
+  The link has no expiry: it opens that build days later, while its artifact exists, and an
+  older sha opens that version. Behind Cloudflare Access no secret is needed. For
+  `previews.public_links` the link must be signed: `sig`, an HMAC-SHA256 of the repository,
+  PR and sha with the new optional secret `SYMPHONY_PREVIEW_LINK_SECRET` (Secret
+  `symphony-api`; the merger reads only that key). With Access and the secret, links are
+  signed and a present `sig` must match, but none is required.
+- `GET /v1/previews/open` and `GET /v1/previews/status` on the API: browser routes, no API
+  token. Behind Cloudflare Access (new `api.access: {team_domain, aud}` in `WORKFLOW.md`) the
+  API verifies the `Cf-Access-Jwt-Assertion` token (RS256 against the team's cached keys,
+  `aud`, `iss`, `exp`) and requires its e-mail in `notify.users`; any mapped person may open,
+  not only reviewers. Without Access the route refuses, unless `previews.public_links: true`
+  (a signed link required).
+  The page shows the start's progress and errors, polling every 2 s, then redirects to a
+  fresh Seiji control viewer; a reload mints a new one for the same device. An expired
+  artifact gets a page that says so. Each open is audited as `preview.opened`.
+- The answer run on a PR gets the PR's preview links in its prompt (`## Preview links`), and
+  `WORKFLOW.md` tells it to reply with the link when someone asks to open or test the app in
+  Seiji, instead of installing the build on a device itself.
+- PR answer runs get a session trace too, titled `Session trace (answer, run N)`
+  (`session-trace-answer-run-N.html`); the session report marks them `(answer, run N, …)`.
+- Canceled tickets stop everything. A ticket finalized in an abandon state (new
+  `tracker.abandon_states`, by default Canceled, Cancelled and Duplicate when they are
+  terminal states, plus the tracker's canceled-type states such as Linear's `canceled`; Done
+  never) closes its open questions: their Slack message and DM copies read ":no_entry: *Ticket
+  canceled*" with the question kept and no buttons, no reminder follows, and a later answer is
+  refused ("the ticket was canceled"). The merger, on its own review pass and with the
+  ticket's state cached for a minute, drops the ticket's PRs from its queue, parked reviews and
+  train wait list, comments once (`Closed by symphony-merger: <ticket> was moved to <state>.
+  Reopen the PR to work on it again.`), closes them and releases their preview devices. A PR a
+  person reopens is not closed again for the same ticket state; a ticket back in an active
+  state works normally again.
+
+### Changed
+
+- Preview devices are one per (repository, PR, sha), at most 2 live per PR (a third build
+  releases the oldest), and are recorded only in Redis: the assistant (buttons) and the API
+  (links) share them, and one sweep a round runs under a Redis lock. A restarted process
+  keeps sweeping the devices it finds instead of releasing them at start. A device opened
+  from a link keeps its sha: a head move or an approval no longer releases it (a merge or
+  close, 55 minutes and a lost lease still do). The button's reviewer rule is unchanged.
+- The previews' GitHub App token also asks for `contents: read` (to resolve a link's sha).
+
 ## [0.2.21] - 2026-11-25
 
 ### Added

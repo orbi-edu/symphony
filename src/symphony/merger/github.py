@@ -41,6 +41,7 @@ class GitHub:
     def edit_comment(self, url: str, body: str) -> None: raise NotImplementedError
     def discussion(self, n: int) -> list[dict]: raise NotImplementedError
     def set_draft(self, n: int, draft: bool) -> None: raise NotImplementedError
+    def close(self, n: int) -> None: raise NotImplementedError
     def merge(self, n: int, sha: str, method: str) -> tuple[bool, str]: raise NotImplementedError
     def check_runs(self, sha: str) -> list[dict]: raise NotImplementedError
     def workflow_runs(self, *, sha: str | None = None, branch: str | None = None,
@@ -209,6 +210,10 @@ class RestGitHub(GitHub):
             "mutation($id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $id}) { clientMutationId } }"
         )
         self._graphql(mutation, {"id": node})
+
+    def close(self, n: int) -> None:
+        """`PATCH pulls/N` with `state: closed`: closed, not merged; a person can reopen it."""
+        self._req("PATCH", self._repo(f"/pulls/{n}"), json={"state": "closed"})
 
     def merge(self, n: int, sha: str, method: str) -> tuple[bool, str]:
         """`PUT pulls/N/merge` with `sha`: GitHub merges only that exact head

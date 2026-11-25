@@ -19,6 +19,7 @@ This document describes the trust boundaries of Symphony, the path of each crede
 - [Fencing](#fencing)
 - [Merger controls](#merger-controls)
 - [Session traces and ticket attachments](#session-traces-and-ticket-attachments)
+- [Preview links](#preview-links)
 - [Secret-request guard](#secret-request-guard)
 - [Local mode](#local-mode)
 - [Operator checklist](#operator-checklist)
@@ -297,13 +298,27 @@ Fencing makes sure that only the current dispatch of a ticket can change state.
 
 ## Session traces and ticket attachments
 
-**What a session trace holds.** At the end of each run the runner attaches the run's omp session to the ticket as an HTML file (`agent.attach_trace`, [internals §3](internals.md#session-trace)). It holds the whole transcript: the prompt, the ticket text, every message of the agent, every tool call with its arguments and output (file contents, command output, diffs), and the trace timeline. The page loads only the viewer code from a public CDN; the session data stays in the file and is never sent there.
+**What a session trace holds.** At the end of each run, and of each PR answer run, the runner attaches the run's omp session to the ticket as an HTML file (`agent.attach_trace`, [internals §3](internals.md#session-trace)). It holds the whole transcript: the prompt, the ticket text, every message of the agent, every tool call with its arguments and output (file contents, command output, diffs), and the trace timeline. The page loads only the viewer code from a public CDN; the session data stays in the file and is never sent there.
 
 **Redaction.** omp does not redact the export. Before the upload the runner replaces with `[REDACTED]` every match of the merger precheck's secret patterns (AWS access keys, GitHub tokens, Slack tokens, `sk-` API keys, Linear API keys, private-key blocks) and every credential value the run holds: the tracker key, each GitHub App installation token handed to the workspace, the gateway bridge token and the MCP tokens. The report line gives the number of replacements. Redaction is best effort: a secret of another shape (a database password the agent printed, a key from a file in the repository) stays in the trace. When the runner cannot find the session data in the page, it attaches nothing. Set `agent.attach_trace: false` when tickets must not carry transcripts.
 
 **Who can read it.** A Linear attachment is a file in Linear's private storage (`uploads.linear.app`). Every member of the Linear workspace who can open the ticket can open it, and so can every API key and OAuth app of that workspace. A GitHub tracker stores no files, so no trace is attached there.
 
 **The agent reads its ticket's attachments through the host.** `symphony_fetch_attachment` downloads a file with the tracker credential in the runner process. The credential never enters the workspace. The id is resolved against the current ticket's attachments through the tracker API, so the agent cannot fetch another ticket's file or make the runner send the key to a URL it chose; Linear sends the key only to its own file storage, and a link attachment is refused. The file lands inside the workspace only (no `..`, no absolute path, no symlink out), at most 25 MB. Treat the content of an attachment like the ticket text: anyone who can attach a file to the ticket can put instructions in it.
+
+## Preview links
+
+The merger posts a link per preview build on the pull request ([assistant.md](assistant.md#the-link-on-the-pull-request)). Opening it starts a Seiji device with that build and redirects the browser to a control viewer.
+
+**The signature.** A link is `/v1/previews/open?repo=&pr=&sha=`, plus `sig` when the merger holds `SYMPHONY_PREVIEW_LINK_SECRET`: an HMAC-SHA256 over the repository, the PR number and the 12-hex sha, compared in constant time. Behind Cloudflare Access the person is the credential and the signature is optional: the operator need not provision the secret, and a present `sig` must match when the API holds it. With `previews.public_links` (no Access) the link itself is the credential, so the secret and a matching `sig` are required. Only the merger (which signs) and the API (which verifies) hold the secret; the merger gets only that key of the `symphony-api` Secret. A signed link cannot be changed to another repository, PR or build without the secret. A link has no expiry: the artifact's retention on GitHub bounds it. Rotate the secret to void every signed link already posted.
+
+**The person, behind Cloudflare Access.** With `api.access`, each request must carry `Cf-Access-Jwt-Assertion`. The API verifies the RS256 signature with the keys of `https://<team_domain>/cdn-cgi/access/certs` (cached for an hour; an unknown key id refetches them at most every 30 seconds), and checks `aud` against the application's tag, `iss` against `https://<team_domain>` and `exp`. It takes the `email` claim and requires `notify.users` to map it. It never trusts `Cf-Access-Authenticated-User-Email` or any other header alone. The Access application must cover at least the path `/v1/previews/`; a request that reaches the API another way (a port-forward, another route) has no valid token and is refused. Each open is audited as `preview.opened` with the person's GitHub login.
+
+**Without Access.** The route refuses every link unless `previews.public_links: true`. Then a link with a valid signature alone opens the preview (an unsigned one is a 403, a missing secret a 503), and the audit actor is `public-link`. Anyone who can read the pull request, or who gets the URL from a browser history, a chat or a log, can then use it. Turn it on only when the API is reachable from your network alone.
+
+**What someone with a link can do.** Open that one build of that one PR on a simulator, control it through the viewer, and get a new viewer link each time they open it, while the artifact exists. With Access, only if their verified e-mail is mapped in `notify.users`. A device lives at most 55 minutes, at most 2 per PR, and is released when the PR is merged or closed; opening links of many PRs costs devices and Seiji minutes of the shared account.
+
+**What they cannot do.** With a signed link (public mode), open another PR, repository or sha. Behind Access a mapped person can edit an unsigned link to open any build that has a preview artifact in a repository the GitHub App reaches: that is the same reach as the Slack button gives reviewers, for every mapped person. Nobody can choose the artifact (the API looks it up itself, by name, on GitHub's workflow runs of that commit, and checks the `head_sha` in `preview.json`), reach the GitHub App token, the Seiji credentials or any API route (the link is no API token), or learn the secret from the link. The pages set `Cache-Control: no-store`, `Referrer-Policy: no-referrer` and a nonce-only Content Security Policy, and show no token. A viewer link opens once, within 60 seconds.
 
 ## Secret-request guard
 

@@ -51,6 +51,10 @@ class Config:
     # deliberately absent: there the merger owns the ticket and the implementer is parked.
     active_states: tuple[str, ...] = ("Todo", "In Progress", "Rework")
     terminal_states: tuple[str, ...] = ("Closed", "Cancelled", "Canceled", "Duplicate", "Done")
+    # Terminal states that are not a success (`tracker.abandon_states`): a ticket moved there
+    # closes its open questions and the merger closes its PRs. A tracker's canceled-type
+    # state (Linear's `canceled`) counts too. The done state never does.
+    abandon_states: tuple[str, ...] = ("Cancelled", "Canceled", "Duplicate")
     required_labels: tuple[str, ...] = ()
     # States where a ticket waits before it is ready (Backlog, Triage). A ticket there that
     # carries Symphony's labels is told it is not queued yet, and why (`intake.py`).
@@ -233,6 +237,11 @@ class Config:
     merger_label_filter_enabled: bool = True
     merger_label_filter_labels: tuple[str, ...] = ("symphony", "symphony-learnings")
     merger_label_filter_repos: dict = field(default_factory=dict)
+    # `api.access`: Cloudflare Access in front of the API, `{team_domain, aud}`. Browser routes
+    # (preview links, `api/previews.py`) verify its JWT and map its e-mail in `notify.users`.
+    api_access: dict | None = None
+    # `previews.public_links`: without `api.access`, a signed preview link alone opens it.
+    previews_public_links: bool = False
     prompt_body: str = ""
 
     @property
@@ -240,6 +249,11 @@ class Config:
         """FR-026: every terminal issue triggers a retro — the default inherits
         terminal_states IN FULL (all spellings + Duplicate)."""
         return self.reflect_on if self.reflect_on is not None else self.terminal_states
+
+    def abandons(self, state: str | None, canceled: bool = False) -> bool:
+        """True when a ticket in `state` was given up on: canceled, a duplicate. `canceled` is
+        the tracker's own word (a canceled-type state); `tracker.states.done` never is."""
+        return is_abandon_state(self.abandon_states, self.tracker_states["done"], state, canceled)
 
     def base_branch(self, repo: str) -> str | None:
         """The configured base branch for `repo`, or None (auto-detect)."""
@@ -465,6 +479,29 @@ def _check_tracker_states(cfg: Config) -> None:
     if states["done"].casefold() not in terminal:
         raise ConfigError(f"tracker.states.done ({states['done']!r}) must be a terminal state")
 
+    abandon = {s.casefold() for s in cfg.abandon_states}
+    if abandon - terminal:
+        raise ConfigError("tracker.abandon_states must be terminal states")
+    if states["done"].casefold() in abandon:
+        raise ConfigError(f"tracker.abandon_states must not include tracker.states.done "
+                          f"({states['done']!r}): a merged ticket is a success")
+
+
+def is_abandon_state(abandon_states, done: str, state: str | None, canceled: bool = False) -> bool:
+    """`Config.abandons` for a process that holds only the two settings (the merger)."""
+    if not state or state.casefold() == done.casefold():
+        return False
+    return canceled or state.casefold() in {s.casefold() for s in abandon_states}
+
+
+def _abandon_states(tracker: dict, terminal: tuple[str, ...]) -> tuple[str, ...]:
+    """`tracker.abandon_states`; unset, the default names that are terminal states here."""
+    given = _str_list(tracker, "abandon_states", None)
+    if given is not None:
+        return given
+    names = {s.casefold() for s in terminal}
+    return tuple(s for s in Config.abandon_states if s.casefold() in names)
+
 
 # notify.users: service → its name in messages. A Discord user id is a snowflake.
 NOTIFY_SERVICES = {"slack": "Slack", "discord": "Discord"}
@@ -652,6 +689,30 @@ def _retention(data: dict) -> dict:
         if not retention.MIN_DAYS <= value <= high:
             raise ConfigError(f"retention.{key} must be between {retention.MIN_DAYS} and {high}")
         out[f"retention_{key}"] = value
+    return out
+
+
+_LABEL = r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?"
+_TEAM_DOMAIN = re.compile(rf"(?=.{{1,253}}\Z){_LABEL}(\.{_LABEL})+\Z")
+
+
+def _api_and_previews(data: dict) -> dict:
+    """`api.access` (Cloudflare Access: `team_domain` host, `aud` tag) and
+    `previews.public_links`."""
+    api = _section(data, "api", {"access"})
+    out: dict[str, Any] = {"api_access": None}
+    if api.get("access") is not None:
+        access = _section(api, "access", {"team_domain", "aud"})
+        domain = _typed(access, "team_domain", str, "").strip().lower()
+        if not _TEAM_DOMAIN.fullmatch(domain):
+            raise ConfigError("api.access.team_domain must be a host name such as "
+                              "acme.cloudflareaccess.com (no scheme, no path)")
+        aud = _typed(access, "aud", str, "").strip()
+        if not aud:
+            raise ConfigError("api.access.aud must be the Access application's audience tag")
+        out["api_access"] = {"team_domain": domain, "aud": aud}
+    previews = _section(data, "previews", {"public_links"})
+    out["previews_public_links"] = _typed(previews, "public_links", bool, False)
     return out
 
 
@@ -980,6 +1041,8 @@ def parse_workflow(text: str, env: Mapping[str, str] | None = None) -> Config:
         provider=dict(tracker.get("provider") or {}),
         active_states=_str_list(tracker, "active_states", defaults.active_states),
         terminal_states=_str_list(tracker, "terminal_states", defaults.terminal_states),
+        abandon_states=_abandon_states(
+            tracker, _str_list(tracker, "terminal_states", defaults.terminal_states)),
         required_labels=_str_list(tracker, "required_labels", defaults.required_labels),
         intake_states=_str_list(tracker, "intake_states", defaults.intake_states),
         memory_issues=_memory_issues(tracker),
@@ -1077,6 +1140,7 @@ def parse_workflow(text: str, env: Mapping[str, str] | None = None) -> Config:
         **_backup(data),
         **_skills(data),
         **_merger(data),
+        **_api_and_previews(data),
         prompt_body=body,
     )
 

@@ -105,3 +105,18 @@ def public_repository_guidance(issue: Issue, repos: list[str]) -> str:
         "the diff, the commit messages, the branch and the pull request text for anything "
         "this list forbids."
     )
+
+
+def preview_links_guidance(links: list[tuple[str, int, str, str]]) -> str:
+    """Appended to an answer run's prompt when the ticket's PRs have preview builds
+    (`preview_links`): `(repo, pr, sha12, url)`, newest first per PR."""
+    rows = "\n".join(f"- {repo}#{pr} at `{sha12}`: {url}" for repo, pr, sha12, url in links)
+    return (
+        "## Preview links\n\n"
+        "Each link opens that build of the app on a simulator in Seiji for the person who "
+        "clicks it, now or later, while GitHub keeps the build (newest first):\n\n"
+        f"{rows}\n\n"
+        "When someone asks to open, run or test the app in Seiji or a simulator, reply with "
+        "the link of the build they mean (the newest unless they name another). Do not "
+        "install it on a device yourself: the person cannot reach a device you hold."
+    )

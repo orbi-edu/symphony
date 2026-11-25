@@ -14,7 +14,7 @@ import pytest
 from tests.conftest import FakeClock, FakeKV
 from tests.omp_fakes import FakeEngine, runner_env
 
-from symphony import sessiontrace, state, telemetry
+from symphony import prwatch, sessiontrace, state, telemetry
 from symphony.config import ConfigError, parse_workflow
 from symphony.runner import run_attempt
 from symphony.trackers.memory import MemoryTracker
@@ -222,11 +222,11 @@ class _Ordered(LocalSandbox):
         return super().exec_script(script, timeout_s, stdin=stdin)
 
 
-def _run(redis_client, tmp_path, cfg, tracker, order):
+def _run(redis_client, tmp_path, cfg, tracker, order, **entry):
     kv = FakeKV()
     kv.put(state.issue_key("i1"), {"status": "claimed", "identifier": "ENG-1", "attempt": 1,
                                    "dispatch_seq": 1, "runs": 1, "tokens": {},
-                                   "failure_summary": None})
+                                   "failure_summary": None, **entry})
     kv.put(state.dispatch_key("i1", 1), {"daemon_owner": "d1"})
     engine = FakeEngine()
     engine.run()
@@ -239,6 +239,23 @@ def _run(redis_client, tmp_path, cfg, tracker, order):
                      credentials=lambda: [KNOWN])
     outcome = run_attempt(env, "i1", 1, 1)
     return outcome, kv.get(state.issue_key("i1"))
+
+
+def test_an_answer_run_attaches_its_trace_titled_as_an_answer(redis_client, tmp_path, omp):
+    """People read the trace of a PR answer too: same export and redaction, its own title."""
+    tracker = Tracker()
+    tracker.add_issue("i1", "ENG-1", state="In Review")  # parked under a reviewer
+    cfg = parse_workflow(
+        "---\ntracker: {kind: memory}\nagent: {max_turns: 1}\n"
+        f"engine: {{command: '{omp} --mode rpc', provider: acme, model: acme-1}}\n"
+        "review_watch: {enabled: true, answer_max_turns: 1, answer_prompt: Answer.}\n---\nx\n"
+    )
+    _, entry = _run(redis_client, tmp_path, cfg, tracker, [], mode=prwatch.ANSWER_MODE, runs=3)
+    assert tracker.uploads[-1]["title"] == "Session trace (answer, run 3)"
+    assert entry["traces"] == [{"run": 3, "answer": True, "redactions": 3,
+                                "url": "memory://evidence/ENG-1/session-trace-answer-run-3.html"}]
+    assert ("**Session trace**: memory://evidence/ENG-1/session-trace-answer-run-3.html "
+            "(answer, run 3, 3 redactions)") in telemetry.render_session_report(entry)
 
 
 def test_the_runner_attaches_the_trace_after_the_engine_stops(redis_client, tmp_path, omp):

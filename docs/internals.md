@@ -42,6 +42,7 @@ The `state` keys have no namespace prefix. All other keys have a namespace prefi
 | `telemetry:<issue_id>` | String (JSON) | The span rollup of the current attempt | 7 days idle |
 | `metrics:<yyyymm>` | String (JSON) | Monthly counters (dispatched, rework, pull requests opened and merged, learning pull requests, `retries: {failure, continuation}` redispatches) | 7 days idle; the daemon reads 12 months to keep them |
 | `hold:<issue_id>` | String (JSON) | A person holds the ticket: `{by, reason, at}` (section 12) | Never |
+| `abandoned:<issue_id>` | String (JSON) | The daemon finalized the ticket in an abandon state (`tracker.abandon_states`): `{state, identifier, at}`. Its questions asked before `at` close as canceled (`questions._advance`) | 7 days idle |
 | `repo:` | Label prefix | Not a key: the Linear label `repo:<owner/name>` routes a ticket to a repository | — |
 | `orchestrator:heartbeat` | String | Last daemon heartbeat (epoch ms) | 7 days idle |
 | `daemon:setup` | String (JSON) | Whether the daemon can work: `{status: "ready" \| "incomplete", reason, at}`, written each step (section 17) | 7 days idle |
@@ -65,6 +66,11 @@ The `state` keys have no namespace prefix. All other keys have a namespace prefi
 | `sym:<ns>:ratelimits` | Hash | `<provider>/<model>` → rate limit observation (section 10) | Never; the API shows only the last hour |
 | `sym:<ns>:mcp:token:<sha256>` | String (JSON) | One agent session's MCP token: `{role, session, exp}`; the key holds the SHA-256 of the token, never the token (section 18) | Its own TTL (4 h by default); deleted when the session ends |
 | `sym:<ns>:mcp:calls` | Hash | `<server>:<role>` → MCP calls through the gateway | Never |
+| `sym:<ns>:preview:live` | Hash | `<owner/name>:<pr>:<sha12>` → a live preview device `{repo, pr, head_sha, lease_id, server, mcp_token, started_at, bundle_id, origin}`; `origin` is `button` or `link` ([assistant.md](assistant.md#pr-previews)) | 1 h, renewed on each write |
+| `sym:<ns>:preview:starting:<owner/name>:<pr>:<sha12>` | String (JSON) | A start in progress, `{step}` (`queued`, `downloading`, `installing`, `launching`): one start per build across the assistant and the API | 15 min; deleted when the start ends |
+| `sym:<ns>:preview:failed:<owner/name>:<pr>:<sha12>` | String | Why the last start of that build failed, for the link's status page | 10 min |
+| `sym:<ns>:preview:sweep` | String | The preview sweep lock: one process sweeps a round | 55 s |
+| `sym:<ns>:preview:builds:<owner/name>:<pr>` | String (JSON) | The PR's preview links that the merger listed, `{comment, builds: [{sha, sha12, url, at}]}`, newest first, at most 5; the answer run reads them | 90 days |
 | `sym:<ns>:merger:repos` | Set | Every repository that a merger registered | Never |
 | `sym:<ns>:merger:<repo>:heartbeat` | String | The merger of `<repo>` is alive | 90 s, renewed every 30 s or less |
 | `sym:<ns>:merger:<repo>:*` | Several | Merger state of one repository; see [Merger keys](#merger-keys) | Per key |
@@ -114,7 +120,8 @@ The prefix of the keys below is `sym:<ns>:merger:<repo>:`.
 | `actions` | Stream | Operator actions (`bypass`, `requeue`, `release`) |
 | `actions:cursor` | String | The id of the last action that the merger applied |
 | `seq:<pr>:<role>` | Integer | Counter for the merger session ids |
-| `lease:train`, `lease:pr:<n>`, `lease:fixslot:<k>`, `lease:actions` | String | Lease owner, with `PX` expiry |
+| `abandoned:<pr>` | String | `<ticket>:<state>` the merger closed the PR for (`abandon.py`), or `commented:<ticket>:<state>` between the comment and the close | 90 days |
+| `lease:train`, `lease:pr:<n>`, `lease:fixslot:<k>`, `lease:actions`, `lease:abandon` | String | Lease owner, with `PX` expiry |
 
 ## 2. Sessions
 
@@ -280,10 +287,10 @@ Rules for the runner tools:
 
 ### Session trace
 
-At the end of each run of an implementation or investigation attempt, the runner attaches the
-run's omp session to the ticket (`sessiontrace.py`, `agent.attach_trace`, default on). It
-skips a run that never started the engine or has no session file, an answer run, an attempt
-that lost its dispatch, and a tracker that stores no files.
+At the end of each run of an implementation or investigation attempt, and of each PR answer
+run, the runner attaches the run's omp session to the ticket (`sessiontrace.py`,
+`agent.attach_trace`, default on). It skips a run that never started the engine or has no
+session file, an attempt that lost its dispatch, and a tracker that stores no files.
 
 1. After the engine got SIGTERM and the generation was swept, and before the workspace is
    released, the runner runs `<engine binary> --export <session file> <tmp>/session-trace.html`
@@ -303,10 +310,13 @@ that lost its dispatch, and a tracker that stores no files.
    redact is attached unchanged.
 4. `tracker.attach_evidence(kind="report", title="Session trace (run N)",
    filename="session-trace-run-N.html", content_type="text/html")`; `N` is the claim's `runs`.
+   An answer run (`mode: answer`) uses `title="Session trace (answer, run N)"` and
+   `filename="session-trace-answer-run-N.html"`.
 5. The claim gets `traces[]`: `{run, url, redactions}`, or `{run, note}` when the trace is not
-   attached ("trace too large to attach: 26.3 MB", "trace not attached: the upload failed").
-   The session report has one line per run: `**Session trace**: <url> (run N, K redactions)`
-   or the note.
+   attached ("trace too large to attach: 26.3 MB", "trace not attached: the upload failed");
+   an answer run's record has `answer: true`. The session report has one line per run:
+   `**Session trace**: <url> (run N, K redactions)` (`(answer, run N, …)` for an answer) or
+   the note.
 
 A failed export, read or upload is logged (`session_trace_failed`, `session_trace_too_large`,
 `session_trace_upload_failed`) and never changes the outcome of the run or its report.

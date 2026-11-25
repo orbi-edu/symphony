@@ -11,6 +11,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException
 
+from .. import previews
 from ..admin_commands import AdminStore, CommandError
 from ..admin_read import AdminProjection, LiveReader, ProjectionError
 from ..admin_workflow import WorkflowError
@@ -19,6 +20,7 @@ from ..providers import ProviderError
 from ..sessions import SessionStore
 from ..teamconfig import TeamConfig
 from . import admin, assistant, backup, board, mcp, merger, sessions, setup, webhooks
+from . import previews as preview_routes
 from .auth import Authenticator
 from .catalog import Catalog
 from .control import Control, MergerFleet, Services
@@ -93,6 +95,7 @@ def build_app(services: Services, *, per_minute: int | None = None) -> FastAPI:
     app.include_router(setup.build_router(control, auth))
     app.include_router(assistant.build_router(control, auth))
     app.include_router(backup.build_router(control, auth))
+    app.include_router(preview_routes.build_router(control))
     return app
 
 
@@ -164,4 +167,5 @@ def build_services(
         merger=merger_fleet,
         secrets=secrets,
         mcp=mcp,
+        previews=previews.from_env(client, namespace, mcp, os.environ),
     )

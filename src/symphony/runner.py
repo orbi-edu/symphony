@@ -23,7 +23,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
-from . import discovery, endpoints, metrics, prwatch, sessiontrace, state
+from . import discovery, endpoints, metrics, preview_links, prwatch, sessiontrace, state
 from .config import Config, bind_role_model, resolve_workspace
 from .hosttools import HostToolBroker, tool_definitions
 from .omp_rpc import CommandFailed, OmpClient, OmpError, ReadTimeout, RunWatcher, SilenceTimeout
@@ -33,7 +33,7 @@ from .orchestrator import (
     mark_clean_continuation,
     mark_retry_after_failure,
 )
-from .prompt import PromptError, public_repository_guidance, render_prompt
+from .prompt import PromptError, preview_links_guidance, public_repository_guidance, render_prompt
 from .sessions import SessionStore, attempt_session_id
 from .teamconfig import TeamConfig, model_arg
 from .trackers.base import Issue, TrackerAdapter, TrackerUnavailable
@@ -797,8 +797,8 @@ def _run_session(env, issue_id, attempt, seq, bridge_token, issue, sid, repos):
 def _attach_trace(env: RunnerEnv, sandbox: SandboxLike, issue_id: str, bridge_token: str) -> None:
     """The run's session trace on the ticket, for the session report (`agent.attach_trace`).
     After the engine stopped (its session file is complete) and before the workspace is
-    released. An answer run is no implementation run, and a superseded attempt must not
-    write to the ticket. Nothing here fails the run."""
+    released. An answer run gets one too, titled as an answer. A superseded attempt must
+    not write to the ticket. Nothing here fails the run."""
     kv, cfg = env.kv, env.cfg
     try:
         entry = kv.get(state.issue_key(issue_id)) or {}
@@ -807,7 +807,6 @@ def _attach_trace(env: RunnerEnv, sandbox: SandboxLike, issue_id: str, bridge_to
             not cfg.attach_trace
             or not env.tracker.stores_files
             or not session_path
-            or entry.get("mode") == prwatch.ANSWER_MODE
             or not kv.owns()
         ):
             return
@@ -816,12 +815,28 @@ def _attach_trace(env: RunnerEnv, sandbox: SandboxLike, issue_id: str, bridge_to
             sandbox, env.tracker, issue_id,
             omp=shlex.split(cfg.engine_command)[0], session_path=session_path, run=run,
             credentials=[bridge_token, *env.credentials()], log=env.log,
+            answer=entry.get("mode") == prwatch.ANSWER_MODE,
         )
         entry = kv.get(state.issue_key(issue_id)) or entry
         entry["traces"] = [*(entry.get("traces") or []), record]
         kv.put(state.issue_key(issue_id), entry)
     except Exception as exc:  # noqa: BLE001 — fenced or not, the trace never fails the run
         env.log("session_trace_failed", issue_id=issue_id, error=str(exc)[:300])
+
+
+def _preview_guidance(env: RunnerEnv, entry: dict) -> str:
+    """The preview links of the ticket's PRs (`preview_links`, listed by the merger), for an
+    answer run: a person who asks to try the app gets a link, not a device the agent holds."""
+    links = []
+    try:
+        for repo, number in sorted((entry.get("pr_numbers") or {}).items()):
+            for build in preview_links.builds(env.sessions.client, env.sessions.ns, repo,
+                                              int(number)):
+                links.append((repo, int(number), build["sha12"], build["url"]))
+    except Exception as exc:  # noqa: BLE001 — the answer goes on without the links
+        env.log("preview_links_unavailable", error=str(exc)[:300])
+        return ""
+    return preview_links_guidance(links) if links else ""
 
 
 def _turn_loop(
@@ -900,11 +915,13 @@ def _turn_loop(
         if human_turn:
             prompt_text = ""
         elif answering:
+            guidance = [public_repository_guidance(current, public) if public else "",
+                        _preview_guidance(env, entry)]
             prompt_text = render_prompt(
                 cfg.answer_prompt,
                 current,
                 entry.get("runs", attempt),
-                public_repository_guidance(current, public) if public else "",
+                "\n\n".join(g for g in guidance if g),
                 investigation_label=cfg.investigation_label,
                 runtime=resolved_runtime,
                 component=resolved_component,

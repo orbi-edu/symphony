@@ -214,6 +214,9 @@ review_watch:
       request(s) and on the ticket — and answer each **where it was asked**.
     - A question about whether something was verified is a request for evidence: give the
       command you ran and what it printed, or say plainly that you did not run it and why.
+    - Asked to open or test the app in Seiji or a simulator: reply with the build's link
+      from "Preview links" below (none listed: the PR has no preview build yet); never
+      install it on a device yourself.
     - Record what you answered in the Workpad.
 
     Limits that make it safe to wake you here: do not change the ticket's state, do not

@@ -234,6 +234,12 @@ def _finalize_terminal(
     _delete_dispatch_tokens(kv, issue_id, max(entry.get("attempt", 1), entry.get("dispatch_seq", 1)))
     kv.delete(state.issue_key(issue_id))
     kv.delete(state.telemetry_key(issue_id))  # FR-017: no residue outlives the tracking entry
+    if issue is not None and cfg.abandons(issue.state, issue.canceled):
+        # Canceled, a duplicate: its open questions close (`questions._advance`); the merger
+        # closes its PRs on its own pass (`merger.abandon`).
+        kv.put(state.abandoned_key(issue_id),
+               {"state": issue.state, "identifier": issue.identifier, "at": now_ms})
+        fx.emit("ticket_abandoned", issue_id=issue_id, state=issue.state)
     fx.emit("terminal_cleanup", issue_id=issue_id)
 
 

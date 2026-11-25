@@ -6,7 +6,8 @@ back to waiting if the approval is dismissed.
 
 The preview announcement (``preview:`` in policy) posts one Slack message per (PR,
 head sha) when a matching workflow artifact exists, with a button the assistant
-handles.
+handles, and lists the head's signed preview link (``preview_links``) in the PR's one
+Preview comment.
 """
 
 from __future__ import annotations
@@ -15,8 +16,11 @@ import time
 
 import structlog
 
+from .. import preview_links
+from ..endpoints import public_url
 from . import comments as cm
 from .context import Merger
+from .github import GitHubError
 from .policy import Policy
 
 log = structlog.get_logger()
@@ -210,9 +214,46 @@ def button_id(repo: str, pr_number: int, head_sha: str) -> str:
     return f"preview:{repo}:{pr_number}:{head_sha[:12]}"
 
 
+def _link_listed(m: Merger, n: int, head_sha: str) -> bool:
+    """True when the PR's Preview comment already lists `head_sha`, or when links are off
+    (no `SYMPHONY_PUBLIC_URL`): nothing to publish."""
+    if not public_url():
+        return True
+    doc = preview_links.document(m.store.client, m.store.ns, m.repo, n)
+    return any(b.get("sha12") == head_sha[:12] for b in doc["builds"])
+
+
+def publish_preview_link(m: Merger, n: int, head_sha: str) -> None:
+    """Adds `head_sha`'s link to the PR's one Preview comment (posted once, then edited in
+    place), newest first, the last `preview_links.KEPT` builds. Signed when the merger holds
+    `SYMPHONY_PREVIEW_LINK_SECRET` (required by `previews.public_links`, optional behind
+    Access). Recorded only after GitHub took the comment, so a failure is tried again on the
+    next pass."""
+    base, key = public_url(), preview_links.secret()
+    if not base:
+        return
+    client, ns = m.store.client, m.store.ns
+    doc = preview_links.document(client, ns, m.repo, n)
+    link = preview_links.url(base, key, m.repo, n, head_sha[:12])
+    builds = preview_links.with_build(doc, head_sha, link)
+    body = cm.preview_comment(builds)
+    comment = doc["comment"]
+    if comment:
+        try:
+            m.gh.edit_comment(comment, body)
+        except GitHubError as exc:
+            if exc.status != 404:
+                raise
+            comment = None  # deleted by a person: post a new one
+    if not comment:
+        comment = m.gh.comment(n, body)
+    preview_links.save(client, ns, m.repo, n, comment, builds)
+
+
 def check_preview(m: Merger, policy: Policy, pr: dict) -> None:
     """If the policy has ``preview`` and a matching artifact exists for the PR's
-    current head, post one Slack announcement per (repo, PR, head sha)."""
+    current head, post one Slack announcement per (repo, PR, head sha) and list the head's
+    preview link in the PR's Preview comment."""
     preview = policy.preview
     if not preview:
         return
@@ -226,7 +267,7 @@ def check_preview(m: Merger, policy: Policy, pr: dict) -> None:
     # Deduplicate in Redis.
     key = _preview_dedup_key(m.store, m.repo, n, head_sha)
     # Check dedup first (cheap) before the artifact lookup (network call).
-    if m.store.client.exists(key):
+    if m.store.client.exists(key) and _link_listed(m, n, head_sha):
         return
     # A head without the artifact yet is asked again after MISS_TTL_S, not on every pass.
     miss = m.store._k(f"preview-miss:{n}:{head_sha[:12]}")  # noqa: SLF001
@@ -235,6 +276,11 @@ def check_preview(m: Merger, policy: Policy, pr: dict) -> None:
     if not _find_preview_artifact(m, head_sha, artifact_name):
         m.store.client.set(miss, "1", ex=MISS_TTL_S)
         return
+    if not _link_listed(m, n, head_sha):
+        try:
+            publish_preview_link(m, n, head_sha)
+        except Exception as exc:  # noqa: BLE001 — the Slack message still goes; retried next pass
+            log.warning("merger_preview_link_failed", pr=n, error=str(exc)[:300])
     # Claim the dedup key.
     if not m.store.client.set(key, "1", nx=True, ex=7 * 86400):
         return

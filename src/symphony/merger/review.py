@@ -878,6 +878,10 @@ class ReviewWorker:
         m = self.m
         policy = m.policy()
         apply_actions(m, self.owner)
+        # A canceled ticket's PRs close before anything else touches them (`abandon.py`).
+        from .abandon import close_abandoned_prs
+
+        close_abandoned_prs(m, self.owner)
         reconcile(m, self.owner)
         settle_parked(m, policy, self.owner)
         # Preview announcements: scan during the normal review pass.

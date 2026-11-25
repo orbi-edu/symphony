@@ -138,3 +138,33 @@ def test_a_normal_run_is_unaffected_by_the_answer_path(redis_client):
     run_attempt(env, "i1", 2, 5)
     assert prompts(engine)[0].startswith("implement ENG-1")
     assert len(prompts(engine)) == 20  # agent.max_turns, not answer_max_turns
+
+
+def test_an_answer_run_gets_the_prs_preview_links(redis_client):
+    """Someone asks on the PR to open the app in Seiji: the agent answers with the build's
+    link (the merger listed it, `preview_links`) instead of holding a device nobody sees."""
+    from symphony import preview_links
+
+    env, kv, _, engine = make(redis_client, scripted=runs(2))
+    kv.put(state.issue_key("i1"), {**kv.get(state.issue_key("i1")),
+                                   "pr_numbers": {"acme/api": 7}})
+    builds = [{"sha": "b" * 40, "sha12": "b" * 12, "url": "https://symphony.example.com/new",
+               "at": 2},
+              {"sha": "a" * 40, "sha12": "a" * 12, "url": "https://symphony.example.com/old",
+               "at": 1}]
+    preview_links.save(env.sessions.client, env.sessions.ns, "acme/api", 7, None, builds)
+    run_attempt(env, "i1", 2, 5)
+    first = prompts(engine)[0]
+    assert first.startswith("Answer the reviewer on ENG-1.")
+    assert "## Preview links" in first
+    assert (f"- acme/api#7 at `{'b' * 12}`: https://symphony.example.com/new\n"
+            f"- acme/api#7 at `{'a' * 12}`: https://symphony.example.com/old") in first
+    assert "reply with the link" in first
+
+
+def test_an_answer_run_without_preview_builds_gets_no_links_section(redis_client):
+    env, kv, _, engine = make(redis_client, scripted=runs(2))
+    kv.put(state.issue_key("i1"), {**kv.get(state.issue_key("i1")),
+                                   "pr_numbers": {"acme/api": 8}})
+    run_attempt(env, "i1", 2, 5)
+    assert prompts(engine)[0] == "Answer the reviewer on ENG-1."

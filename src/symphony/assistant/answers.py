@@ -64,5 +64,8 @@ class Answers:
         if rec and rec.get("state") == "answered":
             reply(f"Already answered by {rec.get('by')}: {rec.get('answer')}")
             return "already_answered"
+        if rec and rec.get("closed") == "canceled":
+            reply("Thanks, but this question is closed: the ticket was canceled.")
+            return "canceled"
         reply("This question is closed.")
         return "closed"

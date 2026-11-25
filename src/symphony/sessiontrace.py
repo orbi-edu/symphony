@@ -130,9 +130,12 @@ def attach(
     run: int,
     credentials: Iterable[str | None],
     log: Callable[..., None] = lambda event, **kw: None,
+    answer: bool = False,
 ) -> dict:
     """Export, redact and attach run `run`'s trace. Returns the session report's record:
-    `{run, url, redactions}` when attached, `{run, note}` otherwise. Never raises."""
+    `{run, url, redactions}` when attached, `{run, note}` otherwise, with `answer: true` for
+    a PR answer run (titled `Session trace (answer, run N)`). Never raises."""
+    base: dict = {"run": run, **({"answer": True} if answer else {})}
     try:
         directory = export(sandbox, omp, session_path)
         try:
@@ -145,19 +148,20 @@ def attach(
             raise FileTooLarge(_EXPORT_FILE, len(body), TRACE_MAX_BYTES)
     except FileTooLarge as exc:
         log("session_trace_too_large", run=run, size=exc.size)
-        return {"run": run, "note": f"trace too large to attach: {_mb(exc.size)}"}
+        return {**base, "note": f"trace too large to attach: {_mb(exc.size)}"}
     except TraceError as exc:
         log("session_trace_failed", run=run, error=str(exc))
-        return {"run": run, "note": str(exc)}
+        return {**base, "note": str(exc)}
     except Exception as exc:  # noqa: BLE001 — the trace is advice; the run and report stand
         log("session_trace_failed", run=run, error=str(exc)[:300])
-        return {"run": run, "note": "trace not attached: the export could not be read"}
+        return {**base, "note": "trace not attached: the export could not be read"}
+    label, stem = ("answer, run", "answer-run") if answer else ("run", "run")
     try:
         attached = tracker.attach_evidence(
-            issue_id, title=f"Session trace (run {run})", kind="report",
-            filename=f"session-trace-run-{run}.html", content_type="text/html", data=body,
+            issue_id, title=f"Session trace ({label} {run})", kind="report",
+            filename=f"session-trace-{stem}-{run}.html", content_type="text/html", data=body,
         )
     except Exception as exc:  # noqa: BLE001 — same: a failed upload is one report line
         log("session_trace_upload_failed", run=run, error=str(exc)[:300])
-        return {"run": run, "note": "trace not attached: the upload failed"}
-    return {"run": run, "url": attached["url"], "redactions": redactions}
+        return {**base, "note": "trace not attached: the upload failed"}
+    return {**base, "url": attached["url"], "redactions": redactions}

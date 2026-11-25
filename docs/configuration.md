@@ -29,6 +29,8 @@ This document is the reference for all three. [providers.md](providers.md) expla
 - [`assistant`](#assistant)
 - [`retention`](#retention)
 - [`backup`](#backup)
+- [`api`](#api)
+- [`previews`](#previews)
 - [Retired keys](#retired-keys)
 - [Prompt template](#prompt-template)
 - [Team configuration](#team-configuration)
@@ -90,6 +92,7 @@ Each process reads `WORKFLOW.md` from `$SYMPHONY_WORKFLOW_MOUNT/WORKFLOW.md` (de
 | `tracker.provider.status_field` | string | `Status` | The single-select field of the project whose options are the ticket states. |
 | `tracker.active_states` | list of strings | `[Todo, In Progress, Rework]` | The states where the implementer works. |
 | `tracker.terminal_states` | list of strings | `[Closed, Cancelled, Canceled, Duplicate, Done]` | The states that end a ticket. They trigger the cleanup and the retrospective. |
+| `tracker.abandon_states` | list of strings | the defaults `Cancelled`, `Canceled`, `Duplicate` that are in `tracker.terminal_states` | Terminal states that are not a success: a ticket moved there closes its open questions, and the merger closes its pull requests and releases their preview devices ([concepts](concepts.md#canceled-tickets)). A canceled-type state of the tracker (Linear's `canceled`) counts too, whatever its name. Each must be a terminal state; `tracker.states.done` never is one. |
 | `tracker.required_labels` | list of strings | `[]` | A ticket needs all these labels to be dispatched. The comparison ignores case. |
 | `tracker.intake_states` | list of strings | `[Backlog, Triage]` | States where a ticket waits before it is ready. A ticket addressed to Symphony (a `tracker.required_labels` label or a `repo:` label) gets one comment per verdict change: queued, or not queued with what is missing (state, label, repository, blocker). A verdict that needs a person also goes to the channel (`not_queued`). Tickets last changed before Symphony first looked are left alone. Empty turns the Backlog read off; active tickets are still checked. |
 | `tracker.states.review` | string | `In Review` | The state that the implementer sets when it hands over to the merger. It must not be active. |
@@ -172,7 +175,7 @@ The git credential helper is ready before `after_create` runs, so `git clone` ov
 | `agent.max_idle_continuations` | integer | `3` | Continuation turns in a row that change nothing (no commit, no file change, no tool call beyond reads and tracker queries) before the run ends as `blocked` and the ticket waits for a person, as if the agent had called `symphony_blocked` ([concepts](concepts.md#waiting-for-a-person)). The count goes on across continuation dispatches. `0` turns the safety net off. |
 | `agent.input_timeout_ms` | integer | `900000` | How long `symphony_ask` waits for a person. Also how long an interrupted agent waits for a message. It must be positive. |
 | `agent.ask_reminder_ms` | integer | `7200000` | How long after a `symphony_ask` question the person who decides is reminded, once, on the ticket and in Slack, while it has no answer. `0` sends no reminder. The question stays open past the agent's wait ([concepts](concepts.md#questions-to-people)). |
-| `agent.attach_trace` | boolean | `true` | At the end of each run, export the omp session to HTML, redact secrets and attach it to the ticket as `session-trace-run-N.html`; the session report links it. Only trackers that store files (Linear). A failed export or upload is a line in the report, never a failed run ([security](security.md#session-traces-and-ticket-attachments)). |
+| `agent.attach_trace` | boolean | `true` | At the end of each run, export the omp session to HTML, redact secrets and attach it to the ticket as `session-trace-run-N.html` (a PR answer run: `session-trace-answer-run-N.html`, titled `Session trace (answer, run N)`); the session report links it. Only trackers that store files (Linear). A failed export or upload is a line in the report, never a failed run ([security](security.md#session-traces-and-ticket-attachments)). |
 | `agent.stall_timeout_ms` | integer | `300000` | The silence that counts as a stall. Two windows in sequence stop the attempt. Zero or a negative value turns stall detection off. |
 
 > **Caution:** The engine sends no events while a tool runs. Set `agent.stall_timeout_ms` longer than the longest build or test command. The example `WORKFLOW.md` uses 30 minutes.
@@ -477,6 +480,30 @@ backup:
        prefix: symphony/, region: eu-west-1}
 ```
 
+## `api`
+
+Settings of the control API that `WORKFLOW.md` carries. Today one: the Cloudflare Access application in front of it.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `access.team_domain` | — | The Access team domain, a host name with no scheme or path, for example `acme.cloudflareaccess.com`. |
+| `access.aud` | — | The Application Audience (AUD) tag of the Access application that protects the API. |
+
+With `api.access`, the browser routes (the preview links, [assistant.md](assistant.md#the-link-on-the-pull-request)) verify the `Cf-Access-Jwt-Assertion` token of each request: an RS256 signature by a key from `https://<team_domain>/cdn-cgi/access/certs` (cached for an hour), `aud`, `iss` (`https://<team_domain>`) and `exp`. They take its `email` and require a `notify.users` entry for it ([`notify`](#notify)). A request without a valid token is refused; the e-mail header alone is never trusted. The API routes with bearer tokens do not change.
+
+```yaml
+api:
+  access: {team_domain: acme.cloudflareaccess.com, aud: 0123456789abcdef}
+```
+
+## `previews`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `public_links` | `false` | Without `api.access`, a signed preview link alone opens the preview, for anyone who has it. Needs `SYMPHONY_PREVIEW_LINK_SECRET` on the merger and the API. Without `api.access` and with `false`, the route refuses every link. |
+
+Turn `public_links` on only when the API is not reachable from outside your network, or when everyone who can read the pull requests may use your Seiji devices ([security.md](security.md#preview-links)). The signing secret is `SYMPHONY_PREVIEW_LINK_SECRET`, never in `WORKFLOW.md`. Behind `api.access` no secret is needed: the links are unsigned and the Access sign-in authorizes the person.
+
 ## Retired keys
 
 These keys make the file invalid, so a migrated file cannot keep a setting that has no effect.
@@ -566,7 +593,8 @@ The precedence of each consumer is in [concepts.md](concepts.md#precedence).
 | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_INSTALLATION_ID` | daemon, runner, merger, sweep, reflector | The GitHub App credential. With `tracker.kind: github`, it is also the tracker credential. |
 | `GITHUB_WEBHOOK_SECRET` | API | The secret of the GitHub App webhook. |
 | `SYMPHONY_BOOTSTRAP_TOKEN` | API, local mode | The first admin API token, `sym_<8 hex>_<43 characters>`. |
-| `SYMPHONY_PUBLIC_URL` | API | The public base URL of the API, for example `https://symphony.example.com`. Setup builds the webhook URLs from it. Set it behind a proxy, or when the webhook URLs must use a public host. When empty, setup uses the address of the request. On Kubernetes it is in the ConfigMap `symphony-api-config`. |
+| `SYMPHONY_PUBLIC_URL` | API, merger | The public base URL of the API, for example `https://symphony.example.com`. Setup builds the webhook URLs from it, and the merger the preview links on pull requests. Set it behind a proxy, or when the webhook URLs must use a public host. When empty, setup uses the address of the request, and the merger posts no preview links. On Kubernetes it is in the ConfigMap `symphony-api-config`. |
+| `SYMPHONY_PREVIEW_LINK_SECRET` | API, merger | The HMAC key of the preview links, needed only for `previews.public_links`: the merger signs the links, the API verifies them ([assistant.md](assistant.md#the-link-on-the-pull-request)). Behind `api.access` it is optional; when set, the links are signed and a present `sig` must match. Rotating it voids every signed link. |
 | `SLACK_BOT_TOKEN` and `SLACK_CHANNEL` | all notifiers | Slack Web API (`chat.postMessage`, scope `chat:write`). This method wins when both methods are set. |
 | `SLACK_WEBHOOK_URL` | all notifiers | A Slack incoming webhook. |
 | `DISCORD_BOT_TOKEN` and `DISCORD_CHANNEL_ID` | all notifiers | A Discord bot (`POST /channels/{id}/messages`). The bot needs the permissions View Channel and Send Messages in the channel. This method wins when both Discord methods are set. |
@@ -646,7 +674,7 @@ GITHUB_SERVER_URL=https://ghe.example.com
 |---|---|---|---|
 | `linear-api-key` | `LINEAR_API_KEY`, `LINEAR_WEBHOOK_SECRET` | no. Made empty; setup fills it. With `tracker.kind: github`, it stays empty. | API, daemon, merger, sweep, runner and reflector Jobs |
 | `github-app` | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_INSTALLATION_ID` | no. Made empty; setup fills it. Required for work | API, daemon, merger, sweep, runner and reflector Jobs |
-| `symphony-api` | `SYMPHONY_BOOTSTRAP_TOKEN` (you), `GITHUB_WEBHOOK_SECRET` (setup) | yes | API |
+| `symphony-api` | `SYMPHONY_BOOTSTRAP_TOKEN` (you), `GITHUB_WEBHOOK_SECRET` (setup), `SYMPHONY_PREVIEW_LINK_SECRET` (you, optional) | yes | API; the merger reads only `SYMPHONY_PREVIEW_LINK_SECRET` (`secretKeyRef`) |
 | `symphony-slack` | `SLACK_BOT_TOKEN` and `SLACK_CHANNEL`, or `SLACK_WEBHOOK_URL`; `SLACK_APP_TOKEN` (the assistant) | no | API, daemon, merger, sweep, assistant, Jobs |
 | `symphony-discord` | `DISCORD_BOT_TOKEN` and `DISCORD_CHANNEL_ID`, or `DISCORD_WEBHOOK_URL` | no | API, daemon, merger, sweep, assistant, Jobs |
 | `model-provider` | `AWS_REGION`, `AWS_BEARER_TOKEN_BEDROCK`, other provider keys | no | merger (`envFrom`); the runner and the reflector read it through the Kubernetes API |

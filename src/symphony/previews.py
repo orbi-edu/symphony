@@ -1,15 +1,21 @@
-"""PR preview devices: click a button, get a simulator running the PR's build.
+"""PR preview devices: a simulator running a PR build, from a Slack button or a PR link.
 
-The merger posts a ``preview:<owner>/<name>:<pr>:<sha12>`` button on the review
-notification.  A click is handled here by the assistant process, which:
+Two entry points share one start path (`PreviewManager._launch`):
 
-1. Verifies the clicker is a mapped reviewer of the PR.
-2. Downloads the ``ios-simulator-preview`` artifact from the PR's current head.
-3. Uploads the app to Seiji, acquires a device, installs and launches the app.
-4. Records the lease and sends a viewer link to the clicker.
+- The merger posts a ``preview:<owner>/<name>:<pr>:<sha12>`` button on the review
+  notification. A click is handled by the assistant process: the clicker must be a mapped
+  reviewer, and the sha must still be the PR's head.
+- The merger lists a signed link per build on the PR (`preview_links`). The API serves it
+  (`api/previews.py`): any mapped person may open it, for that build's sha, as long as its
+  artifact exists (`open_link`, then a status page while it starts).
 
-One preview device per (repo, pr).  A second click reuses the live lease and
-creates a fresh viewer link.  A background loop releases stale devices.
+The start downloads the ``ios-simulator-preview`` artifact of the sha, uploads the app to
+Seiji, acquires a device, installs and launches the app, and records the lease.
+
+One device per (repo, pr, sha), at most `MAX_LIVE_PER_PR` per PR: a third build releases the
+oldest. A live device is reused with a fresh viewer link. The records live in Redis, so the
+assistant and the API share them, and the sweep of either process (one at a time) releases
+stale devices.
 """
 
 from __future__ import annotations
@@ -41,9 +47,15 @@ ARTIFACT_NAME = "ios-simulator-preview"
 # 55 min: leave 5 min before Seiji's 60 min max lease.
 LEASE_MAX_AGE_S = 55 * 60
 CHECK_INTERVAL_S = 60
+MAX_LIVE_PER_PR = 2
+# Where a lease came from: a button follows the PR head and its review; a link pins its sha.
+BUTTON, LINK = "button", "link"
 # Redis key prefix for preview leases.
 _KEY_PREFIX = "sym:{ns}:preview:"
 _KEY_TTL_S = 60 * 60
+# A start in progress (download, upload, boot, install, launch) and a failed start.
+_STARTING_TTL_S = 15 * 60
+_FAILED_TTL_S = 10 * 60
 _ACTION_RE = re.compile(
     r"^preview:(?P<owner>[A-Za-z0-9_.-]+)/(?P<name>[A-Za-z0-9_.-]+)"
     r":(?P<pr>\d+):(?P<sha12>[0-9a-f]{12})$"
@@ -56,9 +68,13 @@ class PreviewError(Exception):
     """A failure the clicker can read: no secret, url or token in the message."""
 
 
+class PreviewGone(PreviewError):
+    """The build cannot be had: no such commit, no preview artifact, or an expired one."""
+
+
 @dataclass
 class _LivePreview:
-    """An active preview device for one (repo, pr)."""
+    """An active preview device for one (repo, pr, sha)."""
 
     repo: str
     pr: int
@@ -68,6 +84,7 @@ class _LivePreview:
     mcp_token: str  # synthetic token used with record_held
     started_at: float
     bundle_id: str = ""
+    origin: str = BUTTON
 
 
 def parse_action(action_id: str) -> dict | None:
@@ -169,12 +186,26 @@ def _pr_state(http: httpx.Client, token: str, repo: str, pr: int) -> str:
     return data.get("state", "unknown")
 
 
+def _commit_sha(http: httpx.Client, token: str, repo: str, ref: str) -> str:
+    """The full SHA of commit `ref` (a 12-hex prefix). PreviewGone when the repository has
+    no such commit."""
+    resp = http.get(f"{github_api_url()}/repos/{repo}/commits/{ref}",
+                    headers=_github_headers(token), timeout=10)
+    if resp.status_code in (404, 422):
+        raise PreviewGone(f"{repo} has no commit {ref}")
+    if resp.status_code != 200:
+        raise PreviewError(f"GitHub did not answer (HTTP {resp.status_code})")
+    return resp.json()["sha"]
+
+
 def _find_artifact(
     http: httpx.Client, token: str, repo: str, head_sha: str,
 ) -> dict | None:
-    """Find the ``ios-simulator-preview`` artifact for *head_sha*.
+    """The ``ios-simulator-preview`` artifact of a workflow run on *head_sha* (a full SHA).
 
-    Returns ``{archive_download_url, ...}`` or None.
+    Returns ``{archive_download_url, expired, ...}``: a live one when there is one, else an
+    expired one (GitHub deleted it after its retention), so a caller can tell the two apart.
+    None when no run on the sha has one.
     """
     api = github_api_url()
     headers = _github_headers(token)
@@ -186,12 +217,11 @@ def _find_artifact(
         timeout=10,
     )
     if resp.status_code != 200:
-        return None
-    runs = resp.json().get("workflow_runs", [])
-    for run in runs:
-        run_id = run["id"]
+        raise PreviewError(f"GitHub did not list the workflow runs (HTTP {resp.status_code})")
+    expired = None
+    for run in resp.json().get("workflow_runs", []):
         aresp = http.get(
-            f"{api}/repos/{repo}/actions/runs/{run_id}/artifacts",
+            f"{api}/repos/{repo}/actions/runs/{run['id']}/artifacts",
             headers=headers,
             params={"per_page": 50},
             timeout=10,
@@ -199,9 +229,12 @@ def _find_artifact(
         if aresp.status_code != 200:
             continue
         for artifact in aresp.json().get("artifacts", []):
-            if artifact.get("name") == ARTIFACT_NAME and not artifact.get("expired"):
+            if artifact.get("name") != ARTIFACT_NAME:
+                continue
+            if not artifact.get("expired"):
                 return artifact
-    return None
+            expired = expired or artifact
+    return expired
 
 
 def _download_artifact_zip(
@@ -336,77 +369,273 @@ def _tool_text(result: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# The preview manager: handles clicks, manages leases
+# The preview manager: button clicks and links, one start path, leases in Redis
 # ---------------------------------------------------------------------------
+
+def _http_client() -> httpx.Client:
+    return httpx.Client(timeout=30, follow_redirects=True)
+
+
+def _spawn(work: Callable[[], None]) -> None:
+    threading.Thread(target=work, name="preview-start", daemon=True).start()
+
+
+# What the app installation token may do: read the PR, its commits, runs and artifacts.
+TOKEN_PERMISSIONS = {"actions": "read", "contents": "read", "pull_requests": "read",
+                     "metadata": "read"}
+
+
+def from_env(client, namespace: str, repository, env: Mapping[str, str], *,
+             notify_users: Callable[[], dict] = dict) -> PreviewManager | None:
+    """A manager with GitHub App installation tokens (`TOKEN_PERMISSIONS`), or None when the
+    GitHub App or the MCP repository is missing."""
+    from .edge import GITHUB_APP_ENV, now_ms
+    from .ghapp import InstallationCredential
+
+    if repository is None or not all(env.get(name) for name in GITHUB_APP_ENV):
+        return None
+
+    def token(repo: str) -> Callable[[], str]:
+        return InstallationCredential.from_env(
+            env, now_ms, target_repos=(repo,), permissions=TOKEN_PERMISSIONS).token
+
+    return PreviewManager(client=client, namespace=namespace, repository=repository,
+                          github_token=token, notify_users=notify_users)
+
 
 @dataclass
 class PreviewManager:
-    """Preview devices of the assistant process: one per (repo, pr), recorded in Redis
-    so that a restart can release what the previous process held."""
+    """Preview devices of one namespace: one per (repo, pr, sha), recorded in Redis so the
+    assistant (buttons) and the API (links) share them and either one's sweep releases them."""
 
     client: Any  # Redis client
     namespace: str
     repository: Any  # McpRepository
     github_token: Callable[[str], Callable[[], str]]  # repo → token factory
-    notify_users: Callable[[], dict]  # () → cfg.notify_users
+    notify_users: Callable[[], dict] = dict  # () → cfg.notify_users, for button clicks
     server_name: str = "seiji"
-    _lock: threading.Lock = field(default_factory=threading.Lock)
-    _previews: dict[str, _LivePreview] = field(default_factory=dict)
-    _starting: set[str] = field(default_factory=set)
+    http: Callable[[], httpx.Client] = field(default=_http_client, repr=False)
+    spawn: Callable[[Callable[[], None]], None] = field(default=_spawn, repr=False)
     _stop: threading.Event = field(default_factory=threading.Event)
     _thread: threading.Thread | None = field(default=None, repr=False)
 
-    def _key(self, repo: str, pr: int) -> str:
-        return f"{repo}:{pr}"
+    # -- records ---------------------------------------------------------------
+
+    def _key(self, repo: str, pr: int, sha12: str) -> str:
+        return f"{repo}:{pr}:{sha12}"
+
+    def _prefix(self) -> str:
+        return _KEY_PREFIX.format(ns=self.namespace)
 
     def _index(self) -> str:
-        return _KEY_PREFIX.format(ns=self.namespace) + "live"
+        return self._prefix() + "live"
 
     def _save(self, preview: _LivePreview) -> None:
-        self.client.hset(self._index(), self._key(preview.repo, preview.pr),
+        self.client.hset(self._index(), self._key(preview.repo, preview.pr, preview.head_sha[:12]),
                          json.dumps(preview.__dict__, separators=(",", ":")))
         self.client.expire(self._index(), _KEY_TTL_S)
 
-    def start(self) -> None:
-        """Release what a previous process left, then start the sweep loop."""
-        if self._thread is not None:
-            return
-        try:
-            self.release_leftovers()
-        except Exception as exc:  # noqa: BLE001 — Seiji's idle reaper is the backstop
-            _log.warning("preview_leftovers_failed", error=type(exc).__name__)
-        self._stop.clear()
-        self._thread = threading.Thread(
-            target=self._sweep_loop, name="preview-sweep", daemon=True
-        )
-        self._thread.start()
-
-    def stop(self) -> None:
-        self._stop.set()
-        t = self._thread
-        if t is not None:
-            t.join(timeout=10)
-        self._thread = None
-
-    def release_leftovers(self) -> int:
-        """Release every preview recorded in Redis that this process does not know: the
-        previews of a previous process. Returns how many were released."""
-        released = 0
+    def _load(self) -> dict[str, _LivePreview]:
+        """Every recorded preview by its Redis field."""
+        out: dict[str, _LivePreview] = {}
         for field_name, raw in (self.client.hgetall(self._index()) or {}).items():
             name = field_name.decode() if isinstance(field_name, bytes) else field_name
-            with self._lock:
-                if name in self._previews:
-                    continue
             try:
-                preview = _LivePreview(**json.loads(raw))
+                out[name] = _LivePreview(**json.loads(raw))
             except (TypeError, ValueError):
                 self.client.hdel(self._index(), name)
-                continue
-            self._release(preview)
-            released += 1
-        if released:
-            _log.info("preview_leftovers_released", previews=released)
-        return released
+        return out
+
+    def live(self) -> list[_LivePreview]:
+        return list(self._load().values())
+
+    def get(self, repo: str, pr: int, sha12: str) -> _LivePreview | None:
+        raw = self.client.hget(self._index(), self._key(repo, pr, sha12))
+        try:
+            return _LivePreview(**json.loads(raw)) if raw else None
+        except (TypeError, ValueError):
+            return None
+
+    def _held(self, preview: _LivePreview) -> bool:
+        return mcp_servers.held_by_live_session(self.client, self.namespace, preview.server,
+                                                preview.lease_id)
+
+    # -- starts: one at a time per key, across processes ----------------------
+
+    def _starting_key(self, key: str) -> str:
+        return self._prefix() + "starting:" + key
+
+    def _failed_key(self, key: str) -> str:
+        return self._prefix() + "failed:" + key
+
+    def _claim(self, key: str) -> bool:
+        if not self.client.set(self._starting_key(key), json.dumps({"step": "queued"}),
+                               nx=True, ex=_STARTING_TTL_S):
+            return False
+        self.client.delete(self._failed_key(key))
+        return True
+
+    def _step(self, key: str, step: str) -> None:
+        self.client.set(self._starting_key(key), json.dumps({"step": step}), xx=True,
+                        keepttl=True)
+
+    def _fail(self, key: str, error: str) -> None:
+        self.client.set(self._failed_key(key), error[:500], ex=_FAILED_TTL_S)
+
+    def _unclaim(self, key: str) -> None:
+        self.client.delete(self._starting_key(key))
+
+    def progress(self, repo: str, pr: int, sha12: str) -> dict:
+        """For a status page: `{state: ready | starting | error | stopped}`, with the `step`
+        (queued, downloading, installing, launching) while starting and the `error`."""
+        key = self._key(repo, pr, sha12)
+        live = self.get(repo, pr, sha12)
+        if live is not None and self._held(live):
+            return {"state": "ready"}
+        raw = self.client.get(self._starting_key(key))
+        if raw:
+            try:
+                step = json.loads(raw).get("step") or "queued"
+            except (ValueError, AttributeError):
+                step = "queued"
+            return {"state": "starting", "step": step}
+        failed = self.client.get(self._failed_key(key))
+        if failed:
+            return {"state": "error",
+                    "error": failed.decode() if isinstance(failed, bytes) else failed}
+        return {"state": "stopped"}
+
+    def _make_room(self, repo: str, pr: int) -> None:
+        """At most `MAX_LIVE_PER_PR` devices per PR: the oldest goes back for a new one."""
+        same = sorted(((name, p) for name, p in self._load().items()
+                       if p.repo == repo and p.pr == pr), key=lambda item: item[1].started_at)
+        while len(same) >= MAX_LIVE_PER_PR:
+            name, oldest = same.pop(0)
+            _log.info("preview_releasing", pr=pr, reason="cap")
+            self._release(oldest, name)
+
+    def _launch(self, http: httpx.Client, token: str, repo: str, pr: int, head_sha: str,
+                artifact: Mapping[str, Any], origin: str) -> _LivePreview:
+        """Download, upload, acquire, install, launch, record: the one start path of a button
+        click and of a link. The caller holds the start claim of the key. A device acquired
+        but not recorded goes back at once."""
+        key = self._key(repo, pr, head_sha[:12])
+        self._step(key, "downloading")
+        app_zip, meta = _extract_preview(
+            _download_artifact_zip(http, token, artifact["archive_download_url"]))
+        if meta.get("head_sha") != head_sha:
+            raise PreviewError("the preview build is not of this commit")
+        bundle_id = meta.get("bundle_id", "")
+        definition = self.repository.get(self.server_name)
+        if definition is None:
+            raise PreviewError("no device lab is configured")
+        stored = self.repository.headers(self.server_name)
+        app_id = _upload_app(http, definition, stored, app_zip)
+        self._step(key, "installing")
+        self._make_room(repo, pr)
+        lease = json.loads(_tool_text(_rpc_tool_call(
+            http, definition, stored, "acquire_device", {"platform": "ios"})) or "{}")
+        lease_id = lease.get("lease_id")
+        if not lease_id:
+            raise PreviewError("the device lab gave no device")
+        try:
+            _rpc_tool_call(http, definition, stored, "install_app",
+                           {"lease_id": lease_id, "app_id": app_id})
+            self._step(key, "launching")
+            launch = {"lease_id": lease_id, **({"bundle_id": bundle_id} if bundle_id else {})}
+            _rpc_tool_call(http, definition, stored, "launch_app", launch)
+            return self._record(repo, pr, head_sha, lease_id, bundle_id, origin)
+        except BaseException:
+            self._release_lease(definition, stored, lease_id, pr)
+            raise
+
+    def _record(self, repo: str, pr: int, head_sha: str, lease_id: str, bundle_id: str,
+                origin: str) -> _LivePreview:
+        # A preview has no agent session. A token record of its own keeps the lease
+        # visible to `held_by_live_session` and to the gateway's sweep; its role is not
+        # a team role, so the gateway serves it no MCP server.
+        session = f"preview:{repo}:{pr}:{head_sha[:12]}"
+        synth_token = mcp_servers.TOKEN_PREFIX + "preview_" + secrets.token_urlsafe(24)
+        self.client.set(
+            mcp_servers.token_key(self.namespace, synth_token),
+            json.dumps({"role": "preview", "session": session,
+                        "exp": int(time.time()) + LEASE_MAX_AGE_S}),
+            ex=LEASE_MAX_AGE_S,
+        )
+        mcp_servers.record_held(self.client, self.namespace, synth_token, session,
+                                self.server_name, lease_id, extra={"platform": "ios"})
+        preview = _LivePreview(repo=repo, pr=pr, head_sha=head_sha, lease_id=lease_id,
+                               server=self.server_name, mcp_token=synth_token,
+                               started_at=time.time(), bundle_id=bundle_id, origin=origin)
+        self._save(preview)
+        return preview
+
+    def viewer_url(self, preview: _LivePreview) -> str:
+        """A fresh control viewer link (one use, about 60 s) of a live preview."""
+        import asyncio
+
+        definition = self.repository.get(preview.server)
+        if definition is None:
+            raise PreviewError("no device lab is configured")
+        try:
+            link = asyncio.run(mcp_servers.request_viewer(
+                definition, self.repository.headers(preview.server), preview.lease_id, True))
+        except mcp_servers.McpError as exc:
+            raise PreviewError(f"the viewer link failed: {exc.message}") from None
+        return link["url"]
+
+    # -- links (the API) --------------------------------------------------------
+
+    def open_link(self, repo: str, pr: int, sha12: str) -> str:
+        """A preview link was opened: "ready" when a device runs this build (from now on
+        pinned: neither the head moving nor an approval releases it), else "starting" (this
+        call starts it in the background). PreviewGone when the build cannot be had."""
+        key = self._key(repo, pr, sha12)
+        live = self.get(repo, pr, sha12)
+        if live is not None:
+            if self._held(live):
+                if live.origin != LINK:
+                    live.origin = LINK
+                    self._save(live)
+                return "ready"
+            self._forget(live)
+        if self.client.exists(self._starting_key(key)):
+            return "starting"
+        with self.http() as http:
+            token = self.github_token(repo)()
+            head_sha = _commit_sha(http, token, repo, sha12)
+            artifact = _find_artifact(http, token, repo, head_sha)
+        if artifact is None:
+            raise PreviewGone(f"there is no preview build of {sha12}")
+        if artifact.get("expired"):
+            raise PreviewGone(f"the preview build of {sha12} has expired: GitHub deleted it "
+                              "after its retention period")
+        if self._claim(key):
+            self.spawn(lambda: self._start_link(repo, pr, head_sha, artifact))
+        return "starting"
+
+    def _start_link(self, repo: str, pr: int, head_sha: str, artifact: Mapping[str, Any]) -> None:
+        key = self._key(repo, pr, head_sha[:12])
+        try:
+            with self.http() as http:
+                self._launch(http, self.github_token(repo)(), repo, pr, head_sha, artifact, LINK)
+        except PreviewError as exc:
+            _log.warning("preview_failed", error="PreviewError", pr=pr)
+            self._fail(key, str(exc))
+        except Exception as exc:  # noqa: BLE001 — the status page shows it
+            _log.warning("preview_failed", error=type(exc).__name__, pr=pr)
+            self._fail(key, f"an unexpected error ({type(exc).__name__})")
+        finally:
+            self._unclaim(key)
+
+    def link_viewer(self, repo: str, pr: int, sha12: str) -> str | None:
+        """A fresh viewer link of the live preview of this build, or None."""
+        live = self.get(repo, pr, sha12)
+        if live is None or not self._held(live):
+            return None
+        return self.viewer_url(live)
+
+    # -- button clicks (the assistant) -------------------------------------------
 
     def handle(self, action: Action, out: Outbound) -> str:
         """Handle a preview button click.  Returns an outcome string for logging."""
@@ -426,12 +655,9 @@ class PreviewManager:
             out.ack_action(action, "Only people mapped in the configuration can open previews.")
             return "unmapped"
 
-        key = self._key(repo, pr)
-        http = httpx.Client(timeout=30, follow_redirects=True)
+        key = self._key(repo, pr, sha12)
+        http = self.http()
         claimed = False
-        lease_id = None
-        definition: Mapping[str, Any] | None = None
-        stored: Mapping[str, str] = {}
         try:
             token = self.github_token(repo)()
             reviewers = _pr_reviewers(http, token, repo, pr)
@@ -443,19 +669,13 @@ class PreviewManager:
                 return "not_reviewer"
 
             # -- a live device is reused; one being started is not started twice --
-            with self._lock:
-                live = self._previews.get(key)
+            live = self.get(repo, pr, sha12)
             if live is not None:
-                if mcp_servers.held_by_live_session(self.client, self.namespace,
-                                                    live.server, live.lease_id):
+                if self._held(live):
                     return self._send_viewer(action, out, live)
                 self._forget(live)
-            with self._lock:
-                busy = key in self._starting
-                if not busy:
-                    self._starting.add(key)
-                    claimed = True
-            if busy:
+            claimed = self._claim(key)
+            if not claimed:
                 out.ack_action(action, f"A simulator for #{pr} is starting. Click again in two minutes.")
                 return "starting"
 
@@ -470,97 +690,52 @@ class PreviewManager:
                                        "click the button on the new notification.")
                 return "stale_head"
 
-            # -- find and download the artifact --
             artifact = _find_artifact(http, token, repo, current_head)
             if artifact is None:
                 raise PreviewError(f"no preview build for #{pr} at {current_head[:12]} yet")
-            app_zip, meta = _extract_preview(
-                _download_artifact_zip(http, token, artifact["archive_download_url"]))
-            if meta.get("head_sha") != current_head:
-                raise PreviewError("the preview build is not of the PR's current head")
-            bundle_id = meta.get("bundle_id", "")
-
-            # -- Seiji: upload, acquire, install, launch --
-            definition = self.repository.get(self.server_name)
-            if definition is None:
-                raise PreviewError("no device lab is configured")
-            stored = self.repository.headers(self.server_name)
-            app_id = _upload_app(http, definition, stored, app_zip)
-            lease = json.loads(_tool_text(_rpc_tool_call(
-                http, definition, stored, "acquire_device", {"platform": "ios"})) or "{}")
-            lease_id = lease.get("lease_id")
-            if not lease_id:
-                raise PreviewError("the device lab gave no device")
-            _rpc_tool_call(http, definition, stored, "install_app",
-                           {"lease_id": lease_id, "app_id": app_id})
-            launch = {"lease_id": lease_id, **({"bundle_id": bundle_id} if bundle_id else {})}
-            _rpc_tool_call(http, definition, stored, "launch_app", launch)
-
-            # A preview has no agent session. A token record of its own keeps the lease
-            # visible to `held_by_live_session` and to the gateway's sweep; its role is not
-            # a team role, so the gateway serves it no MCP server.
-            session = f"preview:{repo}:{pr}"
-            synth_token = mcp_servers.TOKEN_PREFIX + "preview_" + secrets.token_urlsafe(24)
-            self.client.set(
-                mcp_servers.token_key(self.namespace, synth_token),
-                json.dumps({"role": "preview", "session": session,
-                            "exp": int(time.time()) + LEASE_MAX_AGE_S}),
-                ex=LEASE_MAX_AGE_S,
-            )
-            mcp_servers.record_held(self.client, self.namespace, synth_token, session,
-                                    self.server_name, lease_id, extra={"platform": "ios"})
-            preview = _LivePreview(repo=repo, pr=pr, head_sha=current_head, lease_id=lease_id,
-                                   server=self.server_name, mcp_token=synth_token,
-                                   started_at=time.time(), bundle_id=bundle_id)
-            with self._lock:
-                self._previews[key] = preview
-            self._save(preview)
-            lease_id = None  # recorded: the sweep owns it now
+            if artifact.get("expired"):
+                raise PreviewError(f"the preview build of #{pr} at {current_head[:12]} has expired")
+            preview = self._launch(http, token, repo, pr, current_head, artifact, BUTTON)
             return self._send_viewer(action, out, preview)
         except PreviewError as exc:
             _log.warning("preview_failed", error="PreviewError", pr=pr)
+            if claimed:
+                self._fail(key, str(exc))
             out.ack_action(action, f"Could not start the preview: {exc}")
             return "error"
         except Exception as exc:  # noqa: BLE001
             _log.warning("preview_failed", error=type(exc).__name__, pr=pr)
+            if claimed:
+                self._fail(key, f"an unexpected error ({type(exc).__name__})")
             out.ack_action(action, f"Could not start the preview ({type(exc).__name__}).")
             return "error"
         finally:
-            if lease_id is not None and definition is not None:
-                # Acquired but not recorded: give the device back now.
-                self._release_lease(definition, stored, lease_id, pr)
             if claimed:
-                with self._lock:
-                    self._starting.discard(key)
+                self._unclaim(key)
             http.close()
 
     def _send_viewer(self, action: Action, out: Outbound, preview: _LivePreview) -> str:
         """Request a control viewer and send it privately to the clicker."""
-        import asyncio
-
         try:
-            definition = self.repository.get(preview.server)
-            stored = self.repository.headers(preview.server)
-            link = asyncio.run(mcp_servers.request_viewer(definition, stored, preview.lease_id, True))
-        except mcp_servers.McpError as exc:
-            _log.warning("preview_viewer_failed", error=exc.code, pr=preview.pr)
-            out.ack_action(action, f"The simulator is running, but the viewer link failed: {exc.message}")
+            url = self.viewer_url(preview)
+        except PreviewError as exc:
+            _log.warning("preview_viewer_failed", error="PreviewError", pr=preview.pr)
+            out.ack_action(action, f"The simulator is running, but {exc}")
             return "viewer_failed"
         except Exception as exc:  # noqa: BLE001
             _log.warning("preview_viewer_failed", error=type(exc).__name__, pr=preview.pr)
             out.ack_action(action, "The simulator is running, but the viewer link failed.")
             return "viewer_failed"
-        out.ack_action(action, f"Preview of #{preview.pr}: {link['url']}\n"
+        out.ack_action(action, f"Preview of #{preview.pr}: {url}\n"
                                "The link opens once, within 60 s. Click the button again for a new one.")
         return "viewer_sent"
 
-    def _forget(self, preview: _LivePreview) -> None:
+    # -- release -----------------------------------------------------------------
+
+    def _forget(self, preview: _LivePreview, name: str | None = None) -> None:
         """Remove a preview record and clean up Redis."""
-        key = self._key(preview.repo, preview.pr)
-        with self._lock:
-            if self._previews.get(key) is preview:
-                self._previews.pop(key, None)
-        self.client.hdel(self._index(), key)
+        self.client.hdel(self._index(),
+                         name or self._key(preview.repo, preview.pr, preview.head_sha[:12]))
         mcp_servers.forget_held(self.client, self.namespace, preview.mcp_token,
                                 preview.server, preview.lease_id)
         mcp_servers.revoke_token(self.client, self.namespace, preview.mcp_token)
@@ -576,43 +751,71 @@ class PreviewManager:
         except Exception as exc:  # noqa: BLE001 — Seiji's idle reaper is the backstop
             _log.warning("preview_release_failed", error=type(exc).__name__, pr=pr)
 
-    def _release(self, preview: _LivePreview) -> None:
+    def _release(self, preview: _LivePreview, name: str | None = None) -> None:
         """Release a preview device and forget its record."""
         definition = self.repository.get(preview.server)
         if definition is not None:
             self._release_lease(definition, self.repository.headers(preview.server),
                                 preview.lease_id, preview.pr)
-        self._forget(preview)
+        self._forget(preview, name)
+
+    def release_pr(self, repo: str, pr: int) -> int:
+        """Release every live device of a PR now (the merger closed it: its ticket was
+        canceled). Returns how many."""
+        released = 0
+        for name, preview in self._load().items():
+            if preview.repo.lower() == repo.lower() and preview.pr == pr:
+                _log.info("preview_releasing", pr=pr, reason="abandoned")
+                self._release(preview, name)
+                released += 1
+        return released
 
     # -- background sweep -------------------------------------------------------
+
+    def start(self) -> None:
+        """Start the sweep loop."""
+        if self._thread is not None:
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(
+            target=self._sweep_loop, name="preview-sweep", daemon=True
+        )
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        t = self._thread
+        if t is not None:
+            t.join(timeout=10)
+        self._thread = None
 
     def sweep(self) -> int:
         """Check all live previews and release stale ones.  Returns count released."""
         released = 0
-        with self._lock:
-            previews = list(self._previews.values())
-        for preview in previews:
+        for name, preview in self._load().items():
             reason = self._release_reason(preview)
             if reason is None:
                 continue
             _log.info("preview_releasing", pr=preview.pr, reason=reason)
-            self._release(preview)
+            self._release(preview, name)
             released += 1
         return released
 
     def _release_reason(self, preview: _LivePreview) -> str | None:
-        """Why the device should go back now, or None to keep it."""
+        """Why the device should go back now, or None to keep it. A link's device keeps its
+        sha: the head moving or an approval does not release it."""
         if time.time() - preview.started_at >= LEASE_MAX_AGE_S:
             return "timeout"
-        if not mcp_servers.held_by_live_session(self.client, self.namespace,
-                                                preview.server, preview.lease_id):
+        if not self._held(preview):
             return "lease_gone"
         try:
-            with httpx.Client(timeout=10) as http:
+            with self.http() as http:
                 token = self.github_token(preview.repo)()
                 state = _pr_state(http, token, preview.repo, preview.pr)
                 if state in ("closed", "merged"):
                     return state
+                if preview.origin == LINK:
+                    return None
                 head = _pr_head_sha(http, token, preview.repo, preview.pr)
                 if head is not None and head != preview.head_sha:
                     return "new_head"
@@ -623,9 +826,12 @@ class PreviewManager:
         return None
 
     def _sweep_loop(self) -> None:
+        # The assistant and the API both run one: a short Redis lock lets one sweep a round.
+        lock = self._prefix() + "sweep"
         while not self._stop.wait(CHECK_INTERVAL_S):
             try:
-                self.sweep()
+                if self.client.set(lock, "1", nx=True, ex=CHECK_INTERVAL_S - 5):
+                    self.sweep()
             except Exception as exc:  # noqa: BLE001
                 _log.warning("preview_sweep_error", error=type(exc).__name__)
 

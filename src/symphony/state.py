@@ -22,6 +22,7 @@ METRICS_PREFIX = "metrics:"
 TELEMETRY_PREFIX = "telemetry:"
 HOLD_PREFIX = "hold:"
 ANSWERED_PREFIX = "answered:"
+ABANDONED_PREFIX = "abandoned:"
 HEARTBEAT_KEY = "orchestrator:heartbeat"
 LOCK_KEY = "lock:orchestrator"
 TOTALS_KEY = "totals:tokens"
@@ -84,6 +85,12 @@ def answered_key(issue_id: str) -> str:
     """Pull request comments (`prwatch.comment_ref`) that answered one of the ticket's
     questions (`questions.pull_answer`): the review watch does not answer them again."""
     return f"{ANSWERED_PREFIX}{issue_id}"
+
+
+def abandoned_key(issue_id: str) -> str:
+    """The ticket was finalized in an abandon state (`Config.abandons`): `{state, identifier,
+    at}`. Its questions asked before `at` close as canceled (`questions._advance`)."""
+    return f"{ABANDONED_PREFIX}{issue_id}"
 
 
 def telemetry_key(issue_id: str) -> str:
