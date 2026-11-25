@@ -377,6 +377,26 @@ def test_a_sha_the_repository_does_not_have_is_gone(stack):
     assert resp.status_code == 410 and "has no commit" in resp.text
 
 
+def test_a_link_whose_lease_the_device_lab_ended_starts_the_build_again(stack):
+    path, headers = link(SHA_NEW), signed_in(stack)
+    stack.client.get(path, headers=headers)
+    stack.spawn.run()
+    [old] = stack.mgr.live()
+    # Seiji's reaper ends the lease (idle); Symphony still has it on record.
+    stack.mgr._release_lease(stack.mgr.repository.get("seiji"),
+                             stack.mgr.repository.headers("seiji"), old.lease_id, 7)
+
+    page = stack.client.get(path, headers=headers)
+    assert page.status_code == 200 and "setTimeout(poll, 2000)" in page.text
+    assert stack.mgr.live() == []
+    assert stack.client.get(status_of(path), headers=headers).json()["state"] == "starting"
+    stack.spawn.run()
+    viewer = stack.client.get(path, headers=headers)
+    assert viewer.status_code == 302
+    [new] = stack.mgr.live()
+    assert new.lease_id != old.lease_id
+
+
 def test_a_failed_start_shows_its_error_and_a_reload_tries_again(stack):
     httpx.post(f"{stack.seiji}/_control/config", json={"acquire_error": "no simulator free"})
     path, headers = link(SHA_NEW), signed_in(stack)

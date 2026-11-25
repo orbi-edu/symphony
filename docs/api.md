@@ -358,7 +358,8 @@ the preset's viewer route (Seiji: `POST {http_base}/v1/leases/{lease_id}/viewer`
 `{"control": <control>}`) with the stored headers. A relative `url` becomes absolute against
 `http_base`. Errors: 404 `viewer_unsupported` (no preset viewer), 409 `viewer_refused` (the
 server refused; the message is its error text, for example "the screen viewer supports iOS
-simulators only for now"), 502 `rejected` (the server refused the stored header) and 502
+simulators only for now"), 410 `lease_gone` (Seiji already ended the lease: it sat idle or
+reached its time limit), 502 `rejected` (the server refused the stored header) and 502
 `mcp_unreachable`.
 
 ### Merger

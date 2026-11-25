@@ -313,6 +313,8 @@ ERROR_TEXT = {
     "lease_not_held": "No live Symphony session holds this lease. Watch only a device that an "
                       "agent holds now.",
     "viewer_refused": "The MCP server refused the viewer link.",
+    "lease_gone": "The MCP server already ended this lease (it sat idle or reached its time "
+                  "limit).",
     "viewer_unsupported": "This MCP server has no viewer.",
     "rejected": "The MCP server refused the stored credential. Store it again with "
                 "`symphony admin mcp headers`.",

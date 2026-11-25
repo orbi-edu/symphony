@@ -64,6 +64,15 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `propose_tickets` no longer counts as the turn's proposal, and the agent can call it again.
 - An expired proposal answers "This proposal expired. Ask the assistant again."
 
+### Fixed
+
+- A preview link opened after Seiji released its device for sitting idle showed "Could not
+  open the preview" (HTTP 502) on every reload: Symphony still had the lease on record and
+  asked Seiji for a viewer of a lease that had ended. Now the link forgets that lease and
+  starts the build again (the progress page, then the viewer), and the Slack button says the
+  simulator was released and starts a new one on the next click. The viewer route answers
+  410 `lease_gone` for such a lease.
+
 ## [0.2.23] - 2026-11-25
 
 ### Fixed

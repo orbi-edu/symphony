@@ -199,17 +199,21 @@ def build_router(
                      sig: str = ""):
         try:
             repo, number, sha12, actor = check(request, repo, pr, sha, sig)
+            target = f"{repo}#{number}@{sha12}"
             try:
                 state = s.previews.open_link(repo, number, sha12)
+                if state == "ready":
+                    url = s.previews.link_viewer(repo, number, sha12)
+                    if url:
+                        s.store.audit_event(actor=actor, action=ACTION, target=target,
+                                            reason=state)
+                        return RedirectResponse(url, 302, headers=_NO_STORE)
+                    # The device lab ended the lease (it sat idle): start the build again.
+                    state = s.previews.open_link(repo, number, sha12)
             except PreviewGone as exc:
                 raise _Refused(410, "This build is gone", f"{_sentence(exc)}. Open the link of "
                                "a newer build from the pull request.") from None
-            s.store.audit_event(actor=actor, action=ACTION, target=f"{repo}#{number}@{sha12}",
-                                reason=state)
-            if state == "ready":
-                url = s.previews.link_viewer(repo, number, sha12)
-                if url:
-                    return RedirectResponse(url, 302, headers=_NO_STORE)
+            s.store.audit_event(actor=actor, action=ACTION, target=target, reason=state)
             return _page(200, f"Opening {repo}#{number} at {sha12}",
                          _STEPS["queued"], poll=True)
         except _Refused as exc:

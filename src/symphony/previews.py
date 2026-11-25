@@ -72,6 +72,10 @@ class PreviewGone(PreviewError):
     """The build cannot be had: no such commit, no preview artifact, or an expired one."""
 
 
+class PreviewLeaseGone(PreviewError):
+    """The device lab ended the lease (idle or its time limit) before Symphony released it."""
+
+
 @dataclass
 class _LivePreview:
     """An active preview device for one (repo, pr, sha)."""
@@ -581,6 +585,8 @@ class PreviewManager:
             link = asyncio.run(mcp_servers.request_viewer(
                 definition, self.repository.headers(preview.server), preview.lease_id, True))
         except mcp_servers.McpError as exc:
+            if exc.code == "lease_gone":
+                raise PreviewLeaseGone("the device was released") from None
             raise PreviewError(f"the viewer link failed: {exc.message}") from None
         return link["url"]
 
@@ -629,11 +635,17 @@ class PreviewManager:
             self._unclaim(key)
 
     def link_viewer(self, repo: str, pr: int, sha12: str) -> str | None:
-        """A fresh viewer link of the live preview of this build, or None."""
+        """A fresh viewer link of the live preview of this build, or None. A lease the device
+        lab already ended is forgotten, so the next `open_link` starts the build again."""
         live = self.get(repo, pr, sha12)
         if live is None or not self._held(live):
             return None
-        return self.viewer_url(live)
+        try:
+            return self.viewer_url(live)
+        except PreviewLeaseGone:
+            _log.info("preview_releasing", pr=pr, reason="lease_gone")
+            self._forget(live)
+            return None
 
     # -- button clicks (the assistant) -------------------------------------------
 
@@ -718,6 +730,12 @@ class PreviewManager:
         """Request a control viewer and send it privately to the clicker."""
         try:
             url = self.viewer_url(preview)
+        except PreviewLeaseGone:
+            _log.info("preview_releasing", pr=preview.pr, reason="lease_gone")
+            self._forget(preview)
+            out.ack_action(action, "The simulator was released after sitting idle. Click the "
+                                   "button again to start a new one.")
+            return "lease_gone"
         except PreviewError as exc:
             _log.warning("preview_viewer_failed", error="PreviewError", pr=preview.pr)
             out.ack_action(action, f"The simulator is running, but {exc}")
