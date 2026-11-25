@@ -8,8 +8,10 @@ omp does not redact the export, so this module does, before anything leaves the 
 every match of the merger precheck's secret patterns (`merger.rules.SECRETS`) and every
 credential value the run holds (tracker key, App tokens, gateway tokens) becomes
 `[REDACTED]`. The session sits base64-encoded in the page's `session-data` script; it is
-decoded and redacted string by string, so a match never breaks the JSON. A page without
-that element is not attached: redaction could not be checked.
+decoded and redacted one JSON string literal at a time, so a match never breaks the JSON
+and every other byte (numbers, spacing, escapes) stays as omp wrote it. A page with nothing
+to redact is attached unchanged; a page without that element is not attached: redaction
+could not be checked.
 
 Nothing here fails a run: every outcome is a record for the session report.
 """
@@ -35,6 +37,7 @@ MIN_CREDENTIAL_CHARS = 12
 TRACE_MAX_BYTES = EVIDENCE_MAX_BYTES  # the tracker's attachment limit
 _EXPORT_FILE = "session-trace.html"
 _PAYLOAD = re.compile(r'(<script id="session-data"[^>]*>)([A-Za-z0-9+/=\s]*)(</script>)')
+_JSON_STRING = re.compile(r'"[^"\\]*(?:\\.[^"\\]*)*"')
 
 
 class TraceError(Exception):
@@ -61,32 +64,40 @@ class Redactor:
             self.count += n
         return value
 
-    def walk(self, value):
-        if isinstance(value, str):
-            return self.text(value)
-        if isinstance(value, list):
-            return [self.walk(item) for item in value]
-        if isinstance(value, dict):
-            return {key: self.walk(item) for key, item in value.items()}
-        return value
+
+def _redact_json(text: str, redactor: Redactor) -> str:
+    """`text` (valid JSON) with each string literal that holds a secret re-encoded redacted;
+    the rest is untouched. Outside strings JSON has no quote, so the scan finds literals."""
+
+    def literal(match: re.Match) -> str:
+        raw = match.group(0)
+        value = json.loads(raw)
+        redacted = redactor.text(value)
+        # ASCII escapes: a lone surrogate the literal may hold stays encodable.
+        return raw if redacted == value else json.dumps(redacted)
+
+    return _JSON_STRING.sub(literal, text)
 
 
 def redact_export(html: str, credentials: Iterable[str | None]) -> tuple[str, int]:
-    """The export with every secret replaced, and the number of replacements."""
+    """The export with every secret replaced, and the number of replacements. With nothing
+    to replace, the page is returned as it was, byte for byte."""
     found = _PAYLOAD.search(html)
     if found is None:
         raise TraceError("trace not attached: the export has no session data to redact")
     try:
-        session = json.loads(base64.b64decode(found.group(2)))
+        text = base64.b64decode(found.group(2)).decode("utf-8")
+        json.loads(text)
     except (binascii.Error, ValueError) as exc:
         raise TraceError("trace not attached: the export's session data is unreadable") from exc
     redactor = Redactor(credentials)
-    session = redactor.walk(session)
-    encoded = base64.b64encode(
-        json.dumps(session, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    ).decode("ascii")
-    page = (redactor.text(html[: found.start(2)]) + encoded + redactor.text(html[found.end(2):]))
-    return page, redactor.count
+    head, tail = redactor.text(html[: found.start(2)]), redactor.text(html[found.end(2):])
+    redacted = _redact_json(text, redactor)
+    if redactor.count == 0:
+        return html, 0
+    json.loads(redacted)  # still the same document, only strings changed
+    encoded = base64.b64encode(redacted.encode("utf-8")).decode("ascii")
+    return head + encoded + tail, redactor.count
 
 
 def export(sandbox: SandboxLike, omp: str, session_path: str) -> str:

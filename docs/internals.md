@@ -294,7 +294,9 @@ that lost its dispatch, and a tracker that stores no files.
    of the run of 12 characters or more: the tracker credential (`edge.tracker_credentials`),
    each GitHub App installation token handed to the workspace, the gateway bridge token and
    the MCP tokens.
-   A page without that script is not attached.
+   A page without that script is not attached. Only the JSON string literals that held a
+   secret are re-encoded; every other byte stays as omp wrote it, and a page with nothing to
+   redact is attached unchanged.
 4. `tracker.attach_evidence(kind="report", title="Session trace (run N)",
    filename="session-trace-run-N.html", content_type="text/html")`; `N` is the claim's `runs`.
 5. The claim gets `traces[]`: `{run, url, redactions}`, or `{run, note}` when the trace is not

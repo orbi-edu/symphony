@@ -130,6 +130,37 @@ def test_short_values_are_not_treated_as_credentials():
     assert "Done, 3 files changed" in json.dumps(session_of(page))
 
 
+# The session JSON as omp's JSON.stringify writes it, which Python's json.dumps would not
+# reproduce: `0.000016` (Python: 1.6e-05), a raw U+2028, a lone surrogate escape.
+OMP_JSON = (
+    '{"header":{"type":"session","id":"s-1"},"entries":[{"type":"message","message":'
+    '{"role":"toolResult","content":[{"type":"text","text":"say \\"hi\\"\\n\u00e9\u2028\\ud800 '
+    'C:\\\\tmp"}],"usage":{"cost":{"input":0.000016,"output":0.0021000000000000003}}}},'
+    '{"type":"message","message":{"role":"toolResult","content":[{"type":"text","text":'
+    f'"GITHUB_TOKEN={GITHUB_TOKEN} \\u00e9"}}]}}}}],"trace":[]}}'
+)
+
+
+def _omp_page(text: str) -> str:
+    data = base64.b64encode(text.encode("utf-8")).decode()
+    return f'<html><body><script id="session-data" type="application/json">{data}</script></body></html>'
+
+
+def test_an_unredacted_page_round_trips_byte_for_byte():
+    clean = OMP_JSON.replace(GITHUB_TOKEN, "nothing-secret")
+    page = _omp_page(clean)
+    assert sessiontrace.redact_export(page, ["acme-not-in-this-page-123"]) == (page, 0)
+
+
+def test_redaction_changes_only_the_literal_that_held_the_secret():
+    page, count = sessiontrace.redact_export(_omp_page(OMP_JSON), [])
+    assert count == 1
+    text = base64.b64decode(re.search(r'json">([^<]*)<', page).group(1)).decode()
+    head, _, rest = OMP_JSON.partition(f'"GITHUB_TOKEN={GITHUB_TOKEN} \\u00e9"')
+    assert text == head + '"GITHUB_TOKEN=[REDACTED] \\u00e9"' + rest
+    assert '"input":0.000016' in text and "\u2028\\ud800" in text
+
+
 def test_a_page_without_session_data_is_never_attached(tmp_path, omp):
     omp.page.write_text("<html><body>session data elsewhere</body></html>")
     tracker = Tracker()
