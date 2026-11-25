@@ -184,6 +184,11 @@ _FIELDS = {
     "merger.label_filter.enabled": _Field("merger_label_filter_enabled", "boolean"),
     "merger.label_filter.labels": _Field("merger_label_filter_labels", "json"),
     "merger.label_filter.repos": _Field("merger_label_filter_repos", "json"),
+    "tracker.abandon_states": _Field("abandon_states", "json"),
+    # Set both to turn Cloudflare Access verification on; both empty turns it off.
+    "api.access.team_domain": _Field("api_access.team_domain", optional=True),
+    "api.access.aud": _Field("api_access.aud", optional=True),
+    "previews.public_links": _Field("previews_public_links", "boolean"),
 }
 
 
@@ -220,6 +225,8 @@ def _effective(cfg: Config, field: _Field) -> Any:
     value = getattr(cfg, root)
     if root == "skill_sources":
         return [source.as_entry() for source in value]
+    if rest and value is None:
+        return None  # an optional section that is off (`api_access`)
     return _at(value, rest) if rest else value
 
 
