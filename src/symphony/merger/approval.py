@@ -216,19 +216,21 @@ def button_id(repo: str, pr_number: int, head_sha: str) -> str:
 
 def _link_listed(m: Merger, n: int, head_sha: str) -> bool:
     """True when the PR's Preview comment already lists `head_sha`, or when links are off
-    (no `SYMPHONY_PUBLIC_URL` or no `SYMPHONY_PREVIEW_LINK_SECRET`): nothing to publish."""
-    if not (public_url() and preview_links.secret()):
+    (no `SYMPHONY_PUBLIC_URL`): nothing to publish."""
+    if not public_url():
         return True
     doc = preview_links.document(m.store.client, m.store.ns, m.repo, n)
     return any(b.get("sha12") == head_sha[:12] for b in doc["builds"])
 
 
 def publish_preview_link(m: Merger, n: int, head_sha: str) -> None:
-    """Adds `head_sha`'s signed link to the PR's one Preview comment (posted once, then
-    edited in place), newest first, the last `preview_links.KEPT` builds. Recorded only
-    after GitHub took the comment, so a failure is tried again on the next pass."""
+    """Adds `head_sha`'s link to the PR's one Preview comment (posted once, then edited in
+    place), newest first, the last `preview_links.KEPT` builds. Signed when the merger holds
+    `SYMPHONY_PREVIEW_LINK_SECRET` (required by `previews.public_links`, optional behind
+    Access). Recorded only after GitHub took the comment, so a failure is tried again on the
+    next pass."""
     base, key = public_url(), preview_links.secret()
-    if not (base and key):
+    if not base:
         return
     client, ns = m.store.client, m.store.ns
     doc = preview_links.document(client, ns, m.repo, n)

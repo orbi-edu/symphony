@@ -378,20 +378,22 @@ the message).
 
 Browser routes for the preview links that the merger posts on pull requests
 (`src/symphony/api/previews.py`, [assistant.md](assistant.md#the-link-on-the-pull-request)).
-They take no bearer token: the signed link and, with `api.access`, the Cloudflare Access token
-(`Cf-Access-Jwt-Assertion`) authorize them ([security.md](security.md#preview-links)). They
+They take no bearer token. With `api.access` the Cloudflare Access token
+(`Cf-Access-Jwt-Assertion`) authorizes them and `sig` is optional; with `previews.public_links`
+the signed link does and `sig` is required ([security.md](security.md#preview-links)). They
 answer HTML (status: JSON), with `Cache-Control: no-store` and `Referrer-Policy: no-referrer`.
 
 | Method and path | Response |
 |---|---|
-| `GET /v1/previews/open?repo=&pr=&sha=&sig=` | 302 to a fresh Seiji control viewer when a device runs the build; otherwise 200, a page that starts it and polls `status` every 2 s, then reloads. Audited `preview.opened` |
-| `GET /v1/previews/status?repo=&pr=&sha=&sig=` | `{state, step?, error?, message}`; `state` is `ready`, `starting` (`step`: `queued`, `downloading`, `installing`, `launching`), `error`, `stopped` or `refused` |
+| `GET /v1/previews/open?repo=&pr=&sha=[&sig=]` | 302 to a fresh Seiji control viewer when a device runs the build; otherwise 200, a page that starts it and polls `status` every 2 s, then reloads. Audited `preview.opened` |
+| `GET /v1/previews/status?repo=&pr=&sha=[&sig=]` | `{state, step?, error?, message}`; `state` is `ready`, `starting` (`step`: `queued`, `downloading`, `installing`, `launching`), `error`, `stopped` or `refused` |
 
-Refusals, as a page: 400 (not a complete link), 403 (bad signature; e-mail not mapped in
-`notify.users`; no `api.access` and no `previews.public_links`), 401 (no Access token, or one
-refused: signature, `aud`, `iss`, `exp`), 410 (no such commit, no preview build, or an expired
-artifact), 502 (the start or the viewer failed), 503 (no `SYMPHONY_PREVIEW_LINK_SECRET`, no
-WORKFLOW, no GitHub App or MCP servers).
+Refusals, as a page: 400 (not a complete link), 403 (a `sig` that does not match; no `sig` in
+public mode; e-mail not mapped in `notify.users`; no `api.access` and no
+`previews.public_links`), 401 (no Access token, or one refused: signature, `aud`, `iss`,
+`exp`), 410 (no such commit, no preview build, or an expired artifact), 502 (the start or the
+viewer failed), 503 (public mode without `SYMPHONY_PREVIEW_LINK_SECRET`, no WORKFLOW, no
+GitHub App or MCP servers).
 
 ### Setup
 

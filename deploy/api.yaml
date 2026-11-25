@@ -35,8 +35,8 @@ spec:
               value: symphony-providers
           envFrom:
             # The only Secret the API needs to start: SYMPHONY_BOOTSTRAP_TOKEN (first admin),
-            # plus GITHUB_WEBHOOK_SECRET once setup generates it, and
-            # SYMPHONY_PREVIEW_LINK_SECRET (verifies the PR preview links the merger signs).
+            # plus GITHUB_WEBHOOK_SECRET once setup generates it, and the optional
+            # SYMPHONY_PREVIEW_LINK_SECRET (verifies signed PR preview links; public_links mode).
             - secretRef: {name: symphony-api}
             # Integrations, written by the setup flow (PUT /v1/setup/*); absent until then.
             # LINEAR_API_KEY + LINEAR_WEBHOOK_SECRET (webhook signature, issue reads)

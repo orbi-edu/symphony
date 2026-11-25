@@ -499,9 +499,9 @@ api:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `public_links` | `false` | Without `api.access`, a signed preview link alone opens the preview, for anyone who has it. Without `api.access` and with `false`, the route refuses every link. |
+| `public_links` | `false` | Without `api.access`, a signed preview link alone opens the preview, for anyone who has it. Needs `SYMPHONY_PREVIEW_LINK_SECRET` on the merger and the API. Without `api.access` and with `false`, the route refuses every link. |
 
-Turn `public_links` on only when the API is not reachable from outside your network, or when everyone who can read the pull requests may use your Seiji devices ([security.md](security.md#preview-links)). The signing secret is `SYMPHONY_PREVIEW_LINK_SECRET`, never in `WORKFLOW.md`.
+Turn `public_links` on only when the API is not reachable from outside your network, or when everyone who can read the pull requests may use your Seiji devices ([security.md](security.md#preview-links)). The signing secret is `SYMPHONY_PREVIEW_LINK_SECRET`, never in `WORKFLOW.md`. Behind `api.access` no secret is needed: the links are unsigned and the Access sign-in authorizes the person.
 
 ## Retired keys
 
@@ -593,7 +593,7 @@ The precedence of each consumer is in [concepts.md](concepts.md#precedence).
 | `GITHUB_WEBHOOK_SECRET` | API | The secret of the GitHub App webhook. |
 | `SYMPHONY_BOOTSTRAP_TOKEN` | API, local mode | The first admin API token, `sym_<8 hex>_<43 characters>`. |
 | `SYMPHONY_PUBLIC_URL` | API, merger | The public base URL of the API, for example `https://symphony.example.com`. Setup builds the webhook URLs from it, and the merger the preview links on pull requests. Set it behind a proxy, or when the webhook URLs must use a public host. When empty, setup uses the address of the request, and the merger posts no preview links. On Kubernetes it is in the ConfigMap `symphony-api-config`. |
-| `SYMPHONY_PREVIEW_LINK_SECRET` | API, merger | The HMAC key of the preview links: the merger signs them, the API verifies them ([assistant.md](assistant.md#the-link-on-the-pull-request)). Without it the merger posts no links and the API refuses them. Rotating it voids every posted link. |
+| `SYMPHONY_PREVIEW_LINK_SECRET` | API, merger | The HMAC key of the preview links, needed only for `previews.public_links`: the merger signs the links, the API verifies them ([assistant.md](assistant.md#the-link-on-the-pull-request)). Behind `api.access` it is optional; when set, the links are signed and a present `sig` must match. Rotating it voids every signed link. |
 | `SLACK_BOT_TOKEN` and `SLACK_CHANNEL` | all notifiers | Slack Web API (`chat.postMessage`, scope `chat:write`). This method wins when both methods are set. |
 | `SLACK_WEBHOOK_URL` | all notifiers | A Slack incoming webhook. |
 | `DISCORD_BOT_TOKEN` and `DISCORD_CHANNEL_ID` | all notifiers | A Discord bot (`POST /channels/{id}/messages`). The bot needs the permissions View Channel and Send Messages in the channel. This method wins when both Discord methods are set. |

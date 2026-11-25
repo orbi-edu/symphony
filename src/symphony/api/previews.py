@@ -1,18 +1,19 @@
 """Preview links in the browser: open a PR build in Seiji from the PR (`preview_links`).
 
-- `GET /v1/previews/open?repo=&pr=&sha=&sig=` → 302 to a fresh Seiji control viewer when the
+- `GET /v1/previews/open?repo=&pr=&sha=[&sig=]` → 302 to a fresh Seiji control viewer when the
   build runs on a device; otherwise it starts one (`PreviewManager.open_link`) and answers an
   HTML page that polls `status` every 2 s and reloads this URL when the device is ready. A
   reload after the viewer ticket expired mints a new one for the same lease. Each open is
   audited as `preview.opened` (actor: the person's GitHub login, target `repo#pr@sha12`).
-- `GET /v1/previews/status?repo=&pr=&sha=&sig=` → `{state, step?, message}` with the same
+- `GET /v1/previews/status?repo=&pr=&sha=[&sig=]` → `{state, step?, message}` with the same
   checks (`state`: ready, starting, error, stopped, refused).
 
-No API token: a browser follows the link from the PR. The checks, in order: the signature
-(403); then the person. With `api.access` the Cloudflare Access JWT is verified
-(`access.AccessVerifier`, 401 when missing or refused) and its e-mail must be mapped in
-`notify.users` (403). Without it, `previews.public_links: true` lets the signed link alone
-open it; otherwise the route refuses (403). Pages are `no-store` and send no referrer.
+No API token: a browser follows the link from the PR. With `api.access` the Cloudflare Access
+JWT is verified (`access.AccessVerifier`, 401 when missing or refused) and its e-mail must be
+mapped in `notify.users` (403); `sig` is optional there, but a present one must match when
+the API holds the secret (403). Without Access, `previews.public_links: true` makes the signed
+link the credential: the secret (503) and a matching `sig` (403) are required. Otherwise the
+route refuses (403). Pages are `no-store` and send no referrer.
 """
 
 from __future__ import annotations
@@ -151,16 +152,14 @@ def build_router(
         """`(repo, pr, sha12, actor)` of an authorized link, or `_Refused`."""
         repo = repo.strip().lower()
         if not (preview_links.REPO.fullmatch(repo) and pr.isdigit() and 0 < int(pr) < 10**9
-                and preview_links.SHA12.fullmatch(sha) and sig):
+                and preview_links.SHA12.fullmatch(sha)):
             raise _Refused(400, "Not a preview link", "This address is not a complete preview "
                            "link. Open it again from the pull request.")
         key = preview_links.secret()
-        if key is None:
-            raise _Refused(503, "Preview links are off", "This Symphony has no preview link "
-                           f"secret ({preview_links.SECRET_ENV}).")
-        if not preview_links.verify(key, repo, int(pr), sha, sig):
-            raise _Refused(403, "This link is not valid", "Its signature does not match. Open "
+        bad_sig = _Refused(403, "This link is not valid", "Its signature does not match. Open "
                            "the link again from the pull request.")
+        if sig and key is not None and not preview_links.verify(key, repo, int(pr), sha, sig):
+            raise bad_sig
         cfg = config()
         if cfg is None:
             raise _Refused(503, "Symphony is not configured", "The API has no valid WORKFLOW.md.")
@@ -179,6 +178,12 @@ def build_router(
                 raise _Refused(403, "Not allowed", "Your e-mail is not mapped to a person in "
                                "Symphony (notify.users). Ask an admin to add it.")
         elif cfg.previews_public_links:
+            # No identity: the signed link itself is the credential.
+            if key is None:
+                raise _Refused(503, "Preview links are off", "Public preview links need the "
+                               f"link secret ({preview_links.SECRET_ENV}).")
+            if not sig:
+                raise bad_sig
             actor = PUBLIC_ACTOR
         else:
             raise _Refused(403, "Preview links are off", "This Symphony opens preview links "

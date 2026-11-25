@@ -84,7 +84,7 @@ The minimal install needs two Secrets that you make yourself. Setup fills in eve
    ```
 7. Edit `deploy/secrets.yaml`:
    - In the Secret `symphony-api`, set `SYMPHONY_BOOTSTRAP_TOKEN` to the token. Leave out `GITHUB_WEBHOOK_SECRET`. Setup makes it.
-   - For PR preview links (optional, [Preview links](#preview-links)), also set `SYMPHONY_PREVIEW_LINK_SECRET` there to a generated value: `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`.
+   - Only for public preview links (`previews.public_links`, no Cloudflare Access; see [Preview links](#preview-links)), also set `SYMPHONY_PREVIEW_LINK_SECRET` there to a generated value: `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`. Behind Access, leave it out.
    - In the Secret `model-provider`, set the host model credential (step 8). Remove this Secret if you store provider keys from Tern only.
 8. Apply the Secrets:
    ```sh
@@ -641,21 +641,24 @@ The tunnel makes only outbound connections. The REST and MCP routes still need a
 
 With previews on (`preview:` in a repository's merger policy and a Seiji server named `seiji`, [assistant.md](assistant.md#pr-previews)), the merger posts a link per build on the pull request. The links need:
 
-1. `SYMPHONY_PREVIEW_LINK_SECRET` in the Secret `symphony-api` (step 3.7). The API reads the whole Secret; the merger reads only this key (`secretKeyRef` in `deploy/merger.yaml`). To add it later:
-   ```sh
-   kubectl -n symphony patch secret symphony-api --type merge \
-     -p "{\"stringData\":{\"SYMPHONY_PREVIEW_LINK_SECRET\":\"$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')\"}}"
-   kubectl -n symphony rollout restart deploy/symphony-api
-   kubectl -n symphony rollout restart deploy -l app=symphony,component=merger
-   ```
-   Rotating it voids every link already posted.
-2. `SYMPHONY_PUBLIC_URL` (step 6 above). The merger reads it from the ConfigMap `symphony-api-config` too.
-3. A Cloudflare Access application on `symphony.<your domain>` (at least the path `/v1/previews/`), and its team domain and audience tag in `WORKFLOW.md`:
+1. `SYMPHONY_PUBLIC_URL` (step 6 above). The merger reads it from the ConfigMap `symphony-api-config` too.
+2. A Cloudflare Access application on `symphony.<your domain>` (at least the path `/v1/previews/`), and its team domain and audience tag in `WORKFLOW.md`:
    ```yaml
    api:
      access: {team_domain: <team>.cloudflareaccess.com, aud: <Application Audience (AUD) tag>}
    ```
-   Map each person's Access e-mail in `notify.users` ([configuration](configuration.md#notify)). Without Access, the API refuses the links unless `previews.public_links: true` ([security](security.md#preview-links)).
+   Map each person's Access e-mail in `notify.users` ([configuration](configuration.md#notify)). That is all: no secret is needed, the Access sign-in authorizes the person.
+
+Without Access, the API refuses the links unless `previews.public_links: true` ([security](security.md#preview-links)). Then the link itself is the credential and must be signed: set `SYMPHONY_PREVIEW_LINK_SECRET` in the Secret `symphony-api` (step 3.7). The API reads the whole Secret; the merger reads only this key (`secretKeyRef` in `deploy/merger.yaml`). To add it later:
+
+```sh
+kubectl -n symphony patch secret symphony-api --type merge \
+  -p "{\"stringData\":{\"SYMPHONY_PREVIEW_LINK_SECRET\":\"$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')\"}}"
+kubectl -n symphony rollout restart deploy/symphony-api
+kubectl -n symphony rollout restart deploy -l app=symphony,component=merger
+```
+
+Rotating it voids every signed link already posted. With Access and the secret both set, the links are signed too and a present signature must match.
 
 ## 15. Make the team's API tokens
 

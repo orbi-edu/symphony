@@ -482,8 +482,8 @@ With `preview:` in the policy, the merger announces when a simulator preview is 
 - Discord gets the same text as a plain message, with no button.
 - Deduplication is in Redis, keyed by (repository, pull request, head sha), with a 7-day
   TTL.
-- With `SYMPHONY_PUBLIC_URL` and `SYMPHONY_PREVIEW_LINK_SECRET` set, the merger also adds
-  the head's signed preview link (`preview_links.py`) to the pull request's one **Preview**
+- With `SYMPHONY_PUBLIC_URL` set, the merger also adds the head's preview link
+  (`preview_links.py`, signed when it holds `SYMPHONY_PREVIEW_LINK_SECRET`) to the pull request's one **Preview**
   comment: posted once, then edited in place, newest build first, the last 5. The comment
   starts with `**Preview**` and `**symphony-merger**`, like the merger's other comments. The
   build list and the comment URL are in Redis (`sym:<ns>:preview:builds:<repo>:<pr>`, 90

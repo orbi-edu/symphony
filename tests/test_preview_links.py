@@ -197,8 +197,8 @@ def stack(redis_client, seiji, tmp_path, monkeypatch):
     return s
 
 
-def link(sha: str, pr: int = 7) -> str:
-    url = preview_links.url("https://symphony.example.com", SECRET, REPO, pr, sha[:12])
+def link(sha: str, pr: int = 7, key: str | None = SECRET) -> str:
+    url = preview_links.url("https://symphony.example.com", key, REPO, pr, sha[:12])
     return url.removeprefix("https://symphony.example.com")
 
 
@@ -398,6 +398,36 @@ def test_public_links_open_without_access(stack):
     assert stack.client.get(path).status_code == 302
     assert {e["actor"] for e in audits(stack)} == {"public-link"}
     assert stack.client.get(path.replace("sig=", "sig=x")).status_code == 403
+
+
+def test_public_links_need_a_signature_and_the_secret(stack, monkeypatch):
+    stack.holder["cfg"] = workflow("previews:\n  public_links: true\n")
+    resp = stack.client.get(link(SHA_NEW, key=None))
+    assert resp.status_code == 403 and "This link is not valid" in resp.text
+    monkeypatch.delenv(preview_links.SECRET_ENV)
+    assert stack.client.get(link(SHA_NEW)).status_code == 503
+    assert stack.spawn.pending == [] and audits(stack) == []
+
+
+def test_behind_access_an_unsigned_link_opens_with_no_secret_at_all(stack, monkeypatch):
+    """With Access the person is the credential: the operator provisions no link secret."""
+    monkeypatch.delenv(preview_links.SECRET_ENV)
+    path = link(SHA_NEW, key=None)
+    assert "sig=" not in path
+    assert stack.client.get(path).status_code == 401  # still no anonymous access
+    assert stack.client.get(path, headers=signed_in(stack)).status_code == 200
+    stack.spawn.run()
+    resp = stack.client.get(path, headers=signed_in(stack))
+    assert resp.status_code == 302 and resp.headers["location"].startswith(stack.seiji)
+    # A signed link of earlier days still opens; with no secret its sig is not checked.
+    assert stack.client.get(link(SHA_NEW), headers=signed_in(stack)).status_code == 302
+
+
+def test_behind_access_a_signed_link_is_accepted_and_a_wrong_sig_refused(stack):
+    assert stack.client.get(link(SHA_NEW, key=None), headers=signed_in(stack)).status_code == 200
+    assert stack.client.get(link(SHA_NEW), headers=signed_in(stack)).status_code == 200
+    forged = link(SHA_NEW, key="another-secret")
+    assert stack.client.get(forged, headers=signed_in(stack)).status_code == 403
 
 
 # -- lifetime -----------------------------------------------------------------------------

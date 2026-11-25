@@ -11,16 +11,19 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Preview links on the pull request: when the merger finds a preview artifact for a head
   (T10), it also keeps one **Preview** comment on the PR, edited in place, with a link per
-  build (newest first, the last 5): `<SYMPHONY_PUBLIC_URL>/v1/previews/open?repo=&pr=&sha=&sig=`.
-  `sig` is an HMAC-SHA256 of the repository, PR and sha with the new secret
-  `SYMPHONY_PREVIEW_LINK_SECRET` (Secret `symphony-api`; the merger reads only that key).
+  build (newest first, the last 5): `<SYMPHONY_PUBLIC_URL>/v1/previews/open?repo=&pr=&sha=`.
   The link has no expiry: it opens that build days later, while its artifact exists, and an
-  older sha opens that version.
+  older sha opens that version. Behind Cloudflare Access no secret is needed. For
+  `previews.public_links` the link must be signed: `sig`, an HMAC-SHA256 of the repository,
+  PR and sha with the new optional secret `SYMPHONY_PREVIEW_LINK_SECRET` (Secret
+  `symphony-api`; the merger reads only that key). With Access and the secret, links are
+  signed and a present `sig` must match, but none is required.
 - `GET /v1/previews/open` and `GET /v1/previews/status` on the API: browser routes, no API
   token. Behind Cloudflare Access (new `api.access: {team_domain, aud}` in `WORKFLOW.md`) the
   API verifies the `Cf-Access-Jwt-Assertion` token (RS256 against the team's cached keys,
   `aud`, `iss`, `exp`) and requires its e-mail in `notify.users`; any mapped person may open,
-  not only reviewers. Without Access the route refuses, unless `previews.public_links: true`.
+  not only reviewers. Without Access the route refuses, unless `previews.public_links: true`
+  (a signed link required).
   The page shows the start's progress and errors, polling every 2 s, then redirects to a
   fresh Seiji control viewer; a reload mints a new one for the same device. An expired
   artifact gets a page that says so. Each open is audited as `preview.opened`.

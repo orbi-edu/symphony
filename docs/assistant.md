@@ -268,17 +268,16 @@ When the merger announces a preview build of a pull request ([merger.md](merger.
 The button only exists in Slack, only for the current head and only for reviewers, and a viewer link opens once within 60 seconds. So the merger also keeps one **Preview** comment on the pull request with a link per build, newest first, the last 5 (edited in place when a new head gets a build):
 
 ```text
-https://<SYMPHONY_PUBLIC_URL>/v1/previews/open?repo=<owner/name>&pr=<n>&sha=<sha12>&sig=<signature>
+https://<SYMPHONY_PUBLIC_URL>/v1/previews/open?repo=<owner/name>&pr=<n>&sha=<sha12>[&sig=<signature>]
 ```
 
-The signature is an HMAC-SHA256 of the repository, the PR number and the sha with `SYMPHONY_PREVIEW_LINK_SECRET` ([install](install.md#preview-links)). The link has no expiry: it works days later, as long as GitHub keeps the build's artifact. A link of an older sha opens that version, not the current head.
+The link has no expiry: it works days later, as long as GitHub keeps the build's artifact. A link of an older sha opens that version, not the current head. When the merger holds `SYMPHONY_PREVIEW_LINK_SECRET`, it adds `sig`: an HMAC-SHA256 of the repository, the PR number and the sha. Behind Cloudflare Access the secret is not needed; it is required only for `previews.public_links` ([install](install.md#preview-links)).
 
 Opening it in a browser:
 
-1. The API checks the signature (a bad one is a 403 page).
-2. It checks the person. Behind Cloudflare Access (`api.access` in [configuration](configuration.md#api)), it verifies the Access token and maps its e-mail in `notify.users`. Any mapped person may open a preview, not only reviewers. Without `api.access` the route refuses, unless `previews.public_links: true` lets the signed link alone open it ([security](security.md#preview-links)).
-3. A device that already runs this build is reused. Otherwise the start runs in the background and the page shows its progress ("Downloading build…", "Installing…", "Launching…") or its error in plain words; it asks again every 2 seconds. An expired artifact gets a page that says so.
-4. When the device is ready, the API mints a fresh control viewer link and redirects the browser to it. Reloading the page later mints a new one for the same device.
+1. The API checks the person. Behind Cloudflare Access (`api.access` in [configuration](configuration.md#api)), it verifies the Access token and maps its e-mail in `notify.users`. Any mapped person may open a preview, not only reviewers. A `sig` is optional there; a present one must match when the API holds the secret (else a 403 page). Without `api.access` the route refuses, unless `previews.public_links: true`: then the signed link alone opens it, and the secret and a matching `sig` are required ([security](security.md#preview-links)).
+2. A device that already runs this build is reused. Otherwise the start runs in the background and the page shows its progress ("Downloading build…", "Installing…", "Launching…") or its error in plain words; it asks again every 2 seconds. An expired artifact gets a page that says so.
+3. When the device is ready, the API mints a fresh control viewer link and redirects the browser to it. Reloading the page later mints a new one for the same device.
 
 Each open is audited as `preview.opened` (actor: the person's GitHub login, or the e-mail when no login maps to the same chat user; `public-link` without Access; target `<owner/name>#<pr>@<sha12>`).
 
@@ -290,7 +289,7 @@ One device per (repository, PR, sha), at most 2 live per PR: a third build relea
 
 The devices are recorded in Redis (`sym:<ns>:preview:live`), so the assistant (buttons) and the API (links) share them. Each runs a sweep every 60 seconds; a short Redis lock lets one of them sweep a round. A restarted process keeps sweeping what the previous one started.
 
-Previews are enabled when a Seiji server named `seiji` is configured and the GitHub App has `actions: read`, `contents: read` and `pull_requests: read`. Links also need `SYMPHONY_PUBLIC_URL` and `SYMPHONY_PREVIEW_LINK_SECRET` on the merger and the API.
+Previews are enabled when a Seiji server named `seiji` is configured and the GitHub App has `actions: read`, `contents: read` and `pull_requests: read`. Links also need `SYMPHONY_PUBLIC_URL` on the merger, and either `api.access` or (`previews.public_links` and `SYMPHONY_PREVIEW_LINK_SECRET` on the merger and the API).
 
 ## Agents' questions
 

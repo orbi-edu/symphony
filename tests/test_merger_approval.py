@@ -367,9 +367,22 @@ def test_a_failed_comment_is_tried_again_and_slack_still_posts_once(env, links_o
     assert f"`{head[:12]}` (newest)" in env.gh.comments[7][0]["body"]
 
 
-def test_no_pr_comment_without_the_link_secret(env, monkeypatch):
+def test_without_the_link_secret_the_link_is_unsigned(env, monkeypatch):
+    """Behind Cloudflare Access the person is the credential: no secret to provision."""
     monkeypatch.setenv("SYMPHONY_PUBLIC_URL", "https://symphony.example.com")
     monkeypatch.delenv(preview_links.SECRET_ENV, raising=False)
+    env.gh.open_pr(7, "eng-7", "ENG-7 add a", author="alice")
+    with mock.patch("symphony.notify.post_with_button", return_value=True):
+        head = _build(env, "eng-7", {"src/a.py": "A = 1\n"}, "feat: a")
+        check_preview(env.m, parse(PREVIEW_POLICY), env.gh.pr(7))
+    [comment] = env.gh.comments[7]
+    assert ("(https://symphony.example.com/v1/previews/open?repo=acme%2Fapp&pr=7"
+            f"&sha={head[:12]})") in comment["body"]
+
+
+def test_no_pr_comment_without_the_public_url(env, monkeypatch):
+    monkeypatch.delenv("SYMPHONY_PUBLIC_URL", raising=False)
+    monkeypatch.setenv(preview_links.SECRET_ENV, LINK_SECRET)
     env.gh.open_pr(7, "eng-7", "ENG-7 add a", author="alice")
     posted = []
     with mock.patch("symphony.notify.post_with_button",

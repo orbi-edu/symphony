@@ -1,11 +1,15 @@
-"""Preview links: a signed, durable URL per PR build that opens it in Seiji from the PR.
+"""Preview links: a durable URL per PR build that opens it in Seiji from the PR.
 
-The merger signs one link per (repository, PR, head sha) whose preview artifact it found and
-lists the newest `KEPT` on the PR (`merger.approval.check_preview`); the API serves it
-(`api/previews.py`). The signature is HMAC-SHA256 over the three values with
-`SYMPHONY_PREVIEW_LINK_SECRET`. A link has no expiry of its own: the artifact's retention on
-GitHub bounds it. It authorizes nothing alone unless `previews.public_links` is on; behind
-Cloudflare Access (`api.access`) the person must also be mapped in `notify.users`.
+The merger lists one link per (repository, PR, head sha) whose preview artifact it found,
+the newest `KEPT`, on the PR (`merger.approval.check_preview`); the API serves it
+(`api/previews.py`). The link is `/v1/previews/open?repo=&pr=&sha=`, plus `sig` when the
+merger holds `SYMPHONY_PREVIEW_LINK_SECRET`: HMAC-SHA256 over the three values. A link has no
+expiry of its own: the artifact's retention on GitHub bounds it.
+
+Who may open it: behind Cloudflare Access (`api.access`) the verified person, mapped in
+`notify.users`; the signature is then optional (a present one must be valid). Without Access,
+`previews.public_links: true` makes the signed link itself the credential, so there the
+secret and `sig` are required.
 
 The builds the merger listed are kept in Redis (`builds_key`) with their links, so an answer
 run can hand them out (`runner`) without holding the secret.
@@ -48,10 +52,12 @@ def verify(key: str, repo: str, pr: int, sha12: str, sig: str) -> bool:
     return hmac.compare_digest(sign(key, repo, pr, sha12), sig or "")
 
 
-def url(base: str, key: str, repo: str, pr: int, sha12: str) -> str:
-    query = urlencode({"repo": repo, "pr": int(pr), "sha": sha12,
-                       "sig": sign(key, repo, pr, sha12)})
-    return f"{base.rstrip('/')}{OPEN_PATH}?{query}"
+def url(base: str, key: str | None, repo: str, pr: int, sha12: str) -> str:
+    """The link of a build; signed when `key` is given."""
+    params: dict = {"repo": repo, "pr": int(pr), "sha": sha12}
+    if key:
+        params["sig"] = sign(key, repo, pr, sha12)
+    return f"{base.rstrip('/')}{OPEN_PATH}?{urlencode(params)}"
 
 
 def builds_key(namespace: str, repo: str, pr: int) -> str:
