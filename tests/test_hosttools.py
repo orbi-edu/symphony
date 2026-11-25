@@ -64,8 +64,8 @@ def wait_pending(broker, call_id):
 def test_definitions_register_tracker_tools_and_the_ask_tool_top_level():
     tools = tool_definitions(MemoryTracker())
     assert [t["name"] for t in tools] == [
-        "linear_graphql", "symphony_create_issues", "symphony_attach_evidence", ASK_TOOL,
-        BLOCKED_TOOL,
+        "linear_graphql", "symphony_create_issues", "symphony_attach_evidence",
+        "symphony_ticket_attachments", "symphony_fetch_attachment", ASK_TOOL, BLOCKED_TOOL,
     ]
     assert {t["loadMode"] for t in tools} == {"essential"}
     ask = tools[-2]["parameters"]

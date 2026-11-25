@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import urllib.parse
 import uuid
 from collections.abc import Callable, Sequence
 
@@ -36,6 +37,9 @@ TERMINAL_STATE_TYPES = ("completed", "canceled", "duplicate")  # WorkflowState.t
 IDS_BATCH = 50  # keep nested-connection query complexity well under Linear's limits
 IDENTIFIER = re.compile(r"\b([A-Za-z][A-Za-z0-9]{0,9}-\d{1,7})\b")
 UPLOAD_TIMEOUT_S = 300.0
+# Linear's file storage (linear.app/developers/file-storage-authentication): it takes the API
+# credential in `Authorization`, so only files there are downloaded with it.
+UPLOADS_ORIGIN = "https://uploads.linear.app"
 
 ISSUE_FIELDS = """
       id identifier title description priority createdAt updatedAt url branchName
@@ -207,6 +211,23 @@ query SymphonyAttachments($id: String!) {
   issue(id: $id) { attachments(first: 50) { nodes { title url subtitle } } }
 }
 """
+TICKET_ATTACHMENTS_QUERY = """
+query SymphonyTicketAttachments($id: String!) {
+  issue(id: $id) { attachments(first: 100) { nodes { id title url subtitle createdAt } } }
+}
+"""
+
+
+def _origin(url: str) -> str:
+    parts = urllib.parse.urlsplit(url)
+    return f"{parts.scheme}://{parts.netloc}".lower()
+
+
+def _stored_file(url: str) -> bool:
+    """A file in Linear's storage: `uploads.linear.app`, or the API endpoint's own host (the
+    mock serves both from one address, internals §14). Any other URL is a link (a pull
+    request, a document), never sent the credential."""
+    return _origin(url) in {UPLOADS_ORIGIN, _origin(linear_api_url())}
 
 
 def _stable_id(*parts: str) -> str:
@@ -225,6 +246,7 @@ def _already_exists(exc: Exception) -> bool:
 
 class LinearTracker:
     kind = "linear"
+    stores_files = True
 
     def __init__(
         self,
@@ -540,6 +562,53 @@ class LinearTracker:
             {"title": a.get("title") or a["url"], "url": a["url"], "kind": a.get("subtitle") or ""}
             for a in issue["attachments"]["nodes"]
         ]
+
+    def ticket_attachments(self, issue: str) -> list[dict]:
+        found = self._post(TICKET_ATTACHMENTS_QUERY, {"id": issue}).get("issue")
+        if not found:
+            return []
+        return [
+            {"id": a["id"], "title": a.get("title") or a["url"], "kind": a.get("subtitle") or "",
+             "url": a["url"], "created_at": a.get("createdAt") or ""}
+            for a in found["attachments"]["nodes"]
+        ]
+
+    def fetch_attachment(self, issue: str, attachment_id: str, *, max_bytes: int) -> bytes:
+        """Resolved through the ticket's own attachments, so neither another ticket's file nor
+        a URL the caller chose is fetched with the API key. Redirects keep `Authorization` on
+        the same origin only (httpx drops it elsewhere)."""
+        found = next((a for a in self.ticket_attachments(issue) if a["id"] == attachment_id), None)
+        if found is None:
+            raise TrackerInputError(f"no attachment {attachment_id!r} on this ticket")
+        if not _stored_file(found["url"]):
+            host = urllib.parse.urlsplit(found["url"]).hostname or found["url"]
+            raise TrackerInputError(
+                f"attachment {attachment_id!r} links to {host}; it is not a file stored in "
+                "Linear, so there is nothing to download"
+            )
+        too_large = TrackerInputError(
+            f"attachment {attachment_id!r} is larger than {max_bytes // (1024 * 1024)} MB"
+        )
+        chunks: list[bytes] = []
+        try:
+            with self._client.stream(
+                "GET", found["url"], headers={"Authorization": self.api_key},
+                timeout=UPLOAD_TIMEOUT_S, follow_redirects=True,
+            ) as response:
+                if response.status_code >= 300:
+                    raise RuntimeError(f"attachment download failed with HTTP {response.status_code}")
+                declared = response.headers.get("Content-Length", "")
+                if declared.isdigit() and int(declared) > max_bytes:
+                    raise too_large
+                total = 0
+                for chunk in response.iter_bytes():
+                    total += len(chunk)
+                    if total > max_bytes:
+                        raise too_large
+                    chunks.append(chunk)
+        except httpx.HTTPError as exc:
+            raise TrackerUnavailable(f"transport error: {exc}") from exc
+        return b"".join(chunks)
 
     def identifier_in(self, text: str, repo: str | None = None) -> str | None:
         m = IDENTIFIER.search(text or "")

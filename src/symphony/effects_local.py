@@ -51,7 +51,7 @@ from typing import Any
 from . import codehost, ghapp, state
 from . import runner as runner_mod
 from .config import Config, base_branches_env, resolve_workspace
-from .edge import log, now_ms
+from .edge import log, now_ms, tracker_credentials
 from .entry.run_issue import engine_env, engine_launch, installation_credential
 from .kube import repos_record, runner_job_name
 from .mcp_servers import McpLaunch, overlay_args
@@ -130,12 +130,15 @@ class HostSandbox(LocalSandbox):
         # The repository set of the workspace this one replaced (`LocalEffects._ensure_sandbox`).
         self.replaced_repos: list[str] | None = None
 
-    def exec_script(self, script: str, timeout_s: float | None = None) -> tuple[int, str]:
+    def exec_script(
+        self, script: str, timeout_s: float | None = None, *, stdin: str | None = None
+    ) -> tuple[int, str]:
         try:
             done = subprocess.run(
                 ["bash", "-lc", script],
                 cwd=self.root,
                 env={**self._base_env, **self.env},
+                input=stdin,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -185,6 +188,7 @@ class _Attempt:
     installation: ghapp.InstallationCredential | None = None
     git_env: dict[str, str] = field(default_factory=dict)
     mcp_tokens: list[str] = field(default_factory=list)
+    app_tokens: list[str] = field(default_factory=list)  # every token handed out, for redaction
 
     def alive(self) -> bool:
         return self.thread is not None and self.thread.is_alive()
@@ -288,6 +292,7 @@ class LocalEffects:
             log=lambda event, **kw: log.warning(event, **kw),
             intent_block_ms=self._intent_block_ms,
             mcp_guidance=lambda: self.mcp.prompt_guidance("implementer") if self.mcp is not None else "",
+            credentials=lambda: [*tracker_credentials(cfg), *record.app_tokens, *record.mcp_tokens],
         )
         try:
             outcome = runner_mod.run_attempt(env, record.issue_id, attempt, record.seq)
@@ -326,7 +331,8 @@ class LocalEffects:
         directory = self.credential_dir(record.sandbox_name)
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(directory, 0o700)
-        self._write_token(directory, installation.token())
+        record.app_tokens.append(installation.token())
+        self._write_token(directory, record.app_tokens[-1])
         helper = directory / "git-credential-symphony"
         helper.write_text(ghapp.credential_helper_script(shlex.quote(str(directory / "gh-token"))))
         os.chmod(helper, 0o700)
@@ -357,7 +363,8 @@ class LocalEffects:
         if installation is None or not installation.needs_refresh():
             return True
         try:
-            self._write_token(self.credential_dir(record.sandbox_name), installation.token(force_refresh=True))
+            record.app_tokens.append(installation.token(force_refresh=True))
+            self._write_token(self.credential_dir(record.sandbox_name), record.app_tokens[-1])
             return True
         except Exception as exc:  # noqa: BLE001 — reported as its own failure reason
             log.error("credential_refresh_failed", error=str(exc))

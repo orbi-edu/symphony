@@ -85,6 +85,7 @@ class LockedMemoryTracker:
     """`MemoryTracker` made safe for the threads of one process (API, tick, attempts)."""
 
     kind = "memory"
+    stores_files = True
 
     def __init__(self, inner: MemoryTracker) -> None:
         self._inner = inner
@@ -179,6 +180,14 @@ class LockedMemoryTracker:
     def attachments(self, identifier: str) -> list[dict]:
         with self._lock:
             return self._inner.attachments(identifier)
+
+    def ticket_attachments(self, issue: str) -> list[dict]:
+        with self._lock:
+            return self._inner.ticket_attachments(issue)
+
+    def fetch_attachment(self, issue: str, attachment_id: str, *, max_bytes: int) -> bytes:
+        with self._lock:
+            return self._inner.fetch_attachment(issue, attachment_id, max_bytes=max_bytes)
 
     def identifier_in(self, text: str, repo: str | None = None) -> str | None:
         with self._lock:

@@ -29,6 +29,28 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   before and after the turn) and no tool call beyond reads and tracker queries end the run
   the same way, with the reason "no progress in 3 continuation turns". The count goes on
   across continuation dispatches; a turn in which a person wrote to the agent is progress.
+- Each run's session trace is attached to the ticket. At the end of every implementation or
+  investigation run the runner exports the omp session (`omp --export`) in the workspace,
+  reads it back (at most 25 MB), replaces every match of the merger precheck's secret
+  patterns and every credential value of the run (tracker key, App installation tokens,
+  gateway and MCP tokens) with `[REDACTED]`, and attaches it as
+  `session-trace-run-N.html`. The session report links it (`**Session trace**: <url>`,
+  with the number of redactions) or says why it is missing (too large, export or upload
+  failed); the run never fails over it. `agent.attach_trace: false` turns it off. Linear
+  only: GitHub issues hold no files.
+- The agent can read its own ticket's attachments: `symphony_ticket_attachments` lists them
+  (`id`, `title`, `kind`, the URL's host, `created_at`) and `symphony_fetch_attachment(id,
+  path)` downloads one into the workspace with the tracker credential on the host. Only the
+  current ticket's stored files (Linear's file storage, never a link or another ticket's
+  file), only inside the workspace, at most 25 MB. Offered with trackers that store files;
+  the prompt in `WORKFLOW.md` names them. Before, the agent got 401 on its own earlier
+  attachments.
+
+### Changed
+
+- The merger precheck's private-key pattern now spans the whole key block up to its `END`
+  line (it still flags the header line alone), so a redaction removes the key, not only its
+  first line.
 
 ### Fixed
 

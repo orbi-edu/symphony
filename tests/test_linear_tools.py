@@ -171,10 +171,11 @@ TREE = {"issues": [
 ]}
 
 
-def test_both_tools_are_offered_with_linear():
+def test_the_tracker_backed_tools_are_offered_with_linear():
     tracker = LinearTracker(api_key="k", project_slug="p", active_states=[], terminal_states=[])
     names = [t["name"] for t in tool_definitions(tracker)]
-    assert names == ["linear_graphql", CREATE_ISSUES_TOOL, EVIDENCE_TOOL, "symphony_ask",
+    assert names == ["linear_graphql", CREATE_ISSUES_TOOL, EVIDENCE_TOOL,
+                     "symphony_ticket_attachments", "symphony_fetch_attachment", "symphony_ask",
                      "symphony_blocked"]
 
 

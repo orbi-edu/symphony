@@ -29,6 +29,7 @@ from ..edge import (
     now_ms,
     pod_namespace,
     telemetry_env,
+    tracker_credentials,
 )
 from ..effects import stop_workspace_generation
 from ..endpoints import overrides as endpoint_overrides
@@ -155,6 +156,8 @@ def main() -> str:
     # A2: one MCP token per engine launch, role `implementer`, revoked when the attempt ends.
     mcp = McpLaunch(kv.client, ns, McpRepository(core, ns), gateway_url(cfg))
     mcp_tokens: list[str] = []
+    # Every App installation token this attempt handed the workspace, for redaction.
+    app_tokens: list[str] = []
     token_ttl_s = max(600, (runner_mod.compute_env_wall_deadline(started, cfg) - started) // 1000 + 600)
 
     def stage_mcp(write_file, agent_dir: str) -> None:
@@ -245,7 +248,8 @@ def main() -> str:
         kube.set_idle_since(core, ns, name, None)  # busy again: the reaper must not touch it
         # The credential helper must exist BEFORE after_create, which clones the repo.
         if installation is not None:
-            install_credential_helper(wrapped, installation.token())
+            app_tokens.append(installation.token())
+            install_credential_helper(wrapped, app_tokens[-1])
         prepare_provider(wrapped, core, ns, bound, stage_mcp)
         # Stage central skills from configured sources into the workspace pod.
         try:
@@ -273,7 +277,8 @@ def main() -> str:
         """Installation tokens live an hour; attempts run up to four (FR-017)."""
         try:
             if installation is not None and installation.needs_refresh():
-                install_credential_helper(wrapped, installation.token(force_refresh=True))
+                app_tokens.append(installation.token(force_refresh=True))
+                install_credential_helper(wrapped, app_tokens[-1])
             return True
         except Exception as exc:  # noqa: BLE001 — reported as its own failure reason
             log.error("credential_refresh_failed", error=str(exc))
@@ -313,6 +318,7 @@ def main() -> str:
         refresh_credentials=refresh_credentials,
         log=lambda event, **kw: log.warning(event, **kw),
         mcp_guidance=lambda: mcp.prompt_guidance("implementer"),
+        credentials=lambda: [*tracker_credentials(cfg), *app_tokens, *mcp_tokens],
     )
     try:
         outcome = runner_mod.run_attempt(env, issue_id, attempt, seq)

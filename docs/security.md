@@ -18,6 +18,7 @@ This document describes the trust boundaries of Symphony, the path of each crede
 - [Read-only investigations](#read-only-investigations)
 - [Fencing](#fencing)
 - [Merger controls](#merger-controls)
+- [Session traces and ticket attachments](#session-traces-and-ticket-attachments)
 - [Secret-request guard](#secret-request-guard)
 - [Local mode](#local-mode)
 - [Operator checklist](#operator-checklist)
@@ -294,6 +295,15 @@ Fencing makes sure that only the current dispatch of a ticket can change state.
 
 [merger.md](merger.md) gives the details.
 
+## Session traces and ticket attachments
+
+**What a session trace holds.** At the end of each run the runner attaches the run's omp session to the ticket as an HTML file (`agent.attach_trace`, [internals §3](internals.md#session-trace)). It holds the whole transcript: the prompt, the ticket text, every message of the agent, every tool call with its arguments and output (file contents, command output, diffs), and the trace timeline. The page loads only the viewer code from a public CDN; the session data stays in the file and is never sent there.
+
+**Redaction.** omp does not redact the export. Before the upload the runner replaces with `[REDACTED]` every match of the merger precheck's secret patterns (AWS access keys, GitHub tokens, Slack tokens, `sk-` API keys, Linear API keys, private-key blocks) and every credential value the run holds: the tracker key, each GitHub App installation token handed to the workspace, the gateway bridge token and the MCP tokens. The report line gives the number of replacements. Redaction is best effort: a secret of another shape (a database password the agent printed, a key from a file in the repository) stays in the trace. When the runner cannot find the session data in the page, it attaches nothing. Set `agent.attach_trace: false` when tickets must not carry transcripts.
+
+**Who can read it.** A Linear attachment is a file in Linear's private storage (`uploads.linear.app`). Every member of the Linear workspace who can open the ticket can open it, and so can every API key and OAuth app of that workspace. A GitHub tracker stores no files, so no trace is attached there.
+
+**The agent reads its ticket's attachments through the host.** `symphony_fetch_attachment` downloads a file with the tracker credential in the runner process. The credential never enters the workspace. The id is resolved against the current ticket's attachments through the tracker API, so the agent cannot fetch another ticket's file or make the runner send the key to a URL it chose; Linear sends the key only to its own file storage, and a link attachment is refused. The file lands inside the workspace only (no `..`, no absolute path, no symlink out), at most 25 MB. Treat the content of an attachment like the ticket text: anyone who can attach a file to the ticket can put instructions in it.
 
 ## Secret-request guard
 

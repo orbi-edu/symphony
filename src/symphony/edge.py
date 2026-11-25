@@ -279,6 +279,19 @@ def _credential_for(app_id: str, installation_id: str, private_key: str) -> Inst
     )
 
 
+def tracker_credentials(cfg) -> list[str]:
+    """The tracker credential values a process holds (the Linear key, the GitHub App's
+    private key), for redaction (`sessiontrace`). Read the way `_build_tracker` reads them."""
+    if cfg.tracker_kind == "github":
+        return [os.environ.get(name, "") for name in GITHUB_APP_ENV]
+    if cfg.tracker_kind == "linear":
+        try:
+            return [resolve_secret(cfg.provider.get("api_key", "$LINEAR_API_KEY"), os.environ)]
+        except ConfigError:
+            return []
+    return []
+
+
 def _build_tracker(cfg, on_comment):
     if cfg.tracker_kind == "memory":
         # A memory board declared in WORKFLOW.md (`tracker.issues`) is seeded identically
