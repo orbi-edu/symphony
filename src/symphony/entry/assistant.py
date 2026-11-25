@@ -131,7 +131,7 @@ def build(cfg_holder: ConfigHolder, client, namespace: str, env: Mapping[str, st
     from ..admin_commands import AdminStore
     from ..assistant import tools
     from ..assistant.answers import Answers
-    from ..assistant.confirm import AUDIT_ACTION, Confirmer, Policy, ProposalStore
+    from ..assistant.confirm import AUDIT_ACTION, Confirmer, Policy, ProposalFiles, ProposalStore
     from ..assistant.engine import Engine
     from ..assistant.facts import AUDIT_ACTION as FACT_AUDIT
     from ..assistant.facts import PERMISSIONS as FACT_PERMISSIONS
@@ -188,12 +188,9 @@ def build(cfg_holder: ConfigHolder, client, namespace: str, env: Mapping[str, st
     status = tools.status_reader(client, namespace, policy().tracker_states)
 
     def tools_for(role: str) -> list:
-        out = [tools.status_tool(status),
-               tools.search_tool(lambda query, limit: tracker().search(query, limit)),
-               tools.open_repository_tool(repositories, lambda repo: repos.open(repo))]
-        if role == "planner":
-            out.append(tools.propose_tool(repositories()))
-        return out
+        return [tools.status_tool(status),
+                tools.search_tool(lambda query, limit: tracker().search(query, limit)),
+                tools.open_repository_tool(repositories, lambda repo: repos.open(repo))]
 
     in_cluster = bool(env.get("KUBERNETES_SERVICE_HOST"))
     if core is None and in_cluster:
@@ -248,12 +245,14 @@ def build(cfg_holder: ConfigHolder, client, namespace: str, env: Mapping[str, st
                       required_labels=cfg.required_labels)
 
     audit_store = AdminStore(client, namespace)
+    proposal_files = ProposalFiles(client, namespace)
     confirmer = Confirmer(
         ProposalStore(client, namespace),
         tracker=tracker,
         policy=confirm_policy,
         audit=lambda actor, target, reason: audit_store.audit_event(
             actor=actor, action=AUDIT_ACTION, target=target, reason=reason),
+        files=proposal_files,
         logger=log,
     )
     facts = None
@@ -279,9 +278,16 @@ def build(cfg_holder: ConfigHolder, client, namespace: str, env: Mapping[str, st
     share_file_tool_fn = None
     evidence = None
     on_session_end_fn = None
+    attacher_fn = None  # (thread key, notes) -> propose_tickets' reader of sandbox files
     if core is not None and all(env.get(name) for name in GITHUB_APP_ENV):
         from ..assistant.sandbox import AssistantSandbox, sandbox_run_tool, sweep_orphans
-        from ..assistant.share import EVIDENCE_AUDIT, SHARE_AUDIT, Evidence, share_file_tool
+        from ..assistant.share import (
+            EVIDENCE_AUDIT,
+            SHARE_AUDIT,
+            Evidence,
+            proposal_attacher,
+            share_file_tool,
+        )
         from ..ghapp import InstallationCredential
 
         sandboxes: dict[str, AssistantSandbox] = {}
@@ -327,6 +333,10 @@ def build(cfg_holder: ConfigHolder, client, namespace: str, env: Mapping[str, st
                     actor=actor, action=SHARE_AUDIT, target=target, reason=reason),
                 evidence=evidence, logger=log)
 
+        def attacher_fn(thread_key: str, notes):
+            return proposal_attacher(files=lambda: sandbox_for(thread_key).readable(),
+                                     login=lambda: notes.login, store=proposal_files)
+
         def on_session_end_fn(thread_key: str) -> None:
             with sandboxes_lock:
                 sb = sandboxes.pop(thread_key, None)
@@ -365,10 +375,19 @@ def build(cfg_holder: ConfigHolder, client, namespace: str, env: Mapping[str, st
     slack = transports.get("slack")
     if slack is not None and hasattr(slack, "route_threads"):
         slack.route_threads(answers.thread_known)
+
+    def propose_tool_fn(thread_key: str, notes):
+        # Sandbox files travel with a proposal only while the sandbox is on, as sandbox_run.
+        attach = (attacher_fn(thread_key, notes)
+                  if attacher_fn is not None and policy().assistant_sandbox_enabled else None)
+        return tools.propose_tool(repositories(), attach)
+
     engine = Engine(outbounds=transports, agents=runner, policy=policy, confirmer=confirmer,
                     memory=MemoryStore(client, namespace), souls=souls, facts=facts,
                     sandbox_tool=sandbox_tool_fn, share_file_tool=share_file_tool_fn,
-                    evidence=evidence, on_session_end=on_session_end_fn,
+                    evidence=evidence, propose_tool=propose_tool_fn,
+                    plans=ProposalStore(client, namespace, kind="plan"),
+                    on_session_end=on_session_end_fn,
                     server_url=github_server_url(), reachable=repositories,
                     mcp_guidance_fn=mcp.chat_prompt_guidance,
                     share_device_tool_fn=_viewer_for_click,

@@ -26,11 +26,13 @@ It runs as the Deployment `symphony-assistant`. It dials out to Slack (Socket Mo
 
 | Mode | Start the message with | Role | Use it to |
 |---|---|---|---|
-| Ask | anything else | `assistant` | Ask a quick question: "where do we validate webhooks?", "why is ENG-12 stuck?" |
+| Ask | anything else | `assistant` | Ask a quick question: "where do we validate webhooks?", "why is ENG-12 stuck?". Ask for a change it cannot make read-only ("create a skill for our brand", "fix this bug") and it proposes a ticket or a few for you to confirm |
 | Research | `research …` | `researcher` | Dig into a question across the code, the tracker and the web |
-| Plan | `plan …` | `planner` | Turn a goal into a set of tickets that you confirm |
+| Plan | `plan …` | `planner` | Turn a goal into a set of tickets that you confirm, with a short spec first |
 
 Each mode is a team role with its own model ([configuration.md](configuration.md#team-configuration)). A follow-up without a mode word keeps the thread's role.
+
+When an Ask request needs a multi-step plan, the assistant answers briefly with a **Plan this** button instead of planning it itself. A click by a person mapped in `notify.users` hands the thread to the planner: the thread's role becomes `planner`, like a `plan …` follow-up, and a planner turn starts at once with the thread's messages as context and the thread's sandbox as it is. Anyone else gets a private answer: "Only people mapped in notify.users can start the planner." The button is removed after the click; a second click answers who already took it. Typing `plan …` still works.
 
 ## How to talk to it
 
@@ -56,7 +58,8 @@ On Slack a thread is a message thread. On Discord a thread is a reply chain or a
 | Search the web | omp's `web_search`, with its default keyless chain |
 | See Symphony's state | `symphony_status`: tickets, sessions, the merger queue and recent failures |
 | Search the tracker | `tracker_search`: Linear search or GitHub issue search |
-| Propose tickets | `propose_tickets` (planner only) |
+| Propose tickets | `propose_tickets`, for the assistant (one ticket or a few) and the planner (plans), with files from the sandbox ([Files from the sandbox](#files-from-the-sandbox)) |
+| Offer the planner | `offer_plan(summary)` (assistant only): a **Plan this** button under the answer ([What it does](#what-it-does)) |
 | Remember a person | `remember(text, kind)` and `forget(id \| query)`, for people mapped in `notify.users` ([Memory](#memory)) |
 | Propose a team fact | `propose_team_fact(text, section?)`: a PR on the soul file after a mapped click ([Team facts](#team-facts)) |
 | Run commands in a sandbox | `sandbox_run(repo, command, timeout_s?)`, when `assistant.sandbox.enabled`, for people mapped in `notify.users` ([Sandbox](#sandbox)) |
@@ -91,7 +94,9 @@ Non-image files (PDFs, archives, code) are listed by name but not downloaded.
 
 ## Proposals and confirmation
 
-The planner never creates tickets alone. It calls `propose_tickets`. The assistant posts the proposal with three buttons.
+The assistant and the planner never create tickets alone. They call `propose_tickets`. The assistant posts the proposal with three buttons.
+
+In Ask mode the assistant proposes when the person wants something it cannot do read-only: a change in a repository, the tracker or anywhere else (create a skill, fix code, update docs, open a pull request). It investigates first, so the ticket says the problem, what to change, the acceptance criteria and how to verify, and names the repository in `repo` (the ticket's `repo:` label). Plans of many tickets and deeper specs are the planner's.
 
 | Button | Effect |
 |---|---|
@@ -106,10 +111,10 @@ sequenceDiagram
   participant A as symphony-assistant
   participant R as Redis
   participant T as Tracker
-  P->>C: @symphony plan …
+  P->>C: @symphony plan … (or a change in Ask mode)
   C->>A: Event (Socket Mode or Gateway)
   A->>C: "Working on it…"
-  A->>A: planner calls propose_tickets
+  A->>A: the planner or the assistant calls propose_tickets
   A->>R: Store the proposal (7 days)
   A->>C: Proposal with Create, Create and start, Dismiss
   P->>C: Clicks Create
@@ -132,6 +137,15 @@ Creation order:
 2. A child becomes a sub-issue of its parent.
 3. Each `blocked_by` becomes a blocking relation in the tracker. When the tracker refuses a link, the assistant comments on the ticket instead: "Blocked by ENG-12. The tracker did not record the link: …".
 
+### Files from the sandbox
+
+With the [sandbox](#sandbox), a ticket of a proposal can carry `attachments: [{path, title}]`: files the agent drafted in the thread's sandbox (a skill, a patch, docs, data). A directory is packed first (`tar czf /tmp/draft.tgz -C <dir> .`) and the archive is attached.
+
+- **When they are read.** At the `propose_tickets` call, with the same reader and refusals as `share_file` ([Sharing files](#sharing-files)): only regular files under the thread's clones or `/tmp`, never a `.git` directory or a credential file, never a file that holds a credential, at most 25 MB each. A proposal carries at most 10 files and 50 MB. A refusal fails the call with the reason and nothing is proposed; the agent can fix it and call again. Only a person mapped in `notify.users` can make the agent attach files, as for `sandbox_run`.
+- **Where they wait.** In Redis next to the proposal, as long as it lives (7 days, `sym:<ns>:assistant:proposalfile:*`), left out of [backups](backup.md). They are deleted when the proposal is created or dismissed.
+- **On Create.** Each file is attached to its ticket with the tracker's `attach_evidence` (kind `screenshot`, `video` or `log` by file type, else `report`), and the ticket body ends with "Files drafted in the assistant's sandbox are attached; fetch them with symphony_fetch_attachment." The agent that takes the ticket reads them with `symphony_fetch_attachment`. Each attached file is recorded with the created tickets, so a double click or a retry never attaches a file twice.
+- The proposal message names the files of each ticket ("with SKILL.md, brand.tgz").
+
 ### Who can confirm
 
 - Only a person mapped in `notify.users` can click a button ([configuration.md](configuration.md#notify)). The map is GitHub login → Slack member ID or Discord user ID.
@@ -143,8 +157,8 @@ Creation order:
 - A claim key lets one click work at a time. A second click while the first runs gets "These tickets are being created."
 - Each created ticket is recorded by its key. A double click, or a retry after a failure, never creates a ticket twice.
 - A created or dismissed proposal answers "This proposal is already created." (or `dismissed`).
-- After 7 days a proposal expires: "This proposal expired. Ask the planner again."
-- The audit log records `assistant.tickets_created` with the person's login and the identifiers.
+- After 7 days a proposal expires: "This proposal expired. Ask the assistant again."
+- The audit log records `assistant.tickets_created` with the person's login, the identifiers and how many files were attached.
 
 ## Soul
 
@@ -218,7 +232,7 @@ Building the project, running tests, searching with `rg`, running analysis scrip
 
 ### Cleanup
 
-The pod is deleted when the assistant session of the thread ends (30 minutes without a turn). Sessions live in the assistant process, so at start the assistant deletes every sandbox pod it finds (`role: assistant-sandbox`). `assistant.sandbox.max_lifetime_s` (default 4 hours) is a hard ceiling on a pod's life; a later command in the same thread starts a new pod.
+The pod is deleted when the assistant session of the thread ends (30 minutes without a turn). A change of role in the thread (a `plan …` follow-up, a **Plan this** click) starts a new session but keeps the pod, so the planner sees what the assistant drafted. Sessions live in the assistant process, so at start the assistant deletes every sandbox pod it finds (`role: assistant-sandbox`). `assistant.sandbox.max_lifetime_s` (default 4 hours) is a hard ceiling on a pod's life; a later command in the same thread starts a new pod.
 
 ### Who can use it
 
@@ -313,6 +327,8 @@ The planner investigates before it proposes tickets: it reads the code and, with
 
 Each proposed ticket body carries its slice of the spec: at minimum its acceptance criteria and how to verify.
 
+The planner starts with a message that begins with `plan …`, or with a **Plan this** click on an assistant's answer ([What it does](#what-it-does)). Either way it gets the thread's messages as context and the thread's sandbox, so it can attach what the assistant drafted ([Files from the sandbox](#files-from-the-sandbox)).
+
 ## Limits
 
 | Limit | Value |
@@ -323,6 +339,7 @@ Each proposed ticket body carries its slice of the spec: at minimum its acceptan
 | Message size | Slack: 3,000 characters per block, 4,000 per message (the limit of `chat.update`, which edits the first part in place). Discord: 2,000 per message. A longer answer continues in more messages. |
 | Idle session | After 30 minutes without a turn, the session ends. The next message starts a new session with the last 30 thread messages as context. |
 | Shared files | 25 MB per file (`share_file`). Discord: the server's upload limit, 20 MiB by default. A file proposed for a ticket: 10 MB, kept one hour. |
+| Files with a ticket proposal | 10 files and 50 MB per proposal, 25 MB each, kept as long as the proposal (7 days). |
 | Replicas | One. Each transport allows one bot connection. |
 
 ## Setup

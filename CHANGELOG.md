@@ -7,6 +7,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.24] - 2026-11-25
+
 ### Added
 
 - Telemetry history over the whole period. Each UTC day gets a rollup in Redis
@@ -36,6 +38,31 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   summary and an empty state.
 - Tern **Dashboard**: six tiles with 30-day sparklines (cost, sessions, PRs merged, rework
   rate, questions waiting, blocked on a person) and a 30-day cost chart, below what it showed.
+- The assistant proposes tickets too. In Ask mode, a request it cannot carry out read-only (a
+  change in a repository or the tracker: create a skill, fix code, update docs, open a pull
+  request) no longer ends at "I can't": it investigates, writes the ticket (problem, what to
+  change, acceptance criteria, how to verify, the repository) and calls `propose_tickets`. The
+  proposal, its Create / Create and start / Dismiss buttons, the mapped-click gate and the
+  `assistant.tickets_created` audit are the planner's. The planner keeps multi-ticket plans and
+  specs.
+- **Plan this**: for a request that needs a multi-step plan, the assistant answers briefly with
+  a Plan this button (`offer_plan`). A click by a person mapped in `notify.users` makes the
+  thread's role planner and starts a planner turn with the thread as context, like a `plan …`
+  follow-up; anyone else gets a private refusal. A change of role in a thread now keeps the
+  thread's sandbox.
+- Files from the sandbox travel with a proposal: each ticket of `propose_tickets` accepts
+  `attachments: [{path, title}]`, read at the call with `share_file`'s reader and refusals (the
+  clones or `/tmp`, no `.git` or credential files, no file holding a credential, 25 MB each),
+  at most 10 files and 50 MB per proposal, from a mapped asker. They wait beside the proposal
+  (`sym:<ns>:assistant:proposalfile:*`, 7 days, left out of backups). Create attaches each one
+  to its ticket once (a double click or a retry never attaches twice) and the body says to
+  fetch them with `symphony_fetch_attachment`; Dismiss deletes them.
+
+### Changed
+
+- A host tool call that answers with `HostToolError` is not recorded: a refused
+  `propose_tickets` no longer counts as the turn's proposal, and the agent can call it again.
+- An expired proposal answers "This proposal expired. Ask the assistant again."
 
 ## [0.2.23] - 2026-11-25
 

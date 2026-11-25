@@ -213,17 +213,19 @@ def instructions(login: str | None, items: list[dict]) -> str:
 
 @dataclass
 class TurnNotes:
-    """What one turn's memory and fact tools did, for the engine to show after the turn."""
+    """What one turn's memory, fact and plan-offer tools did, for the engine to show after the
+    turn."""
 
     login: str | None = None
     thread: str = ""
     remembered: list[str] = field(default_factory=list)
     forgotten: list[str] = field(default_factory=list)
     facts: list[dict] = field(default_factory=list)
+    plan: str | None = None  # `offer_plan`'s summary: the answer gets a "Plan this" button
 
     def reset(self, login: str | None, thread: str) -> None:
         self.login, self.thread = login, thread
-        self.remembered, self.forgotten, self.facts = [], [], []
+        self.remembered, self.forgotten, self.facts, self.plan = [], [], [], None
 
 
 def _answer(fn: Callable[[dict], str]) -> Callable[[dict, int], str]:
