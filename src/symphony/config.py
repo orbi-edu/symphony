@@ -701,7 +701,11 @@ def _api_and_previews(data: dict) -> dict:
     `previews.public_links`."""
     api = _section(data, "api", {"access"})
     out: dict[str, Any] = {"api_access": None}
-    if api.get("access") is not None:
+    access_raw = api.get("access")
+    # Both values empty is the same as no section: the workflow API turns Access off that way.
+    if isinstance(access_raw, dict) and not any(str(v or "").strip() for v in access_raw.values()):
+        access_raw = None
+    if access_raw is not None:
         access = _section(api, "access", {"team_domain", "aud"})
         domain = _typed(access, "team_domain", str, "").strip().lower()
         if not _TEAM_DOMAIN.fullmatch(domain):

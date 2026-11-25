@@ -299,6 +299,28 @@ def test_credential_patterns_are_checked_in_decoded_structured_values():
         clean.validate("10", {"tracker.required_labels": encoded})
     assert error.value.status_code == 422
 
+def test_access_previews_and_abandon_states_publish_and_turn_off():
+    core = ConfigMaps()
+    repository = WorkflowRepository(core, "symphony")
+    patch = {"api.access.team_domain": "acme.cloudflareaccess.com", "api.access.aud": "0123abcd",
+             "previews.public_links": False, "tracker.abandon_states": json.dumps(["Canceled"])}
+    repository.publish(reviewed(repository, patch), "command-access", before_write=lambda: None)
+    config = parse_workflow(core.current.data["WORKFLOW.md"])
+    assert config.api_access == {"team_domain": "acme.cloudflareaccess.com", "aud": "0123abcd"}
+    assert config.abandon_states == ("Canceled",)
+    values = repository.read()["values"]
+    assert values["api.access.team_domain"] == "acme.cloudflareaccess.com"
+    assert json.loads(values["tracker.abandon_states"]) == ["Canceled"]
+
+    with pytest.raises(WorkflowError) as error:  # half a section is refused, not stored
+        repository.validate(repository.read()["revision"], {"api.access.aud": ""})
+    assert error.value.status_code == 422
+    off = {"api.access.team_domain": "", "api.access.aud": ""}
+    repository.publish(reviewed(repository, off), "command-access-off", before_write=lambda: None)
+    assert parse_workflow(core.current.data["WORKFLOW.md"]).api_access is None
+    assert repository.read()["values"]["api.access.team_domain"] == ""
+
+
 def test_skill_sources_publish_as_objects_and_reach_the_config():
     core = ConfigMaps()
     repository = WorkflowRepository(core, "symphony")

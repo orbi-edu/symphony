@@ -7,6 +7,15 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.23] - 2026-11-25
+
+### Fixed
+
+- `api.access.team_domain`, `api.access.aud`, `previews.public_links` and
+  `tracker.abandon_states` could only be set by editing WORKFLOW.md by hand: the workflow API
+  (Admin › Workflow, `symphony api`) now reads and writes them. Setting both `api.access` values
+  to empty turns Access verification off; half a section is refused.
+
 ## [0.2.22] - 2026-11-25
 
 ### Added
