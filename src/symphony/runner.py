@@ -23,7 +23,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
-from . import discovery, endpoints, metrics, preview_links, prwatch, sessiontrace, state
+from . import discovery, endpoints, metrics, preview_links, prwatch, rollups, sessiontrace, state
 from .config import Config, bind_role_model, resolve_workspace
 from .hosttools import HostToolBroker, tool_definitions
 from .omp_rpc import CommandFailed, OmpClient, OmpError, ReadTimeout, RunWatcher, SilenceTimeout
@@ -123,6 +123,9 @@ class _RunnerKV:
 
     def keys(self):
         return self.base.keys()
+
+    def bump_rollup(self, at_ms, fields, *, once=None):
+        return rollups.bump_kv(self.base, at_ms, fields, once=once)
 
     def owns(self):
         entry = self.base.get(self.key)
@@ -820,6 +823,10 @@ def _attach_trace(env: RunnerEnv, sandbox: SandboxLike, issue_id: str, bridge_to
         entry = kv.get(state.issue_key(issue_id)) or entry
         entry["traces"] = [*(entry.get("traces") or []), record]
         kv.put(state.issue_key(issue_id), entry)
+        if record.get("url"):
+            kind = "answer" if record.get("answer") else "run"
+            rollups.bump_kv(kv, env.now_ms(), {"trace_attached": 1},
+                            once=f"trace:{issue_id}:{entry.get('dispatch_seq')}:{kind}:{run}")
     except Exception as exc:  # noqa: BLE001 — fenced or not, the trace never fails the run
         env.log("session_trace_failed", issue_id=issue_id, error=str(exc)[:300])
 
@@ -1127,6 +1134,8 @@ def _finish(
             updated_at=now,
         )
         kv.put(state.issue_key(issue_id), entry)
+        rollups.bump_kv(kv, now, {"blocked_on_person": 1},
+                        once=f"blocked:{issue_id}:{entry.get('dispatch_seq')}")
     return outcome
 
 

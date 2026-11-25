@@ -41,6 +41,9 @@ The `state` keys have no namespace prefix. All other keys have a namespace prefi
 | `retro:<issue_id>` | String (JSON) | The retrospective token of the reflector | 7 days idle |
 | `telemetry:<issue_id>` | String (JSON) | The span rollup of the current attempt | 7 days idle |
 | `metrics:<yyyymm>` | String (JSON) | Monthly counters (dispatched, rework, pull requests opened and merged, learning pull requests, `retries: {failure, continuation}` redispatches) | 7 days idle; the daemon reads 12 months to keep them |
+| `metrics:day:<yyyymmdd>` | Hash | The daily rollup of one UTC day (`rollups.py`): integer fields written with `HINCRBY` where each event happens (dispatches, ended sessions by kind and outcome, tokens, cost in micro-USD, per model and repository, the start hour of the week, merger results, questions, pull requests). `GET /v1/telemetry/history` reads it | Never |
+| `metrics:days` | Sorted set | The days that have a rollup (score `yyyymmdd`), so a read never scans | Never |
+| `metrics:once` | Sorted set | The events already counted in the rollups (`session:<sid>`, `dispatch:<issue_id>:<seq>`, `ask:<qid>`, …) by when, kept 35 days: a replayed event counts once | Never; members older than 35 days are pruned on write |
 | `hold:<issue_id>` | String (JSON) | A person holds the ticket: `{by, reason, at}` (section 12) | Never |
 | `abandoned:<issue_id>` | String (JSON) | The daemon finalized the ticket in an abandon state (`tracker.abandon_states`): `{state, identifier, at}`. Its questions asked before `at` close as canceled (`questions._advance`) | 7 days idle |
 | `repo:` | Label prefix | Not a key: the Linear label `repo:<owner/name>` routes a ticket to a repository | — |
@@ -55,6 +58,7 @@ The `state` keys have no namespace prefix. All other keys have a namespace prefi
 | `sym:<ns>:session:<sid>:meta` | String (JSON) | Session metadata (section 2) | `retention.sessions_days` (7) after `close` |
 | `sym:<ns>:session:<sid>:events` | Stream | Event frames `{kind, data, t}`, about 5000 entries | `retention.sessions_days` (7) after `close` |
 | `sym:<ns>:session:<sid>:transcript` | List | omp session entries for replay, last 4000 | `retention.sessions_days` (7) after `close` |
+| `sym:<ns>:session:<sid>:usage` | Hash | The usage the session's `message_end` events carried: `input`, `output`, `cache_read`, `cache_write`, `cost_micro_usd`. `close` copies it into `meta.usage` and the daily rollup | `retention.sessions_days` (7) after `close` |
 | `sym:<ns>:session:<sid>:intents` | Stream | Human intents `{kind, actor, payload, t}`, about 1000 entries | `retention.sessions_days` (7) after `close` |
 | `sym:<ns>:sessions` | Sorted set | Session ids by `updated_at` | Never; expired ids are removed on read |
 | `sym:<ns>:tokens` | Hash | Token id → token record (SHA-256 of the secret, never the secret) | Never |

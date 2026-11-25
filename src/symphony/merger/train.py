@@ -422,6 +422,7 @@ class Train:
         cm.train_conclude(m, rec, self.save)
         m.git.remove_worktree(local(rec))
         if o["end"] == "merged":
+            m.count("merged", rec["pr"], rec["head_sha"])
             m.git.delete_remote_branch(rec["branch"], rec["head_sha"])
             m.store.drop_baseline(rec["pr"])
         m.store.drop_rec(rec["pr"])

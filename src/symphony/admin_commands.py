@@ -58,6 +58,7 @@ STANDALONE_ACTIONS = frozenset({
     "backup.restore",
     "backup.run",
     "backup.archive.get",
+    "telemetry.backfill",
 })
 # Provider changes the API audits itself (`provider_audit`); only metadata is recorded. Every
 # provider is configured by API key (internals §13), so saving one is the only provider action.

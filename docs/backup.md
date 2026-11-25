@@ -26,6 +26,8 @@ Restored, because the tracker cannot rebuild them:
 | `hold:*` | A person's hold never expires. Without it, the daemon would take back a ticket that a person stopped |
 | `generation:*` | Dispatch fencing tombstones. Without one, an old Job could address a reopened ticket |
 | `metrics:<yyyymm>` | The monthly counters that feed telemetry |
+| `metrics:day:<yyyymmdd>`, `metrics:days` | The daily rollups behind the telemetry history, and their index. Only their session fields can be rebuilt (`symphony telemetry backfill`); dispatches, pull requests, questions and merger results have no other source |
+| `metrics:once` | The events already counted in the daily rollups. Without it, a replayed event could count twice |
 | `retro:*` | Retrospective tokens. Without one, the nightly sweep repeats a retrospective and its learnings pull request |
 | `lessons:usage_age` | The decay counters of learnings |
 | `totals:tokens` | The token ledger totals |
@@ -138,6 +140,12 @@ The archive stores every audit entry, so it holds the entries that Redis later d
 that fails stores nothing and moves no marker: the next run repeats those entries. An entry
 can thus appear twice, never zero times. The shortest retention is 2 days, so a daily run
 always sees an entry before Redis drops it.
+
+The daily rollups (`metrics:day:<yyyymmdd>`) never expire, but a day can lack sessions: one
+that ended before the rollups existed, or a namespace restored from an old backup.
+`symphony telemetry backfill` reads the session lines of every archive object, one at a time,
+and the ended sessions still in Redis, and rebuilds the session fields of the days that have
+no rollup (`--force`: every day they cover). See [api.md](api.md#telemetry-history).
 
 ```sh
 symphony backup archive list

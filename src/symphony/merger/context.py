@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 
 import structlog
 
+from .. import rollups
 from ..endpoints import github_server_url
 from ..teamconfig import TeamConfig
 from ..trackers.base import TrackerAdapter
@@ -89,6 +90,11 @@ class Merger:
             self.notify_post(event, text, link=link, github_logins=logins, direct_to=direct)
         except Exception as exc:  # noqa: BLE001 — a channel outage never stops a merge
             log.warning("merger_notify_failed", event=event, error=str(exc)[:300])
+
+    def count(self, result: str, n: int, head_sha: str) -> None:
+        """A review result in the day's rollup (`rollups`: `merger:<result>`), once per PR head."""
+        rollups.bump(self.store.client, self.clock(), {f"merger:{result}": 1},
+                     once=f"merger:{self.store.repo}:{n}:{head_sha}:{result}")
 
     def assignee_keys(self, identifier: str | None) -> list[str]:
         """What names the ticket's assignee in `notify.users` (e-mail, then name or login)."""

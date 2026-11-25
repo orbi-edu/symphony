@@ -19,7 +19,7 @@ from ..apitokens import TokenStore
 from ..providers import ProviderError
 from ..sessions import SessionStore
 from ..teamconfig import TeamConfig
-from . import admin, assistant, backup, board, mcp, merger, sessions, setup, webhooks
+from . import admin, assistant, backup, board, mcp, merger, sessions, setup, telemetry, webhooks
 from . import previews as preview_routes
 from .auth import Authenticator
 from .catalog import Catalog
@@ -95,6 +95,7 @@ def build_app(services: Services, *, per_minute: int | None = None) -> FastAPI:
     app.include_router(setup.build_router(control, auth))
     app.include_router(assistant.build_router(control, auth))
     app.include_router(backup.build_router(control, auth))
+    app.include_router(telemetry.build_router(control, auth))
     app.include_router(preview_routes.build_router(control))
     return app
 

@@ -168,6 +168,7 @@ def conclude(m: Merger, run, result, outcome: str, draft: bool, event: str | Non
     except Exception:  # noqa: BLE001
         pass
     if event:
+        m.count(event, run.pr, run.head_sha)
         say(m, event, run.pr, run.title, run.author, comment or m.pr_url(run.pr), is_bot=is_bot,
             ticket=run.issue)
     return comment, drafted
@@ -255,6 +256,7 @@ def train_conclude(m: Merger, rec: dict, save) -> None:
 
     def tell() -> None:
         if o["end"] == "draft":
+            m.count("back_to_author", n, rec["head_sha"])
             say(m, "back_to_author", n, rec.get("title", ""), rec.get("author"),
                 o.get("comment") or m.pr_url(n), "the merge train could not merge it",
                 is_bot=is_bot_author(rec), ticket=rec.get("issue"))

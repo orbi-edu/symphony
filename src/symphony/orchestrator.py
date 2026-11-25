@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Sequence
 from typing import Protocol
 
-from . import discovery, intake, prwatch, state, telemetry, triage
+from . import discovery, intake, prwatch, rollups, state, telemetry, triage
 from .config import Config, known_runtimes, resolve_workspace
 from .repos import validate_runtime_component
 from .trackers.base import Issue, TrackerAdapter, TrackerUnavailable, epoch_ms
@@ -227,6 +227,8 @@ def _finalize_terminal(
     state.bump_metric(kv, yyyymm, "tokens_total", by=(entry.get("tokens") or {}).get("total", 0))
     state.bump_metric(kv, yyyymm, "runs")
     state.bump_metric(kv, yyyymm, "attempts", by=entry.get("attempt", 1))
+    rollups.bump_kv(kv, now_ms, {"runs": 1, "attempts": entry.get("attempt", 1)},
+                    once=f"terminal:{issue_id}:{entry.get('dispatch_seq', 1)}")
     if entry.get("runner_call_id"):
         fx.cancel_runner(entry["runner_call_id"], issue_id=issue_id, seq=entry.get("dispatch_seq", 1))
     fx.kill_agent_process(entry.get("sandbox_name"))
@@ -457,7 +459,7 @@ def tick(
                 continue
             fx.spawn_runner(issue, entry["attempt"], seq)
             fx.emit("redispatch", issue_id=issue_id, attempt=entry["attempt"], seq=seq)
-            _record_dispatch_metrics(kv, issue, cfg, now_ms)
+            _record_dispatch_metrics(kv, issue, cfg, now_ms, seq)
             _record_retry(kv, entry, now_ms)
             busy += 1
             per_state[issue.state] = per_state.get(issue.state, 0) + 1
@@ -482,7 +484,7 @@ def tick(
                     continue
                 fx.spawn_runner(issue, entry["attempt"], seq)
                 fx.emit("dispatch_token_adopted", issue_id=issue_id, seq=seq)
-                _record_dispatch_metrics(kv, issue, cfg, now_ms)
+                _record_dispatch_metrics(kv, issue, cfg, now_ms, seq)
                 _record_retry(kv, entry, now_ms)
                 busy += 1
                 per_state[issue.state] = per_state.get(issue.state, 0) + 1
@@ -552,7 +554,7 @@ def tick(
             continue
         fx.spawn_runner(issue, 1, seq)
         fx.emit("dispatch", issue_id=issue.id, identifier=issue.identifier, attempt=1, seq=seq)
-        _record_dispatch_metrics(kv, issue, cfg, now_ms)
+        _record_dispatch_metrics(kv, issue, cfg, now_ms, seq)
         busy += 1
         per_state[issue.state] = per_state.get(issue.state, 0) + 1
         dispatched += 1
@@ -790,14 +792,18 @@ def _release_claim(kv: state.KV, issue_id: str, entry: dict) -> None:
     kv.delete(state.telemetry_key(issue_id))  # FR-017
 
 
-def _record_dispatch_metrics(kv: state.KV, issue: Issue, cfg: Config, now_ms: int) -> None:
+def _record_dispatch_metrics(kv: state.KV, issue: Issue, cfg: Config, now_ms: int, seq: int) -> None:
     """FR-032/SC-007 instrumentation: dispatches by state (rework rate =
-    dispatches_by_state['Rework'] / runs) recorded under the current month."""
+    dispatches_by_state['Rework'] / runs) recorded under the current month, and the
+    dispatch in the day's rollup, once per dispatch."""
     yyyymm = _yyyymm(now_ms)
+    rework = issue.state.casefold() == cfg.tracker_states["rework"].casefold()
     state.bump_metric(kv, yyyymm, "dispatched")
     state.bump_metric_category(kv, yyyymm, "dispatches_by_state", issue.state)
-    if issue.state.casefold() == cfg.tracker_states["rework"].casefold():
+    if rework:
         state.bump_metric(kv, yyyymm, "rework")
+    rollups.bump_kv(kv, now_ms, {"dispatched": 1, **({"rework": 1} if rework else {})},
+                    once=f"dispatch:{issue.id}:{seq}")
 
 
 def _record_retry(kv: state.KV, entry: dict, now_ms: int) -> None:

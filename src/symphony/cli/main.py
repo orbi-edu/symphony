@@ -924,6 +924,13 @@ def cmd_backup_archive_get(args) -> int:
     return 0
 
 
+def cmd_telemetry_backfill(args) -> int:
+    path = "/v1/telemetry/backfill" + ("?force=true" if args.force else "")
+    doc = _long_api().post(path, {})
+    _emit(args, doc, lambda: render.telemetry_backfill(doc))
+    return 0
+
+
 # -- parser -------------------------------------------------------------------------
 
 def build_parser() -> argparse.ArgumentParser:
@@ -979,6 +986,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = add("telemetry", _projection("/v1/telemetry", render.telemetry, limit=lambda a: a.limit),
             "tokens, cost, models and monthly counters")
     p.add_argument("--limit", type=int, default=200, help="sessions to include (1-500)")
+    actions = p.add_subparsers(dest="action", metavar="ACTION")
+    p = add("backfill", cmd_telemetry_backfill,
+            "rebuild the daily rollups from the sessions in Redis and the archive (admin)",
+            actions)
+    p.add_argument("--force", action="store_true",
+                   help="also rebuild the days that have a rollup already")
     add("learning", _projection("/v1/learning", render.learning), "learning proposals (reflector)")
     p = add("audit", _projection("/v1/audit", render.audit, cursor=lambda a: a.cursor,
                                  limit=lambda a: a.limit), "audit events, newest first")

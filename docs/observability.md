@@ -135,6 +135,15 @@ No label holds a ticket id, a session id, a token or a credential.
 Every counter field is written with `HINCRBY` (or `HINCRBYFLOAT` for the cost). Thus
 concurrent runners never lose an update.
 
+## The history without Prometheus
+
+Prometheus keeps what it scraped for its own retention. Symphony also keeps a daily rollup
+per UTC day in Redis (`metrics:day:<yyyymmdd>`), which never expires: cost, tokens, sessions
+by kind and outcome, models, repositories, pull requests, rework, merger results, questions
+and the hour each session started. The Tern Telemetry and Dashboard views chart it, and
+`GET /v1/telemetry/history` serves it ([api.md](api.md#telemetry-history)). It is not a
+Prometheus series: alert on the counters above.
+
 ## Example alerts
 
 These are Prometheus rules. Adjust the thresholds to your load.

@@ -15,6 +15,8 @@ Keys (prefix `sym:<namespace>:session:<sid>`):
 - `:events`      Stream of `{kind, data}`; omp RPC frames in delta mode plus `symphony.*` kinds
 - `:transcript`  List of omp session entries (JSON) for replay, tail-trimmed
 - `:intents`     Stream of human intents `{kind, actor, payload}` the runner consumes at once
+- `:usage`       Hash of the usage the session's `message_end` events carried (tokens and
+                 micro-USD); `close` copies it into `meta.usage` and the day's rollup
 - `sym:<namespace>:sessions` sorted set of session ids by `updated_at`
 """
 
@@ -25,7 +27,7 @@ import time
 from collections.abc import Callable, Iterable
 from typing import Any
 
-from . import metrics, retention
+from . import metrics, retention, rollups
 
 STATES = ("starting", "running", "waiting_input", "idle", "ended")
 KINDS = ("implement", "answer", "review", "oracle", "arbiter", "resolve", "reflect", "assist")
@@ -109,12 +111,18 @@ class SessionStore:
         return doc
 
     def close(self, sid: str, outcome: str) -> dict | None:
-        doc = self.update(sid, state="ended", outcome=outcome, ended_at=self._now())
+        """End the session: its keys age out after the retention, and it counts in the
+        day's rollup (`rollups.record_session`), once even when closed twice."""
+        used = self.client.hgetall(self._key(sid, "usage"))
+        doc = self.update(sid, state="ended", outcome=outcome, ended_at=self._now(),
+                          usage={key: int(used.get(key) or 0) for key in rollups.USAGE_KEYS})
         ttl_s = retention.sessions_s(self.client, self.ns)
-        for part in ("meta", "events", "transcript", "intents"):
+        for part in ("meta", "events", "transcript", "intents", "usage"):
             self.client.expire(self._key(sid, part), ttl_s)
         if doc is not None and doc.get("kind") in metrics.ATTEMPT_KINDS:
             metrics.count_attempt_finished(self.client, self.ns, outcome)
+        if doc is not None:
+            rollups.record_session(self.client, doc)
         return doc
 
     def end_orphans(self, live_seq: Callable[[str], int | None], *, idle_ms: int,
@@ -190,12 +198,17 @@ class SessionStore:
 
     # -- events ------------------------------------------------------------
     def append_event(self, sid: str, kind: str, data: dict) -> str:
-        return self.client.xadd(
-            self._key(sid, "events"),
-            {"kind": kind, "data": _cap(data), "t": str(self._now())},
-            maxlen=self.max_events,
-            approximate=True,
-        )
+        fields = {"kind": kind, "data": _cap(data), "t": str(self._now())}
+        used = rollups.message_usage(data) if kind == "message_end" else None
+        if used is None:
+            return self.client.xadd(self._key(sid, "events"), fields, maxlen=self.max_events,
+                                    approximate=True)
+        pipe = self.client.pipeline(transaction=False)
+        pipe.xadd(self._key(sid, "events"), fields, maxlen=self.max_events, approximate=True)
+        for key, by in used.items():
+            if by:
+                pipe.hincrby(self._key(sid, "usage"), key, by)
+        return pipe.execute()[0]
 
     def read_events(
         self, sid: str, after: str | None = None, *, block_ms: int | None = None, count: int = 500
