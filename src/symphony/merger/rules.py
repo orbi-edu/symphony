@@ -43,6 +43,7 @@ class Hunk:
     path: str
     start: int
     end: int
+    count: int = 1  # lines on the new side; 0 when the file is deleted or emptied
 
 
 @dataclass
@@ -82,7 +83,7 @@ def parse_diff(diff: str) -> Diff:
             count = int(m.group(4)) if m.group(4) is not None else 1
             path = new_path if new_path != "/dev/null" else old_path
             start = new_line if count else max(new_line, 1)
-            out.hunks.append(Hunk(path, start, start + max(count, 1) - 1))
+            out.hunks.append(Hunk(path, start, start + max(count, 1) - 1, count))
         elif not header and raw.startswith("+"):
             out.added.append(Line(new_path, new_line, raw[1:]))
             new_line += 1

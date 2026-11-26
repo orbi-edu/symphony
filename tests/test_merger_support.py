@@ -144,6 +144,9 @@ class FakeGitHub(GitHub):
         self.lock = threading.RLock()
         self.pr_reviews: dict[int, list[dict]] = {}  # PR number → list of reviews
         self.artifacts: dict[int, list[dict]] = {}  # workflow run id → list of artifacts
+        self.posted_reviews: list[dict] = []  # inline reviews: {pr, commit_id, event, body, comments}
+        self.threads: dict[str, dict] = {}  # review thread node id → {id, pr, resolved, comment}
+        self.resolved: list[str] = []  # thread ids, in the order resolved
 
     # -- helpers ---------------------------------------------------------------------
     def _maybe_fail(self, name: str) -> None:
@@ -357,6 +360,25 @@ class FakeGitHub(GitHub):
 
     def reviews(self, n: int) -> list[dict]:
         return list(self.pr_reviews.get(n, []))
+
+    def post_review(self, n: int, commit_id: str, body: str, comments: list[dict]) -> list[dict]:
+        self._maybe_fail("post_review")
+        review = {"id": next(self.ids), "pr": n, "commit_id": commit_id, "event": "COMMENT", "body": body,
+                  "comments": [{**c, "id": next(self.ids)} for c in comments]}
+        for c in review["comments"]:
+            tid = f"PRRT_{c['id']}"
+            self.threads[tid] = {"id": tid, "pr": n, "resolved": False, "comment": c["id"]}
+        self.posted_reviews.append(review)
+        return [{"id": c["id"], "body": c["body"]} for c in review["comments"]]
+
+    def review_threads(self, n: int) -> list[dict]:
+        self._maybe_fail("review_threads")
+        return [dict(t) for t in self.threads.values() if t["pr"] == n]
+
+    def resolve_thread(self, thread_id: str) -> None:
+        self._maybe_fail("resolve_thread")
+        self.threads[thread_id]["resolved"] = True
+        self.resolved.append(thread_id)
 
     def artifact_download_url(self, run_id: int, name: str) -> str | None:
         for a in self.artifacts.get(run_id, []):
@@ -633,5 +655,6 @@ def done_verify() -> tuple:
 
 def ids_in(prompt: str) -> list[str]:
     """The finding ids an oracle prompt asks about."""
-    m = re.search(r"FINDINGS \(JSON\): (\[.*?\n\])", prompt, re.S)
+    # `\n\n`: not a re-review's EARLIER FINDINGS (JSON), which comes first
+    m = re.search(r"\n\nFINDINGS \(JSON\): (\[.*?\n\])", prompt, re.S)
     return [f["id"] for f in json.loads(m.group(1))] if m else []

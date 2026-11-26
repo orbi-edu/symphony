@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from ..teamconfig import model_arg
 from . import agents as ag
 from . import comments as cm
+from . import inline as ir
 from . import prompts
 from .ci import cancel_ci, ci_state, revive_ci
 from .context import Merger, log
@@ -316,7 +317,9 @@ def review_and_verify(m: Merger, policy: Policy, team: dict, run: Run, delta: di
         rows.append({"id": f["id"], "severity": "blocking" if f["id"] in blocking else "nit",
                      "class": x["class"] if x else f["class"], "location": f["location"],
                      "verdict": x["verdict"] if x else "not verified", "claim": f["claim"],
-                     "fix": x["fix"] if verified else ""})
+                     "fix": x["fix"] if verified else "",
+                     **({"replacement": f["replacement"]} if verified and f.get("replacement") else {}),
+                     **({"reopens": f["reopens"]} if f.get("reopens") else {})})
     run.findings = rows
     return {"pr": n, "findings": len(findings), "confirmed": blocking, "blocker": line,
             "rejected": [f"{x['id']} {x['verdict']}: {x['evidence']}" for x in verdicts if not real(x)]}
@@ -383,10 +386,11 @@ def hand_off_text(head_sha: str) -> str:
             "it once CI passes, else it goes back to draft.")
 
 
-def hand_off(m: Merger, policy: Policy, run, report: str, edit: str | None = None) -> None:
+def hand_off(m: Merger, policy: Policy, run, report: str, edit: str | None = None) -> str:
     """A positive review to the train: the record first (publishing, with the rendered report),
     then the publication, then the record is marked reviewed. A crash leaves a publishing
-    record that `reconcile` finishes. `run` is a `Run` or a parked record."""
+    record that `reconcile` finishes. `run` is a `Run` or a parked record. Returns the report's
+    URL, "" while the publication is unfinished."""
     n = run["pr"] if isinstance(run, dict) else run.pr
     get = (lambda k: run[k]) if isinstance(run, dict) else (lambda k: getattr(run, k))
     rec = {
@@ -409,9 +413,10 @@ def hand_off(m: Merger, policy: Policy, run, report: str, edit: str | None = Non
         m.store.drop_run(n)
     except Exception as exc:  # noqa: BLE001 — reconcile finishes it
         log.warning("merger_handoff_failed", pr=n, error=str(exc)[:300])
-        return
+        return ""
     m.store.put_rec({**rec, "state": "reviewed"})
     m.wake(f"handoff:{n}")
+    return rec["publication"].get("url", "")
 
 
 def bypass_hand_off(m: Merger, policy: Policy, p: dict) -> None:
@@ -593,7 +598,8 @@ def review_pr(m: Merger, policy: Policy, team: dict, n: int, worker: str) -> tup
         run.wt = m.git.worktree(wt_name(n), run.head_sha)
         run.fork = m.git.merge_base(m.git.origin_main, run.head_sha)
         run.diff = m.git.run("diff", "--no-color", run.fork, run.head_sha).stdout
-        run.discussion = [{**e, "ours": bool(cm.OURS.match(e["body"]))} for e in m.gh.discussion(n)]
+        run.discussion = [{**e, "ours": bool(cm.OURS.match(e["body"]) or ir.ours(e["body"]))}
+                          for e in m.gh.discussion(n)]
         run.evidence = ticket_evidence(m, run.issue)
         cm.announce(m, n)
         if delta:
@@ -659,6 +665,8 @@ def _outcome(m: Merger, policy: Policy, team: dict, run: Run, result: dict, delt
         if ci_pending:
             m.store.park({**parked_of(m, run), "kind": "report", "title": cm.NOT_MERGED_TITLE, "outcome": text,
                           "body": cm.scrubbed_body(m, run, result), "drafted": drafted, "comment": comment})
+        if stop != "gone":  # the head moved: its lines are no longer the PR's
+            ir.publish(m, policy, run, delta, comment)
         if stop in ("blocked", "held"):
             m.move_ticket(run.issue, "rework",
                           f"The merger sent the PR back: {text}\n\n{comment or m.pr_url(n)}")
@@ -753,6 +761,7 @@ def _outcome(m: Merger, policy: Policy, team: dict, run: Run, result: dict, delt
         m.store.park({**parked_of(m, run), "kind": "clean", "title": cm.WAITING_TITLE, "outcome": outcome,
                       "waiting": "ci",
                       "body": cm.scrubbed_body(m, run, result), "drafted": False, "comment": comment})
+        ir.publish(m, policy, run, delta, comment)
         return "waiting", run.head_sha, run.ready_at, ""
 
     # Approval gate: the review passed and CI is green, but the policy requires a human
@@ -768,11 +777,12 @@ def _outcome(m: Merger, policy: Policy, team: dict, run: Run, result: dict, delt
         m.store.park({**parked_of(m, run), "kind": "clean", "title": cm.WAITING_TITLE, "outcome": outcome,
                       "waiting": "approval",
                       "body": cm.scrubbed_body(m, run, result), "drafted": False, "comment": comment})
+        ir.publish(m, policy, run, delta, comment)
         return "waiting", run.head_sha, run.ready_at, ""
 
     report = cm.scrub(cm.compose(cm.REVIEWED_TITLE, run.head_sha, hand_off_text(run.head_sha), "",
                                  cm.report_body(run, result), False), run.wt, m.git.path)
-    hand_off(m, policy, run, report)
+    ir.publish(m, policy, run, delta, hand_off(m, policy, run, report))
     return "reviewed", run.head_sha, run.ready_at, ""
 
 

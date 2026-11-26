@@ -153,7 +153,7 @@ Details are in [merger.md](merger.md#stage-1-review).
 | R9 | AI arbiter, then `needs-maintainer` | `test_merger_review.py` |
 | R10 | Delta re-review | `test_merger_review.py` |
 | R11 | CI outside the review (parked) | `test_merger_review.py` |
-| R12 | Report on the pull request and labels | `test_merger_units.py`, Merger run |
+| R12 | Report on the pull request and labels; inline review comments on the diff lines | `test_merger_units.py`, `test_merger_inline.py`, Merger run |
 | R13 | A failed run writes no pull request comment | `test_merger_review.py` |
 
 ## T. Merge train

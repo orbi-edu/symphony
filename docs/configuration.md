@@ -340,6 +340,12 @@ parked or in the train goes on to the end. The merger applies a change on its ne
 | `merger.label_filter.labels` | list of strings | `["symphony", "symphony-learnings"]` | A pull request with any one of these labels is a candidate. Required (nonempty) when enabled. |
 | `merger.label_filter.repos` | map of `owner/name` to boolean | `{}` | Per-repository override of `enabled`: `true` turns the filter on for that repository, `false` turns it off. Keys are lowercased. |
 
+The review itself is set per repository, in `.symphony/merger.md` on its default branch, not
+here ([merger.md](merger.md#repository-policy-symphonymergermd)). For example,
+`inline_comments: false` there stops the inline review comments on that repository's pull
+requests; the merger then posts only its report comment
+([merger.md](merger.md#inline-comments)). It is on by default.
+
 ## `notify`
 
 | Key | Type | Default | Effect |

@@ -272,6 +272,35 @@ point, the findings and the rounds.
 The labels are `in-audit`, `reviewed`, `needs-maintainer`, `review-bypass`, `review-requested`,
 `wait-ci`, `train-ci` and `wait-approval`.
 
+#### Inline comments
+
+After the report, `inline.py` submits one GitHub review on the reviewed head, with the event
+`COMMENT` and a short body that links the report. It never approves and never requests changes,
+so the approval gate (T9), which counts only `APPROVED` and `CHANGES_REQUESTED`, ignores it.
+
+- Each blocking finding, and each nit that the oracle confirmed (`confirmed` or `partial`), gets
+  one inline comment: `**A** (blocking) — <claim>` or `**A** (nit) — <claim>`, then `Fix: …`
+  and a link to the report. The comment has no local paths, like the report.
+- The location `path:line` or `path:start-end` becomes `line` (the end) and `start_line`, on
+  the `RIGHT` side. GitHub accepts only lines inside a hunk of the pull request's diff
+  (`git diff <fork point> <head>`). If the end line is in a hunk but the range starts above
+  it, the range is clamped to the hunk. Otherwise the finding is in the report only. Findings
+  on the PR body, and findings with a path but no line, are in the report only.
+- A reviewer may give a `replacement` with a finding: the exact new text of the lines at its
+  location. When the oracle confirmed the finding, the range was not clamped and the text
+  has at most 30 lines, the comment has a `suggestion` block that the author can apply.
+- `inline` in the store keeps each commented finding of the pull request, keyed by path and
+  claim, with its comment id. A re-review does not comment again on a finding that is
+  already commented, or on one that `reopens` it. If the new round no longer reports a
+  commented finding, the merger resolves its thread (`resolveReviewThread`) and forgets it.
+  A push that moves the lines makes GitHub mark the comments outdated.
+- If the head moved during the review (`stopped: its author pushed …`), there is no inline
+  review.
+- A failed call (a 422 for a line outside the diff, or any other error) is logged
+  (`merger_inline_post_failed`, `merger_inline_resolve_failed`) and the round goes on. The
+  report is the record.
+- `inline_comments: false` in the policy turns inline comments off.
+
 ### R13. Failed run
 
 - A run that fails writes no comment on the pull request.
@@ -321,7 +350,7 @@ The agents give results only through host tools.
 
 | Role | Tools | Required fields |
 |---|---|---|
-| Reviewer | `submit_finding` (one for each finding), then `submit_review` (terminal) | Finding: `severity` (`blocking`, `nit`), `class`, `audit`, `location`, `claim`, `fix`. A re-review adds `reopens`. Review: `strengths`, `verified` |
+| Reviewer | `submit_finding` (one for each finding), then `submit_review` (terminal) | Finding: `severity` (`blocking`, `nit`), `class`, `audit`, `location`, `claim`, `fix`, and optionally `replacement` (the exact new text of the lines at `location`, for a fix of a few lines there; R12). A re-review adds `reopens`. Review: `strengths`, `verified` |
 | Oracle | `submit_verdict` (one for each finding id), then `submit_review` (terminal) | Verdict: `id`, `verdict` (`confirmed`, `partial`, `refuted`, `defer`), `severity`, `class`, `evidence`, `fix`. A re-review adds `reopens`. Review: `summary` |
 | Arbiter | `submit_arbitration` (terminal) | `rulings: [{id, ruling: "uphold" \| "dismiss", reason}]` for every blocking id, `summary` |
 | Developer | `submit_resolution` (terminal) | `resolved`, `files`, `note`, `checks` |
@@ -460,7 +489,8 @@ merge train until a human approves it on GitHub.
 
 - The merger checks the latest review per human reviewer (the REST
   `GET /repos/{owner}/{repo}/pulls/{n}/reviews` endpoint).  A review state of `APPROVED`
-  or `CHANGES_REQUESTED` counts; `COMMENTED`, `DISMISSED` and `PENDING` do not.
+  or `CHANGES_REQUESTED` counts; `COMMENTED`, `DISMISSED` and `PENDING` do not. The merger's
+  own inline review (R12) is `COMMENTED`, and a bot's review is left out anyway.
 - The pull request is approved when at least one reviewer has `APPROVED` and no reviewer
   has `CHANGES_REQUESTED`.
 - We check latest-per-reviewer rather than `reviewDecision` because `reviewDecision`
@@ -542,6 +572,7 @@ fix_slots: 3
 require_human: false         # true: an escalation goes to needs-maintainer, with no arbiter
 require_approval: false      # true: a human GitHub approval is required before the train merges
 polish_rounds: 0             # 0: today's behaviour; ≥ 1: agent-authored PRs are sent back for nit fixes
+inline_comments: true        # false: the report comment only, no inline review comments (R12)
 ci: {checks: [test, lint], workflow: CI}  # checks that decide; workflow the train reruns and cancels
 max_file_kib: 1024
 main_watch: {ticket: true, state: Todo, labels: [ci]}   # ticket: false only notifies

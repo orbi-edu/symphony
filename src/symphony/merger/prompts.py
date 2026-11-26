@@ -84,7 +84,7 @@ def earlier_reviews(run, delta) -> str:
         f"\n\nRE-REVIEW\nAn earlier review {EARLIER[delta['outcome']]} at {o}. What the author changed "
         f"since is the DELTA below.{how}\nIn scope, and nothing else:\n"
         "- each EARLIER FINDINGS entry, checked against the head: report it again (same claim, at its "
-        "location now) unless the author fixed it;\n"
+        "location now, with reopens set to its id) unless the author fixed it;\n"
         "- the author's changes since, audited in full;\n"
         "- code outside those changes only when a change builds on it or breaks what it assumes: name "
         "the changed line that does in the claim.\nThe rest of the PR was reviewed: read it as context only."

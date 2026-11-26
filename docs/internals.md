@@ -114,6 +114,7 @@ The prefix of the keys below is `sym:<ns>:merger:<repo>:`.
 | `skips` | Hash | Pull request → why stage 1 stopped on the pull request, and when to try again |
 | `baseline` | Hash | Pull request → the last review (head, fork point, findings, rounds, outcome) |
 | `run` | Hash | Pull request → a finished review whose outcome is not applied yet |
+| `inline` | Hash | Pull request → the findings with an inline review comment: `{threads: {key: {comment, id, head}}}`, the key a hash of path and claim (`inline.py`); dropped when the pull request merges |
 | `caps` | Hash | Pull request → the largest batch the pull request can join after a red batch |
 | `probe` | Hash | Role → the last tool check of the role |
 | `reviewing` | Hash | Pull request → the review in progress |

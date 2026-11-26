@@ -21,6 +21,8 @@ Front matter (YAML) keys, all optional:
   notifies)
 - `polish_rounds` (default 0): agent-authored PRs with actionable nits are sent back this
   many times before going on to CI and the approval gate; 0 keeps today's behaviour
+- `inline_comments` (default true): after a review's report, one GitHub `COMMENT` review with
+  the blocking and confirmed findings on their diff lines (`inline.py`); false: the report only
 
 The body holds the repository's own review rules for reviewer and oracle.
 """
@@ -67,6 +69,7 @@ class Policy:
     main_watch: dict = field(default_factory=dict)
     preview: dict = field(default_factory=dict)
     polish_rounds: int = 0
+    inline_comments: bool = True
     rules: str = ""
 
     def model(self, role: str, team: dict) -> dict:
@@ -165,6 +168,9 @@ def parse(text: str | None) -> Policy:
     polish_rounds = data.get("polish_rounds", 0)
     if not isinstance(polish_rounds, int) or isinstance(polish_rounds, bool) or polish_rounds < 0:
         raise PolicyError(f"{PATH}: polish_rounds must be a non-negative integer")
+    inline_comments = data.get("inline_comments", True)
+    if not isinstance(inline_comments, bool):
+        raise PolicyError(f"{PATH}: inline_comments must be true or false")
     if preview:
         unknown_preview = sorted(set(preview) - {"artifact", "platform"})
         if unknown_preview:
@@ -191,5 +197,6 @@ def parse(text: str | None) -> Policy:
         main_watch=watch,
         preview=dict(preview),
         polish_rounds=polish_rounds,
+        inline_comments=inline_comments,
         rules=body.strip(),
     )
