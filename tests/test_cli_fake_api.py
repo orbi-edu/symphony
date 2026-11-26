@@ -14,6 +14,7 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
+from symphony import __version__
 from symphony.sessions import SessionStore
 from symphony.teamconfig import ConflictError, TeamConfig
 
@@ -70,6 +71,8 @@ class FakeApi:
         self.mcp: dict[str, dict] = {}
         self.mcp_headers: dict[str, dict[str, str]] = {}
         self.setup_failing_channels: set[str] = set()
+        # The release the server runs (`version` in the overview): the target of `symphony update`.
+        self.server_version = __version__
         # Values the fake "verifies" against, standing in for Linear, GitHub, Slack and Discord.
         self.setup_linear_key = "lin_api_good"
         self.setup_app_id = "101"
@@ -110,6 +113,7 @@ class FakeApi:
             if err:
                 return err
             return JSONResponse({
+                "version": api.server_version,
                 # The real API (admin_read) sends ISO 8601 here, not epoch ms.
                 "daemon": {"alive": True, "paused": False,
                            "heartbeat_at": time.strftime("%Y-%m-%dT%H:%M:%S.000000Z", time.gmtime())},

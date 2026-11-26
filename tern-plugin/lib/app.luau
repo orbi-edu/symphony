@@ -12,6 +12,7 @@ local cli = require("./cli")
 local fmt = require("./fmt")
 local V = require("./views")
 local P = require("./projections")
+local upd = require("./update")
 
 local M = {}
 
@@ -182,6 +183,14 @@ local function fetch(state: any, name: string)
 		if name == "overview" then
 			state.offline = nil
 			state.updated_ms = fmt.now_ms()
+			-- The server's version: the CLI and this plugin update themselves to it (update.luau).
+			if type(data) == "table" then
+				upd.on_server(data.version, function()
+					if not state.stopped then
+						cx:render()
+					end
+				end)
+			end
 		end
 		if name == "audit" and changed and type(data) == "table" then
 			state.audit_items = data.items or {}
@@ -1968,6 +1977,7 @@ M.def = {
 		current(state)
 		state.rendered_at = tern.now()
 		state.cols = cx.cols
+		state.update_notice = upd.notice()
 		return V.render(state)
 	end,
 	title = function(state: any)

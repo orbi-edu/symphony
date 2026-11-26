@@ -419,13 +419,18 @@ a hint. The woken loop reads the source of truth again, so a lost wake costs onl
   (`symphony acp`), the Tern plugin (`symphony api … --json`) and `symphony omp sync` use the CLI.
 - **Tern:** `symphony tern install` adds the ACP agent
   `{id: "symphony", name: "Symphony", command: <absolute path of symphony>, args: ["acp"]}` to
-  `agents.custom`, adds the MCP server, and installs the plugin. When no `symphony` executable
-  is found, the agent's `command` is the Python interpreter, with
+  `agents.custom`, adds the MCP server, and installs the plugin: the clone's `tern-plugin/`, else
+  the copy in the package (`symphony/tern_plugin`), skipped when Tern already has its version.
+  When no `symphony` executable is found, the agent's `command` is the Python interpreter, with
   `args: ["-m", "symphony.cli", "acp"]`. The plugin's sign-in runs it with `--no-plugin`.
   Without `SYMPHONY_BIN`, the plugin runs the CLI through `/bin/sh`, on the daemon's PATH
   followed by `$UV_TOOL_BIN_DIR`, `$XDG_BIN_HOME`, `~/.local/bin`, `/opt/homebrew/bin` and
   `/usr/local/bin`. A `SYMPHONY_BIN` that does not run is reported as that path, without the
   lookup. See [tern.md](tern.md) and [cli.md](cli.md).
+- **Versions:** the API reports its release in `GET /v1/overview` (`version`). The CLI
+  (`symphony update`, and its check after a command) and the plugin (`lib/update.luau`) update
+  themselves to it; the plugin's commands carry `SYMPHONY_CLIENT=tern-plugin`, so the CLI's own
+  check stays off there.
 
 ## 8. Trackers and notifications
 

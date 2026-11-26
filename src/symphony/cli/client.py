@@ -14,6 +14,12 @@ import httpx
 from symphony.cli.creds import Credential
 
 USER_AGENT = "symphony-cli/0.1"
+OVERVIEW = "/v1/overview"
+
+# What this process learned from the API, for the update check after the command
+# (symphony/cli/selfupdate.py): the credential of the last answered request, and the version
+# the server runs when an overview was read.
+seen: dict = {"cred": None, "version": None}
 
 # Reason lengths the API enforces, checked here first so a person gets a clear message before
 # anything is sent: (minimum, maximum, minimum counted after trimming spaces).
@@ -104,6 +110,9 @@ class Api:
         body = _decode(resp)
         if resp.status_code >= 300:
             raise _error_from(resp, body)
+        seen["cred"] = self.cred
+        if path.split("?")[0] == OVERVIEW and isinstance(body, dict) and isinstance(body.get("version"), str):
+            seen["version"] = body["version"]
         return Response(resp.status_code, body, resp.headers)
 
     def get(self, path: str, **params) -> object:

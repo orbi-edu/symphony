@@ -58,11 +58,14 @@ them on your machine when your change touches them ([docs/testing.md](docs/testi
 
 Maintainers make releases. Symphony uses [Semantic Versioning](https://semver.org/). The one
 version is `version` in `pyproject.toml`; `symphony --version` and the MCP and ACP server
-information read it.
+information read it, the API reports it (`version` in `GET /v1/overview`), and the CLI and the
+Tern plugin update themselves to it. The Tern plugin carries the same version in
+`tern-plugin/plugin.toml`; `tests/test_release.py` fails when they differ.
 
 1. In `CHANGELOG.md`, move the `Unreleased` entries under a new heading
    `## [<version>] - <YYYY-MM-DD>`.
-2. Set `version` in `pyproject.toml`, then run `uv lock` to update `uv.lock`.
+2. Set `version` in `pyproject.toml` and in `tern-plugin/plugin.toml`, then run `uv lock` to
+   update `uv.lock`.
 3. Check the release notes: `.github/scripts/release_notes.sh <version>`.
 4. Commit `chore: release <version>` and merge it to `main`. CI must pass.
 5. Tag the merged commit and push the tag:

@@ -21,8 +21,13 @@ The CLI checks reasons (`--reason`) before it sends anything, with the same rule
 
 A reason that breaks a rule fails with `invalid_reason` and never reaches the server.
 
-Install from the repository: `uv tool install .` (or `uv sync` and `.venv/bin/symphony`).
-`symphony --version` prints the version, which is `version` in `pyproject.toml`.
+Install the release your server runs: `uv tool install git+https://github.com/<owner>/symphony@v<version>`
+(replace `<owner>` with the GitHub owner of this repository). From a clone: `uv tool install .`,
+`uv tool install --editable .`, or `uv sync` and `.venv/bin/symphony`. `symphony --version`
+prints the version, which is `version` in `pyproject.toml`; a CLI that runs from a clone
+(`--editable`, or `uv run`) reads the clone's `pyproject.toml`, so it stays right after a `git
+pull`. [`symphony update`](#symphony-update-and-symphony-version) keeps the CLI at the server's
+version.
 
 ## Credential
 
@@ -171,7 +176,7 @@ applied generation as `member:<token name>`. It also checks the local omp versio
 profile is isolated: provider logins of the default profile do not apply to it. With Bedrock,
 the AWS credentials in the environment are enough.
 
-### `symphony tern install [--plugin DIR] [--no-plugin]`
+### `symphony tern install [--plugin DIR] [--no-plugin | --plugin-only]`
 
 Merges into Tern's `settings.json` (`$TERN_CONFIG_DIR`, else
 `~/Library/Application Support/Tern` on macOS) and changes nothing else:
@@ -183,13 +188,69 @@ Merges into Tern's `settings.json` (`$TERN_CONFIG_DIR`, else
 - `agents.mcp`: `{name: "symphony", transport: "http", url: <URL>/mcp, headers:
   {Authorization: "Bearer <token>"}}`. The header is literal because Tern 0.8.3 did not
   expand `${VAR}` in the headless test. For this reason the file keeps mode `0600`.
-- The plugin, from `<repo>/tern-plugin` (or `--plugin DIR`), through
-  `tern plugin install DIR --force`. Only a source checkout has `<repo>/tern-plugin`: on another
-  install, pass `--plugin DIR`, or `--no-plugin` when the plugin is already installed. The
-  plugin's **Install in Tern** step uses `--no-plugin`.
+- The plugin, through `tern plugin install DIR --force`. Without `--plugin DIR`, it is this
+  CLI's own plugin: `<repo>/tern-plugin` when the CLI runs from a clone, else the copy every
+  install carries (`symphony/tern_plugin` in the package), so the plugin always has the CLI's
+  version. When Tern already has that version, nothing is installed: a reinstall makes Tern
+  reload the plugin, the panel that may run the command included. `--plugin DIR` always
+  installs. `--no-plugin` skips the plugin; the plugin's **Install in Tern** step uses it, and
+  the panel updates the plugin by itself ([tern.md](tern.md#updates)).
+
+`--plugin-only` installs only the plugin and needs no login: `symphony update` and the panel
+use it.
 
 Running it again changes nothing when the settings are already correct. The command does not
 touch a `settings.json` that is not valid JSON (for example, one with comments).
+
+### `symphony update` and `symphony version`
+
+The CLI follows the version the server runs (`version` in `GET /v1/overview`,
+[api.md](api.md#overview)), not the newest release: a client matches what is deployed.
+
+`symphony version [--json]` prints `{cli, plugin_installed, server, install, source, command,
+server_error}`: this CLI's version, the plugin version Tern has (`tern plugin list --json`;
+`null` without Tern or the plugin), the server's version (`null` with `server_error` when it
+cannot be read), how the CLI is installed, where from, and the command that updates it when the
+server runs a newer release. `install` is:
+
+| `install` | What it is | `source` |
+|---|---|---|
+| `editable` | The CLI runs from a clone (`uv tool install --editable .`, `uv run`) | The clone |
+| `tool` | `uv tool install`, not editable | `git+<URL>@<tag>`, or the directory it came from |
+| `other` | Any other install (pip, a wheel) | The installer's record, or `null` |
+
+`symphony update [--check] [--json]` compares the CLI with the server's version:
+
+- `tool` install, CLI older: runs `uv tool install --force git+<URL>@v<server version>`. `<URL>`
+  is the repository the CLI was installed from, or the `origin` of the clone it was installed
+  from. `uv` replaces the tool in one step: when it fails, the old CLI still works, and the
+  error says so. Then the new CLI installs its plugin (`symphony tern install --plugin-only`)
+  when Tern has the plugin. One update runs at a time (a lock in the cache directory).
+- `editable` install, CLI older: the clone is never touched. The command prints what to run:
+  `git -C <clone> pull && uv tool install --editable <clone>`.
+- `other` install, CLI older: the command prints the `uv tool install` command to run.
+- CLI current (or newer, as a clone ahead of the server can be): when the plugin Tern has is
+  older than the CLI's, it installs the CLI's plugin, from the clone or from the package.
+
+`--check` only says what would change. With `--json` the result is `{cli, server, install,
+source, status, command, plugin}`; `status` is `current`, `available` (`--check`), `updated` or
+`manual` (the person runs `command`). A server that does not report its version fails with
+`no_server_version`.
+
+**Automatic update.** After a command that talked to the API, at most once every 6 hours, the
+CLI compares its version with the server's. It takes the version from the overview the command
+already read (`symphony status`), or reads the overview once. When the CLI is older:
+
+- a `tool` install starts `symphony update` in a detached process after the command and prints
+  one line on stderr: `Updating symphony 0.2.27 → 0.2.28 in the background`. Its output and any
+  failure go to `update.log` in the cache directory (`$XDG_CACHE_HOME/symphony`, else
+  `~/.cache/symphony`), next to the time of the last check (`update-check.json`);
+- any other install prints, on stderr, the command to run.
+
+The check never writes to stdout and never fails the command. It does not run when `CI` is set,
+when `SYMPHONY_AUTO_UPDATE=0` (also `false`, `no`, `off`), for the commands that the Tern plugin
+runs (`SYMPHONY_CLIENT` is set: the plugin updates by itself), in `symphony acp`, or after
+`symphony update` and `symphony version`.
 
 ## ACP bridge: `symphony acp`
 

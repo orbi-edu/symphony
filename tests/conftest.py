@@ -15,6 +15,13 @@ import redis
 from symphony.trackers.memory import MemoryTracker
 
 
+@pytest.fixture(autouse=True)
+def _no_auto_update(monkeypatch):
+    """The CLI's update check after a command reads the server's version and may start an
+    update: off in tests, except where tests/test_selfupdate.py turns it on."""
+    monkeypatch.setenv("SYMPHONY_AUTO_UPDATE", "0")
+
+
 @pytest.fixture(scope="session")
 def _redis_server():
     binary = shutil.which("redis-server")

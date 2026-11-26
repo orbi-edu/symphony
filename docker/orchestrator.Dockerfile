@@ -38,7 +38,9 @@ WORKDIR /app
 # Dependencies first (cached across source edits), exactly as locked.
 COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --no-dev --no-install-project
+# The wheel carries the Tern plugin (pyproject.toml `force-include`), so the build needs it.
 COPY src ./src
+COPY tern-plugin ./tern-plugin
 RUN uv sync --frozen --no-dev --no-editable
 COPY WORKFLOW.md /opt/symphony/WORKFLOW.default.md
 ENV SYMPHONY_DEFAULT_WORKFLOW=/opt/symphony/WORKFLOW.default.md

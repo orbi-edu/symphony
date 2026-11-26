@@ -12,7 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from symphony import __version__
-from symphony.cli import creds, local, render, setup
+from symphony.cli import client, creds, local, render, selfupdate, setup
 from symphony.cli.client import Api, ApiError, reason_problem, sid_path
 
 
@@ -803,20 +803,78 @@ def cmd_omp_sync(args) -> int:
 
 
 def cmd_tern_install(args) -> int:
+    if args.plugin_only:
+        result = {"plugin": local.install_tern_plugin(Path(args.plugin) if args.plugin else None)}
+        _emit(args, result, f"plugin: {_plugin_line(result['plugin'])}")
+        return 0
     result = local.tern_install(creds.current(), plugin_dir=args.plugin,
-                                install_plugin=not args.no_plugin)
+                                with_plugin=not args.no_plugin)
     verbs = {"added": "added", "updated": "updated", "unchanged": "already correct"}
-    plugin = (f"installed from {result['plugin']['source']}" if result["plugin"]
-              else "not installed (--no-plugin)")
     lines = [
         f"Tern configured ({result['settings']}, 0600):",
         f"  ACP agent `symphony`: {verbs[result['agent']]} ({' '.join(result['command'])})",
         f"  MCP server `symphony`: {verbs[result['mcp']]}",
-        f"  plugin: {plugin}",
+        f"  plugin: {_plugin_line(result['plugin']) if result['plugin'] else 'not installed (--no-plugin)'}",
         "",
         "Open sessions with `tern acp symphony --sessions` or `symphony chat ENG-123`.",
     ]
     _emit(args, result, "\n".join(lines))
+    return 0
+
+
+def _plugin_line(plugin: dict) -> str:
+    version = f" {plugin['version']}" if plugin.get("version") else ""
+    if plugin.get("status") == "unchanged":
+        return f"{version.strip() or 'this version'} already installed ({plugin['source']})"
+    return f"installed{version} from {plugin['source']}"
+
+
+# -- version and self-update (docs/cli.md) ------------------------------------------------
+
+def cmd_version(args) -> int:
+    doc = selfupdate.report()
+
+    def text() -> str:
+        source = f", {doc['source']}" if doc["source"] else ""
+        server = doc["server"] or f"unknown ({doc['server_error'] or 'no version reported'})"
+        lines = [f"symphony {doc['cli']} ({doc['install']}{source})",
+                 f"server   {server}",
+                 f"plugin   {doc['plugin_installed'] or 'not installed in Tern'}"]
+        if doc["command"]:
+            lines.append(f"The server runs a newer release. Update: {doc['command']}")
+        return "\n".join(lines)
+
+    _emit(args, doc, text)
+    return 0
+
+
+def cmd_update(args) -> int:
+    result = selfupdate.update(check=args.check)
+
+    def text() -> str:
+        status, cli, server = result["status"], result["cli"], result["server"]
+        if status == "current":
+            lines = [f"symphony {cli} is current (the server runs {server})."]
+        elif status == "available":
+            lines = [f"symphony {cli} is older than the server ({server}). "
+                     f"`symphony update` runs: {result['command']}"]
+        elif status == "updated":
+            lines = [f"symphony updated from {cli} to {server}."]
+        else:
+            lines = [f"symphony {cli} is older than the server ({server}). This "
+                     f"{result['install']} install does not update itself. Run:",
+                     f"  {result['command']}"]
+        plugin = result["plugin"]
+        if plugin and plugin.get("error"):
+            lines.append(f"The Tern plugin was not updated: {plugin['error'].get('message')}")
+        elif plugin and plugin.get("status") == "available":
+            lines.append(f"The Tern plugin {plugin['installed']} is older; `symphony update` "
+                         f"installs {plugin['version']}.")
+        elif plugin and plugin.get("status") == "installed":
+            lines.append(f"Tern plugin: {_plugin_line(plugin)}.")
+        return "\n".join(lines)
+
+    _emit(args, result, text)
     return 0
 
 
@@ -1136,8 +1194,15 @@ def build_parser() -> argparse.ArgumentParser:
     add("sync", cmd_omp_sync, "apply the team config to the `symphony` omp profile", omp)
     tern = sub.add_parser("tern", help="local Tern").add_subparsers(dest="sub", metavar="ACTION", required=True)
     p = add("install", cmd_tern_install, "set up the ACP agent, the MCP server and the plugin in Tern", tern)
-    p.add_argument("--plugin", help="plugin directory (default: <repo>/tern-plugin)")
-    p.add_argument("--no-plugin", action="store_true")
+    p.add_argument("--plugin", help="plugin directory (default: this CLI's plugin)")
+    which = p.add_mutually_exclusive_group()
+    which.add_argument("--no-plugin", action="store_true", help="only the ACP agent and the MCP server")
+    which.add_argument("--plugin-only", action="store_true",
+                       help="only the plugin (no sign-in needed)")
+
+    add("version", cmd_version, "this CLI's version, the plugin Tern has and the server's")
+    p = add("update", cmd_update, "update this CLI to the version the server runs, then the Tern plugin")
+    p.add_argument("--check", action="store_true", help="only say what would change")
 
     add("acp", cmd_acp, "ACP agent over stdio (Tern starts it)")
 
@@ -1220,8 +1285,13 @@ def main(argv: list[str] | None = None) -> int:
     if not getattr(args, "func", None):
         parser.print_help()
         return 2
+    client.seen.update(cred=None, version=None)
     try:
-        return args.func(args)
+        code = args.func(args)
+        # `acp` owns stdout for JSON-RPC; `version` and `update` do their own checks.
+        if args.func not in (cmd_acp, cmd_version, cmd_update):
+            selfupdate.after_command()
+        return code
     except ApiError as exc:
         if args.json or args.func is cmd_api:
             sys.stdout.write(json.dumps(exc.body, ensure_ascii=False) + "\n")

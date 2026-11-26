@@ -127,7 +127,8 @@ The `reason` has 8 to 1000 characters. After the API accepts a command, it calls
 #### Overview
 
 ```text
-{daemon: {alive, paused, heartbeat_at, setup},
+{version,
+ daemon: {alive, paused, heartbeat_at, setup},
  counts: {running, waiting_input, queued, retrying, in_review, merging, held, blocked_on_person},
  tokens_today, cost_today,
  merger: {reviewing, train, parked},   # sums of all repositories
@@ -139,6 +140,10 @@ The `reason` has 8 to 1000 characters. After the API accepts a command, it calls
 `rate_limits` has only observations of the last hour. A held ticket counts only under `held`.
 `daemon.setup` is `"ready"`, `"incomplete"` (the daemon idles: no usable WORKFLOW or tracker
 yet) or `null` (no report yet). It comes from the Redis record `daemon:setup`.
+
+`version` is the Symphony release the API runs (`version` in `pyproject.toml`). The CLI
+(`symphony update`) and the Tern plugin update themselves to it, so clients match what is
+deployed ([cli.md](cli.md#symphony-update-and-symphony-version)).
 
 #### Issues
 

@@ -1960,6 +1960,10 @@ function V.render(state: any): BlockView
 	if state.flash then
 		table.insert(dock, h.with(ui.text({ ui.span(state.flash.text, state.flash.tone) }), { key = "flash" }))
 	end
+	if state.update_notice then
+		-- The self-update's progress, result or command (update.luau).
+		table.insert(dock, h.with(ui.text({ ui.span(state.update_notice.text, state.update_notice.tone) }), { key = "update" }))
+	end
 	if state.offline and state.data.overview then
 		table.insert(dock, h.with(ui.text({ ui.span("No connection to Symphony. Showing the last data. " .. state.offline, "error") }), { key = "offline" }))
 	end

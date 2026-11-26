@@ -25,6 +25,7 @@ import redis
 from history_fixture import empty_history_doc, history_doc
 from real_stack import seed_merger
 
+from symphony import __version__
 from symphony.api.setup import GITHUB_EVENTS
 from symphony.merger.store import MergerStore, normalize_repo, registered_repos
 
@@ -691,6 +692,7 @@ class Fake:
         tokens = sum((x.get("tokens") or {}).get("total", 0) for x in s["sessions"])
         cost = sum((x.get("tokens") or {}).get("cost", 0) for x in s["sessions"])
         return {
+            "version": s.get("server_version", __version__),
             "daemon": {**s["daemon"], "heartbeat_at": ago(1)},
             "counts": counts, "tokens_today": tokens, "cost_today": round(cost, 2),
             "merger": self.merger_counts(),
@@ -1127,9 +1129,12 @@ def main() -> None:
     parser.add_argument("--state", choices=("team", "empty", "unconfigured", "unreachable-discord", "seiji"),
                         default="team")
     parser.add_argument("--redis-url", required=True, help="disposable Redis for the MergerStore")
+    parser.add_argument("--server-version", default=__version__,
+                        help="the `version` the overview reports (default: this checkout's)")
     args = parser.parse_args()
     state = {"team": team_state, "empty": empty_state, "unconfigured": unconfigured_state,
              "unreachable-discord": unreachable_discord_state, "seiji": seiji_state}[args.state]()
+    state["server_version"] = args.server_version
 
     client = redis.Redis.from_url(args.redis_url, decode_responses=True)
     if args.state in ("team", "seiji"):

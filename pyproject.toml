@@ -47,6 +47,11 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/symphony"]
 
+# Every install carries the Tern plugin of its own version: `symphony tern install` installs it
+# from there when it does not run from a checkout (symphony/cli/local.py).
+[tool.hatch.build.targets.wheel.force-include]
+"tern-plugin" = "symphony/tern_plugin"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src", "."]

@@ -108,15 +108,27 @@ local function encode(v: any): string
 	error("cannot encode a " .. t)
 end
 
--- `env` is what `getenv` reads; `process.run` records each spawn in `runs` and never calls back.
+-- `env` is what `getenv` reads; `process.run` records each spawn in `runs` with its callback,
+-- which it never calls (a test may). `files` is what `fs.read` reads, `store` the `kv`, and `docs`
+-- what `json.decode` returns for a text (the stub has no JSON parser).
 local env: { [string]: string } = {}
 local runs = {}
+local files: { [string]: string } = {}
+local store: { [string]: any } = {}
+local docs: { [string]: any } = {}
 
 return {
 	ui = ui,
 	json = { null = NULL, encode = encode, array = function(t)
 		return t or {}
+	end, decode = function(text)
+		local doc = docs[text]
+		if doc == nil then
+			error("not a known JSON document: " .. text)
+		end
+		return doc
 	end },
+	docs = docs,
 	now = function()
 		return os.clock() * 1000
 	end,
@@ -125,8 +137,18 @@ return {
 		return env[name]
 	end,
 	runs = runs,
-	process = { run = function(argv, opts)
-		table.insert(runs, { argv = argv, opts = opts })
+	process = { run = function(argv, opts, cb)
+		table.insert(runs, { argv = argv, opts = opts, cb = cb })
+	end },
+	files = files,
+	fs = { read = function(path)
+		return assert(files[path], "no such file: " .. path)
+	end },
+	store = store,
+	kv = { get = function(key)
+		return store[key]
+	end, set = function(key, value)
+		store[key] = value
 	end },
 	log = { warn = function() end, info = function() end },
 }

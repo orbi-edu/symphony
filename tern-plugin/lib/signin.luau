@@ -2,8 +2,9 @@
 -- Block `symphony.signin`: guided login. The person types (or pastes) the Symphony URL and an
 -- API token into two fields drawn by the block; Enter runs `symphony login --url U --token -`
 -- with the token on stdin, so it never reaches a process list, the block's args or `save()`.
--- After a login it offers `symphony tern install --no-plugin` (live chat agent + MCP): the plugin
--- that draws this block is already installed, and its source may not exist next to the CLI.
+-- After a login it offers `symphony tern install --no-plugin` (live chat agent + MCP): installing
+-- the plugin would reload the one that draws this block, mid-step. The Symphony panel brings the
+-- plugin to the CLI's version by itself (update.luau).
 
 local cli = require("./cli")
 local fmt = require("./fmt")

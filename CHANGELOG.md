@@ -7,18 +7,6 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Changed
-
-- The docs, the Tern screenshots and the videos follow what shipped since 0.2.0: the README
-  and `docs/features.md` list the newer features, Tern's Setup and Admin pages document Skills
-  (with a new Admin › Skills screenshot), the Merger page its label filter and approval
-  parking, and the videos that described the 0.2.0 behaviour are re-recorded. The Tern
-  screenshot harness waits for the current Repositories heading and steps past the Skills tab.
-
-### Fixed
-
-- Tern's Setup › Repositories card and the Merger view's heading say that one merger serves
-  every repository, each with its own train, instead of one merger per repository.
 ### Added
 
 - A team knowledge base for the chat assistant. `assistant.knowledge` lists repositories (or
@@ -32,6 +20,40 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and stopwords folded away, headings boosted) and returns line ranges and blob links. A base
   whose sync fails keeps its last index and is marked as possibly stale. The workflow API
   accepts the key ([assistant.md](docs/assistant.md#team-knowledge)).
+- The CLI and the Tern plugin update themselves to the release the server runs. The API
+  reports it as `version` in `GET /v1/overview`. `symphony update [--check]` installs that
+  release over a `uv tool` install (`uv tool install --force git+<repository>@v<version>`; the
+  old CLI keeps working when it fails), then the plugin of the new release. A clone is never
+  changed: the command prints what to run. After a command that talked to the API, at most every
+  6 hours, an older `uv tool` install updates in the background, with one line on stderr; not
+  in CI, with `SYMPHONY_AUTO_UPDATE=0`, in `symphony acp`, or for the plugin's own commands.
+- `symphony version [--json]`: the CLI's version, the plugin version Tern has, the server's
+  version, and how the CLI is installed.
+- The Symphony panel updates an older CLI (`symphony update`) and an older plugin (`symphony tern
+  install --plugin-only`) by itself, once per target, and shows the progress in its footer. For
+  a CLI that runs from a clone it shows the command instead.
+- Every install carries the Tern plugin of its own version (`symphony/tern_plugin` in the
+  package). `symphony tern install` installs it when the CLI does not run from a clone, and
+  installs nothing when Tern already has that version. `--plugin-only` installs only the
+  plugin, without a login.
+- Install a release with `uv tool install git+https://github.com/<owner>/symphony@v<version>`.
+
+### Changed
+
+- The docs, the Tern screenshots and the videos follow what shipped since 0.2.0: the README
+  and `docs/features.md` list the newer features, Tern's Setup and Admin pages document Skills
+  (with a new Admin › Skills screenshot), the Merger page its label filter and approval
+  parking, and the videos that described the 0.2.0 behaviour are re-recorded. The Tern
+  screenshot harness waits for the current Repositories heading and steps past the Skills tab.
+
+### Fixed
+
+- Tern's Setup › Repositories card and the Merger view's heading say that one merger serves
+  every repository, each with its own train, instead of one merger per repository.
+- A CLI that runs from a clone reports the clone's version. Before, an editable install kept the
+  version of the day it was installed.
+- The Tern plugin's `plugin.toml` carries the release version; it said `0.1.0` since the first
+  release. A release now sets both, and the release workflow checks both against the tag.
 
 ## [0.2.28] - 2026-11-26
 
