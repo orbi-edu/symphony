@@ -5,233 +5,233 @@ s1.1
 Symphony runs coding agents on tickets from Linear or GitHub Issues.
 
 s1.2
-00:00:04.699 --> 00:00:07.304
+00:00:04.699 --> 00:00:07.305
 Each ticket gets an agent in its own workspace.
 
 s1.3
-00:00:07.304 --> 00:00:11.217
+00:00:07.305 --> 00:00:11.215
 The agent opens a pull request. A merger reviews and merges it.
 
 s1.4
-00:00:11.217 --> 00:00:13.417
+00:00:11.215 --> 00:00:13.415
 People stay in control from Tern.
 
 s2.1
-00:00:13.767 --> 00:00:17.617
+00:00:13.765 --> 00:00:17.605
 Webhooks from the tracker and from GitHub reach the control API.
 
 s2.2
-00:00:17.617 --> 00:00:21.039
+00:00:17.605 --> 00:00:21.027
 The API wakes the daemon. The daemon starts a runner Job.
 
 s2.3
-00:00:21.039 --> 00:00:23.126
+00:00:21.027 --> 00:00:23.116
 The runner starts omp in a workspace pod.
 
 s2.4
-00:00:23.126 --> 00:00:26.664
+00:00:23.116 --> 00:00:26.649
 The pod can reach the gateway, but not the API or Redis.
 
 s2.5
-00:00:26.664 --> 00:00:28.447
+00:00:26.649 --> 00:00:28.431
 Redis holds all shared state.
 
 s2.6
-00:00:28.447 --> 00:00:32.403
+00:00:28.431 --> 00:00:32.387
 The merger merges pull requests. An assistant bot answers in chat.
 
 s2.7
-00:00:32.403 --> 00:00:36.110
+00:00:32.387 --> 00:00:36.094
 Run it on Kubernetes. One VM with k3s is enough.
 
 s2.8
-00:00:36.110 --> 00:00:40.603
+00:00:36.094 --> 00:00:40.586
 Local mode runs the API, the daemon and the runners in one process.
 
 s3.1
-00:00:40.953 --> 00:00:45.843
+00:00:40.936 --> 00:00:45.826
 A ticket needs the symphony label. On GitHub, the board's Status column is its state.
 
 s3.2
-00:00:45.843 --> 00:00:48.859
+00:00:45.826 --> 00:00:48.842
 The agent moves it to In Progress, then to In Review.
 
 s3.3
-00:00:48.859 --> 00:00:51.363
+00:00:48.842 --> 00:00:51.347
 The merger sends it to Rework, or to Merging.
 
 s3.4
-00:00:51.363 --> 00:00:53.564
+00:00:51.347 --> 00:00:53.549
 After the merge, the ticket goes to Done.
 
 s3.5
-00:00:53.564 --> 00:00:56.061
+00:00:53.549 --> 00:00:56.046
 At the turn limit, the same attempt continues.
 
 s3.6
-00:00:56.061 --> 00:00:58.452
+00:00:56.046 --> 00:00:58.428
 A failed attempt retries after a backoff.
 
 s3.7
-00:00:58.452 --> 00:01:00.897
+00:00:58.428 --> 00:01:00.868
 A person can hold the ticket at any time.
 
 s4.1
-00:01:01.247 --> 00:01:04.150
+00:01:01.218 --> 00:01:04.120
 A tracker webhook wakes the daemon in under 3 seconds.
 
 s4.2
-00:01:04.150 --> 00:01:07.639
+00:01:04.120 --> 00:01:07.609
 The daemon takes a dispatch token. Only that dispatch can write.
 
 s4.3
-00:01:07.639 --> 00:01:10.229
+00:01:07.609 --> 00:01:10.200
 The runner makes or reuses the workspace pod.
 
 s4.4
-00:01:10.229 --> 00:01:13.547
+00:01:10.200 --> 00:01:13.517
 It gets a GitHub token for the ticket's repositories only.
 
 s4.5
-00:01:13.547 --> 00:01:15.848
+00:01:13.517 --> 00:01:15.819
 omp works in turns and streams each event.
 
 s4.6
-00:01:15.848 --> 00:01:19.728
+00:01:15.819 --> 00:01:19.699
 It opens a ready pull request and moves the ticket to In Review.
 
 s5.1
-00:01:20.078 --> 00:01:22.388
+00:01:20.049 --> 00:01:22.358
 Tern shows the live sessions on the dashboard.
 
 s5.2
-00:01:22.388 --> 00:01:24.230
+00:01:22.358 --> 00:01:24.199
 Open any session as a live chat.
 
 s5.3
-00:01:24.230 --> 00:01:28.462
+00:01:24.199 --> 00:01:28.430
 Messages and interrupts reach the agent in under 300 milliseconds.
 
 s5.4
-00:01:28.462 --> 00:01:31.939
+00:01:28.430 --> 00:01:31.908
 The agent can ask you a question. It never waits without a limit.
 
 s5.5
-00:01:31.939 --> 00:01:34.800
+00:01:31.908 --> 00:01:34.770
 Take over a ticket to work on it with omp on your machine.
 
 s5.6
-00:01:34.800 --> 00:01:36.752
+00:01:34.770 --> 00:01:36.723
 Return it, and Symphony continues.
 
 s5.7
-00:01:36.752 --> 00:01:40.591
+00:01:36.723 --> 00:01:40.563
 In Slack or Discord, the assistant answers with cited code lines.
 
 s5.8
-00:01:40.591 --> 00:01:44.327
+00:01:40.563 --> 00:01:44.301
 Its plans become tickets only after a mapped person confirms.
 
 s5.9
-00:01:44.327 --> 00:01:47.509
+00:01:44.301 --> 00:01:47.483
 The CLI and MCP give the same controls.
 
 s6.1
-00:01:47.859 --> 00:01:50.095
-Each repository has its own merger.
+00:01:47.833 --> 00:01:51.580
+One merger serves every repository, and each has its own train.
 
 s6.2
-00:01:50.095 --> 00:01:52.873
+00:01:51.580 --> 00:01:54.359
 Reviewers check the pull request in parallel lanes.
 
 s6.3
-00:01:52.873 --> 00:01:55.669
+00:01:54.359 --> 00:01:57.156
 An oracle on a different model checks each finding.
 
 s6.4
-00:01:55.669 --> 00:01:58.248
+00:01:57.156 --> 00:01:59.735
 A finding blocks only when both models agree.
 
 s6.5
-00:01:58.248 --> 00:02:02.401
+00:01:59.735 --> 00:02:03.888
 A pull request goes back one time. After that, an arbiter decides.
 
 s6.6
-00:02:02.401 --> 00:02:04.883
+00:02:03.888 --> 00:02:06.370
 A re-review reads only the new changes.
 
 s6.7
-00:02:04.883 --> 00:02:07.260
+00:02:06.370 --> 00:02:08.747
 If CI still runs, the review waits for it.
 
 s6.8
-00:02:07.260 --> 00:02:10.306
+00:02:08.747 --> 00:02:11.792
 The train chains a batch and runs CI on the top only.
 
 s6.9
-00:02:10.306 --> 00:02:13.878
+00:02:11.792 --> 00:02:15.367
 A red batch splits in halves until the bad pull request is alone.
 
 s6.10
-00:02:13.878 --> 00:02:18.550
+00:02:15.367 --> 00:02:20.039
 Agents resolve conflicts. The train merges the exact head that CI tested.
 
 s6.11
-00:02:18.550 --> 00:02:21.573
+00:02:20.039 --> 00:02:23.062
 When main turns red, the merger opens a ticket.
 
 s7.1
-00:02:21.923 --> 00:02:25.459
+00:02:23.412 --> 00:02:26.949
 The team configuration gives each agent role its own model.
 
 s7.2
-00:02:25.459 --> 00:02:30.336
+00:02:26.949 --> 00:02:31.825
 Admins save provider API keys in Tern. The API never returns them.
 
 s7.3
-00:02:30.336 --> 00:02:34.969
+00:02:31.825 --> 00:02:36.458
 MCP servers give a role more tools. Their secret headers stay in the gateway.
 
 s7.4
-00:02:34.969 --> 00:02:42.664
+00:02:36.458 --> 00:02:44.159
 A workspace gets only its role's model key, a short-lived GitHub token, a telemetry token and an MCP session token.
 
 s7.5
-00:02:42.664 --> 00:02:48.308
+00:02:44.159 --> 00:02:49.802
 The Linear key, the App key, Slack or Discord tokens, and API tokens stay outside.
 
 s8.1
-00:02:48.658 --> 00:02:51.624
+00:02:50.152 --> 00:02:53.123
 Each vendor mock follows the published specification.
 
 s8.2
-00:02:51.624 --> 00:02:57.156
+00:02:53.123 --> 00:02:58.655
 With Linear and Slack, real agents passed all 8 scenarios in 278 seconds.
 
 s8.3
-00:02:57.156 --> 00:03:01.740
+00:02:58.655 --> 00:03:03.239
 With GitHub and Discord, 4 scenarios passed in 183 seconds.
 
 s8.4
-00:03:01.740 --> 00:03:06.262
+00:03:03.239 --> 00:03:07.761
 The assistant passed on Slack, on Discord, and with MCP through the gateway.
 
 s8.5
-00:03:06.262 --> 00:03:09.983
+00:03:07.761 --> 00:03:11.483
 A webhook started a session 44 milliseconds after the ticket.
 
 s9.1
-00:03:10.333 --> 00:03:12.300
+00:03:11.833 --> 00:03:13.799
 Install the API and Redis.
 
 s9.2
-00:03:12.300 --> 00:03:15.159
+00:03:13.799 --> 00:03:16.658
 Then run symphony setup, or open Setup in Tern.
 
 s9.3
-00:03:15.159 --> 00:03:17.113
+00:03:16.658 --> 00:03:18.613
 Each step is checked before it is saved.
 
 s9.4
-00:03:17.113 --> 00:03:18.982
+00:03:18.613 --> 00:03:20.481
 The docs have every step.

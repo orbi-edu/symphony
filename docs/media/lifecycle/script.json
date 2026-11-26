@@ -25,7 +25,8 @@
         { "text": "The ticket has the required labels, symphony in the default workflow." },
         { "text": "It is in an active state: Todo, In Progress or Rework. In Review and Merging are parked." },
         { "text": "A repo: label names the repository. Without one, the default repository applies.", "say": "A repo label names the repository. Without one, the default repository applies." },
-        { "text": "Its blockers are terminal, no person holds it, and a slot is free." }
+        { "text": "Its blockers are terminal, no person holds it, and a slot is free." },
+        { "text": "A ticket with Symphony's labels is told once whether it is queued. If not, a comment says what is missing." }
       ]
     },
     {
@@ -93,12 +94,16 @@
     {
       "id": "s8",
       "kicker": "When an attempt stops",
-      "title": "Continuations, retries and backoff",
+      "title": "Continuations, waits and retries",
       "cues": [
-        { "text": "An attempt ends as done, continuation, failed or fenced." },
+        { "text": "An attempt ends as done, continuation, blocked, failed or fenced." },
         { "text": "A continuation runs the same attempt again, after a cooldown if nothing changed." },
+        { "text": "Blocked means the agent waits for a person. It called symphony_blocked, or three continuation turns changed nothing.", "say": "Blocked means the agent waits for a person. It called symphony blocked, or three continuation turns changed nothing." },
         { "text": "A failure starts a new attempt after a backoff: 10, 20, 40 seconds, and up to 5 minutes.", "say": "A failure starts a new attempt after a backoff: ten, twenty, forty seconds, and up to five minutes." },
+        { "text": "After 8 failures in a row, the retries stop. The ticket is blocked, with a report of what failed and who acts.", "say": "After eight failures in a row, the retries stop. The ticket is blocked, with a report of what failed and who acts." },
+        { "text": "With triage on, the failure also opens an investigation ticket, where an agent looks for the cause." },
         { "text": "If the agent goes silent for two windows, the daemon stops it and says so on the ticket." },
+        { "text": "A runner Job that ended without an outcome is requeued at the next tick." },
         { "text": "The branch and the Workpad stay, so the next attempt continues the work." }
       ]
     },
@@ -107,9 +112,12 @@
       "kicker": "People in the loop",
       "title": "Questions and holds",
       "cues": [
-        { "text": "When the agent needs a decision that is not its own, it calls symphony_ask.", "say": "When the agent needs a decision that is not its own, it calls symphony ask." },
-        { "text": "Slack or Discord gets a message, and a person answers from Tern, the CLI or the API.", "say": "Slack or Discord gets a message, and a person answers from Tern, the C L I or the API." },
+        { "text": "When the agent needs a decision that is not its own, it calls symphony_ask, and names who decides.", "say": "When the agent needs a decision that is not its own, it calls symphony ask, and names who decides." },
+        { "text": "The daemon posts the question on the ticket, mentioning that person, and in Slack, with one button per option." },
+        { "text": "That person and the ticket's assignee also get it as a direct message." },
+        { "text": "An answer on the ticket, the pull request, Slack, Tern or the CLI counts. The first one wins.", "say": "An answer on the ticket, the pull request, Slack, Tern or the C L I counts. The first one wins." },
         { "text": "If nobody answers in 15 minutes, the agent goes on and records its assumption.", "say": "If nobody answers in fifteen minutes, the agent goes on and records its assumption." },
+        { "text": "The question stays open. After 2 hours, a reminder goes out once, and a late answer still reaches the work.", "say": "The question stays open. After two hours, a reminder goes out once, and a late answer still reaches the work." },
         { "text": "A person can also hold the ticket, with symphony takeover." },
         { "text": "The daemon stops the attempt and keeps the workspace. symphony release gives it back.", "say": "The daemon stops the attempt and keeps the workspace. Symphony release gives it back." }
       ]
@@ -122,8 +130,10 @@
         { "text": "An investigation asks for an answer, not a change. Its GitHub token can only read." },
         { "text": "The agent writes a report on the ticket, files the follow-up work, and moves it to Done." },
         { "text": "A large ticket becomes sub-issues, with the parent's labels and blocking relations." },
-        { "text": "Evidence, such as a test log, attaches to the ticket." },
-        { "text": "Two repo: labels make a multi-repository ticket, with one token and one pull request per repository.", "say": "Two repo labels make a multi-repository ticket, with one token and one pull request per repository." }
+        { "text": "Evidence, such as a test log, attaches to the ticket. On Linear, so does each run's session trace, redacted." },
+        { "text": "A later run can read the ticket's files back, through two host tools." },
+        { "text": "Two repo: labels make a multi-repository ticket, with one token and one pull request per repository.", "say": "Two repo labels make a multi-repository ticket, with one token and one pull request per repository." },
+        { "text": "When its repositories change, the ticket gets a new workspace." }
       ]
     },
     {
@@ -134,9 +144,11 @@
         { "text": "Each tick first reconciles every tracked ticket with the tracker." },
         { "text": "A ticket that left the active states is parked. It keeps its workspace and uses no slot." },
         { "text": "When the ticket is Done, the daemon starts a retrospective, then deletes the workspace." },
+        { "text": "A ticket moved to Canceled or Duplicate stops everything. Its questions close, and the merger closes its pull requests." },
         { "text": "The reflector reads the diff, the reviews, the CI and the Workpad, and proposes at most three lessons.", "say": "The reflector reads the diff, the reviews, the C I and the Workpad, and proposes at most three lessons." },
         { "text": "Code curates them into AGENTS.md, within a line budget. Unused lessons decay.", "say": "Code curates them into the agents file, within a line budget. Unused lessons decay." },
         { "text": "It opens a learnings pull request. A person must review and merge it." },
+        { "text": "In a public repository, the work never names the ticket, and no learnings pull request opens." },
         { "text": "A nightly sweep starts the retrospectives that were missed in the last seven days." }
       ]
     },

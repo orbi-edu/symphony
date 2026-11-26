@@ -226,16 +226,30 @@
     {
       "id": "s9",
       "kicker": "The assistant",
-      "title": "Read-only agents, and a person confirms",
+      "title": "Read-only agents, a fenced sandbox, a person confirms",
       "cues": [
         {
           "text": "The assistant answers in Slack and Discord. Every message is untrusted."
         },
         {
-          "text": "Its agents can only read and search. They have no bash, edit or write."
+          "text": "By default, its agents can only read and search. They have no bash, edit or write."
         },
         {
           "text": "They hold no chat, tracker or App credential, and read code with a read-only token."
+        },
+        {
+          "text": "The optional sandbox runs commands in a pod for each thread, with the workspace manifest and NetworkPolicy."
+        },
+        {
+          "text": "The pod mounts no ServiceAccount token. A read-only App token for one repository reaches it on standard input."
+        },
+        {
+          "text": "Only a person mapped in notify.users can make it run a command or share a file.",
+          "say": "Only a person mapped in notify dot users can make it run a command or share a file."
+        },
+        {
+          "text": "Share file refuses git directories, credential files, files that hold a secret, and files over 25 MB.",
+          "say": "Share file refuses git directories, credential files, files that hold a secret, and files over twenty-five megabytes."
         },
         {
           "text": "An agent can propose tickets, but a proposal creates nothing."

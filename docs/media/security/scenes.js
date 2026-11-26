@@ -1,6 +1,7 @@
 // The security video: ten scenes. Every time reference points at a narration cue (see ../lib/engine.js `at`).
-// The facts come from docs/security.md, docs/providers.md, docs/mcp.md, docs/assistant.md,
-// deploy/networkpolicy.yaml, deploy/rbac.yaml and src/symphony/ghapp.py (WORKSPACE, READ_ONLY).
+// The facts come from docs/security.md, docs/providers.md, docs/mcp.md, docs/assistant.md (Sandbox),
+// deploy/networkpolicy.yaml, deploy/rbac.yaml, src/symphony/ghapp.py (WORKSPACE, READ_ONLY) and
+// src/symphony/assistant/sandbox.py and share.py (the sandbox pod and share_file's refusals).
 
 const SHOT = (name) => `../../tern/${name}-dark.png`;
 
@@ -260,12 +261,32 @@ const SCENES = {
     D.wire(sec, sv, msg, proc, { in: "s9.3+0.2" });
     D.wire(sec, sv, proc, ag, { in: "s9.3+0.4", color: "#f5b452" });
     chip(sec, 620, 420, "s9.3+0.8", "the agent's env: no credentials", "amber");
-    chip(sec, 1260, 420, "s9.2+2.0", "no bash · no edit · no write", "red");
-    D.box(sec, { x: 1260, y: 500, w: 560, h: 110, cls: "store", in: "s9.3+2.6", kick: "Worktrees at origin/main", title: '<span class="mono" style="font-size:28px">ghapp.READ_ONLY</span>' });
-    card(sec, { x: 100, y: 490, w: 1040, h: 200, in: "s9.4" },
+    chip(sec, 1260, 420, "s9.2+2.0", "default: no bash, edit, write", "red");
+    D.box(sec, { x: 1260, y: 500, w: 560, h: 110, cls: "store", in: "s9.3+2.6", out: "s9.4", kick: "Worktrees at the default branch", title: '<span class="mono" style="font-size:28px">ghapp.READ_ONLY</span>' });
+
+    // The optional sandbox: a workspace pod per thread, and what share_file refuses.
+    const S = D.layer(sec, { in: "s9.4", out: "s9.8" });
+    const pod = rows(S.el, { x: 100, y: 490, w: 860, h: 390, in: "s9.4" }, "Sandbox pod · one per thread", [
+      `${mono("component: workspace", 26)} · the workspace NetworkPolicy`,
+      "no Redis, API, other pods or metadata endpoint",
+      mono("automountServiceAccountToken: false", 26),
+      `clone token on stdin: one repository, ${mono("contents: read", 26)}`,
+      "no chat, tracker, model or MCP credential",
+    ], ["s9.4+0.8", "s9.4+2.8", "s9.5+0.2", "s9.5+2.6", "s9.5+4.0"]);
+    pod.style.border = "3px dashed var(--amber)";
+    chip(S.el, 1010, 490, "s9.6", "mapped people only: sandbox_run · share_file", "blue");
+    rows(S.el, { x: 1010, y: 570, w: 810, h: 310, in: "s9.7" }, `${mono("share_file", 30)} refuses`, [
+      "✕ anything inside a .git directory",
+      `✕ ${mono(".git-credentials .netrc .npmrc .ssh .aws .kube", 24)}`,
+      "✕ a file whose bytes hold a credential",
+      "✕ a file over 25 MB",
+    ], "s9.7");
+
+    const P = D.layer(sec, { in: "s9.8" });
+    card(P.el, { x: 100, y: 490, w: 1040, h: 200, in: "s9.8" },
       '<h3>Proposed tickets: 2</h3><p>ENG · Add the CSV export &nbsp;·&nbsp; ENG · Fix the date filter</p><div class="chips" style="margin-top:10px"><span class="chip green">Create</span><span class="chip blue">Create and start</span><span class="chip">Dismiss</span></div>');
-    D.abs(sec, "div", { x: 100, y: 720, w: 1720, in: "s9.5" }, { html: '<span class="chip green">alice (in notify.users) clicks Create → tickets created</span> &nbsp;<span class="chip">audit: assistant.tickets_created · alice</span>' });
-    D.abs(sec, "div", { x: 100, y: 790, w: 1720, in: "s9.5+1.4" }, { html: '<span class="chip red">bob (not mapped) clicks → private refusal</span>' });
+    D.abs(P.el, "div", { x: 100, y: 720, w: 1720, in: "s9.9" }, { html: '<span class="chip green">alice (in notify.users) clicks Create → tickets created</span> &nbsp;<span class="chip">audit: assistant.tickets_created · alice</span>' });
+    D.abs(P.el, "div", { x: 100, y: 790, w: 1720, in: "s9.9+1.4" }, { html: '<span class="chip red">bob (not mapped) clicks → private refusal</span>' });
   },
 
   // 10. Local mode

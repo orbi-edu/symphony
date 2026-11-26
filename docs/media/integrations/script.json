@@ -23,7 +23,8 @@
         { "text": "With GitHub, they are the options of the board's Status field." },
         { "text": "Todo, In Progress and Rework are active. The implementer works there." },
         { "text": "In Review and Merging are parked. There the merger owns the ticket." },
-        { "text": "Done, Canceled and Duplicate are terminal. On GitHub, so is a closed issue." }
+        { "text": "Done, Canceled and Duplicate are terminal. On GitHub, so is a closed issue." },
+        { "text": "Canceled and Duplicate are abandon states. A ticket moved there closes its open questions and its pull requests." }
       ]
     },
     {
@@ -77,13 +78,16 @@
     {
       "id": "s7",
       "kicker": "Notices",
-      "title": "Seven events, on Slack and Discord",
+      "title": "Twelve events, on Slack and Discord",
       "cues": [
-        { "text": "Seven events go to the chat, from a question for a person to a red main." },
+        { "text": "Twelve events go to the chat, from a question for a person to a failure under investigation." },
         { "text": "Each configured channel gets each event." },
         { "text": "Slack takes a bot token and a channel, or an incoming webhook. Discord takes a bot, or a channel webhook." },
         { "text": "When both methods are set, the bot wins." },
-        { "text": "With no channel, nothing is sent. And a failed notice never fails a run." }
+        { "text": "With no channel, nothing is sent. And a failed notice never fails a run." },
+        { "text": "A notice about a ticket also reaches its assignee, as a direct message from the bot." },
+        { "text": "A question in Slack names the ticket and who decides, with one button per option. Its direct message has the same buttons." },
+        { "text": "notify.direct_messages turns direct messages off, and notify.direct_events picks the events.", "say": "notify direct messages turns direct messages off, and notify direct events picks the events." }
       ]
     },
     {
@@ -105,7 +109,7 @@
       "cues": [
         { "text": "The API takes webhooks on two routes: one for Linear, one for GitHub." },
         { "text": "Each checks an HMAC signature over the raw body.", "say": "Each checks an H MAC signature over the raw body." },
-        { "text": "Ticket events wake the daemon. Pull request and CI events wake the merger of that repository.", "say": "Ticket events wake the daemon. Pull request and C I events wake the merger of that repository." },
+        { "text": "Ticket events wake the daemon. Pull request and CI events wake the merger, for that repository.", "say": "Ticket events wake the daemon. Pull request and C I events wake the merger, for that repository." },
         { "text": "With the GitHub tracker, issue and board events wake the daemon too." },
         { "text": "A webhook is only a hint. The loop reads the source again, so a lost delivery costs only time." },
         { "text": "Setup makes both secrets and URLs, and shows the secrets only once.", "say": "Setup makes both secrets and U R Ls, and shows the secrets only once." }

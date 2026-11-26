@@ -32,8 +32,8 @@
           "say": "Tern never stores it. The plugin asks the C L I for the token and keeps it in memory only."
         },
         {
-          "text": "Install in Tern adds the live chat agent, the MCP server for your omp, and this panel.",
-          "say": "Install in Tern adds the live chat agent, the M C P server for your omp, and this panel."
+          "text": "Install in Tern adds the live chat agent and the MCP server for your omp. The plugin is already there.",
+          "say": "Install in Tern adds the live chat agent and the M C P server for your omp. The plugin is already there."
         },
         {
           "text": "When you are not signed in, the panel and the status line show the next step."
@@ -53,6 +53,9 @@
         },
         {
           "text": "It shows the day's numbers, and the providers' rate limits of the last hour."
+        },
+        {
+          "text": "Below, six tiles cover the last 30 days, up to the tickets blocked on a person, with the cost per day."
         },
         {
           "text": "Sessions that need input come first, with the agent's question and its options."
@@ -93,6 +96,9 @@
           "say": "It is a native Tern chat through symphony A C P, with the history and the live events."
         },
         {
+          "text": "Its first line names the pod, the repository and the branch. Nothing runs on this machine, and the tab opens in an empty folder."
+        },
+        {
           "text": "While the agent runs, your message steers the current turn."
         },
         {
@@ -128,13 +134,20 @@
     {
       "id": "s5",
       "kicker": "Merger",
-      "title": "One merger per repository",
+      "title": "One merger for every repository",
       "cues": [
         {
-          "text": "Each repository has its own merger. Control Alt M opens the Merger view."
+          "text": "One merger serves every repository with a merger policy. Control Alt M opens the Merger view."
         },
         {
-          "text": "Mergers lists them: whether each one runs, who holds its train lease, and its current batch."
+          "text": "Mergers lists each repository: whether it runs, who holds its train lease, and its current batch."
+        },
+        {
+          "text": "Takes says which pull requests it reviews: every one, or only those with its labels."
+        },
+        {
+          "text": "A parked review shows the pull request's title, and whether it waits for CI or for an approval.",
+          "say": "A parked review shows the pull request's title, and whether it waits for C I or for an approval."
         },
         {
           "text": "Each table has a Repository column, so pull requests of two repositories never mix."
@@ -146,26 +159,32 @@
           "text": "Q requeues the pull request, and L releases it."
         },
         {
-          "text": "Each action goes to the merger of that pull request's repository."
+          "text": "Each action carries the repository of that pull request."
         }
       ]
     },
     {
       "id": "s6",
-      "kicker": "Read-only views",
+      "kicker": "More views",
       "title": "Repositories, Infrastructure, Telemetry, Learnings, Audit",
       "cues": [
         {
-          "text": "Five views are read-only, for every role."
+          "text": "Five more views, for every role."
         },
         {
-          "text": "Repositories lists where Symphony dispatches tickets."
+          "text": "Repositories lists every repository Symphony reaches, with the values it detected."
+        },
+        {
+          "text": "An admin presses E to configure its runtime, base branch and components."
         },
         {
           "text": "Infrastructure shows the services and the cluster resources."
         },
         {
           "text": "Telemetry shows usage by model, by month and by session."
+        },
+        {
+          "text": "Its History charts ten views of the daily rollups. The bracket keys pick the period."
         },
         {
           "text": "Learnings shows the retrospectives and learning pull requests."
@@ -215,7 +234,7 @@
     {
       "id": "s8",
       "kicker": "Admin",
-      "title": "Tokens, MCP servers and team omp",
+      "title": "Tokens, MCP servers, skills and team omp",
       "cues": [
         {
           "text": "Tokens creates team API tokens, each with a name, a role and an expiry."
@@ -238,6 +257,9 @@
         },
         {
           "text": "Secret headers are write-only. The gateway adds them, so no secret reaches an agent."
+        },
+        {
+          "text": "Skills lists the central skill sources: each one's repository, scope, commit and number of skills."
         },
         {
           "text": "Team omp shows the workers' omp defaults. S applies them to your omp, in a separate profile."

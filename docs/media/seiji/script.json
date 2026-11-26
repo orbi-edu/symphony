@@ -86,6 +86,23 @@
     },
     {
       "id": "s7",
+      "kicker": "PR previews",
+      "title": "Try a pull request on a simulator",
+      "cues": [
+        { "text": "When CI uploads a preview build of a pull request, the merger finds it.", "say": "When C I uploads a preview build of a pull request, the merger finds it." },
+        { "text": "It posts Open in simulator in Slack. A reviewer clicks it, and gets a viewer link privately." },
+        { "text": "The merger also keeps one Preview comment on the pull request, with a link per build." },
+        { "text": "A link has no expiry. It opens that build while GitHub keeps the artifact." },
+        { "text": "Behind Cloudflare Access, any mapped person may open it. Without Access, only signed public links work." },
+        { "text": "The page shows the progress, then a Seiji control viewer." },
+        { "text": "Each build gets its own device, at most two per pull request." },
+        { "text": "A device goes back after 55 minutes, or when the pull request is merged or closed.", "say": "A device goes back after fifty-five minutes, or when the pull request is merged or closed." },
+        { "text": "If Seiji ended the lease first, the link starts the build again." },
+        { "text": "In chat, share_device posts a Control the device button. Only the asker gets the link.", "say": "In chat, share device posts a Control the device button. Only the asker gets the link." }
+      ]
+    },
+    {
+      "id": "s8",
       "kicker": "Proof and limits",
       "title": "What is tested, and what is not",
       "cues": [

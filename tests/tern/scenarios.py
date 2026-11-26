@@ -57,7 +57,7 @@ def views(out: Path) -> None:
         settle(h, "Queue and parked")
         h.key("down")
         h.shots("merger", out)
-        for view, needle in (("repositories", "Repositories Symphony dispatches"),
+        for view, needle in (("repositories", "Repositories Symphony reaches"),
                              ("infrastructure", "Daemon dispatching"),
                              ("learnings", "Retrospectives"), ("audit", "Everything people")):
             h.run(f"plugin.symphony.{view}")
@@ -132,12 +132,20 @@ def admin(out: Path) -> None:
         h.key("Enter")
         settle(h, "Token created: carol")
         h.shots("admin-tokens", out)
-        h.key("]")
+        check(h)
+    with Harness() as h:
+        # A fresh panel, so the token's flash (it belongs to Tokens) is not on the MCP screen.
+        h.run("plugin.symphony.admin")
+        settle(h, "Generation 3 rollout")
+        for _ in range(3):
+            h.key("]")
         settle(h, "MCP servers give agents more tools")
         h.key("Enter")  # Test the selected server
         settle(h, "✓ Reached")
-        h.wait_gone("Token carol created", "sf-dock")  # the token's flash belongs to Tokens
         h.shots("admin-mcp", out)
+        h.key("]")
+        settle(h, "acme/agent-skills")
+        h.shots("admin-skills", out)
         h.key("]")
         settle(h, "omp version")
         h.key("s")
@@ -153,7 +161,7 @@ def assistant(out: Path) -> None:
     with Harness() as h:
         h.run("plugin.symphony.admin")
         settle(h, "Generation 3 rollout")
-        for _ in range(5):
+        for _ in range(6):
             h.key("]")
         settle(h, "deploys on Fridays after the release review")
         h.shots("admin-assistant", out)

@@ -77,7 +77,7 @@
       "kicker": "The merger",
       "title": "AI review and a deterministic merge train",
       "cues": [
-        { "text": "Each repository has its own merger." },
+        { "text": "One merger serves every repository, and each has its own train." },
         { "text": "Reviewers check the pull request in parallel lanes." },
         { "text": "An oracle on a different model checks each finding." },
         { "text": "A finding blocks only when both models agree." },

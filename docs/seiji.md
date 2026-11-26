@@ -2,7 +2,7 @@
 
 [Seiji](https://github.com/wiljafor1/seiji) lends iOS simulators (and Android emulators) on a shared Mac to agents over MCP. It records evidence of each run: a video, the app log, screenshots and a manifest. This guide shows how Symphony's agents use Seiji, how the evidence reaches the ticket and the pull request, how Symphony releases devices, and how people watch a device.
 
-[Watch the 3-minute Seiji video](media/symphony-seiji.mp4) ([captions](media/symphony-seiji.vtt)).
+[Watch the 4-minute Seiji video](media/symphony-seiji.mp4) ([captions](media/symphony-seiji.vtt)).
 
 ## Contents
 

@@ -32,6 +32,7 @@ Use this map to find the document for your task.
 | [cli.md](cli.md) | Use the `symphony` command. |
 | [merger.md](merger.md) | Understand the AI review and the merge train, and write a `.symphony/merger.md` policy. |
 | [mcp.md](mcp.md) | Give agents extra tools with MCP servers, per agent role. |
+| [skills.md](skills.md) | Deliver skills from other repositories to every agent role. |
 | [seiji.md](seiji.md) | Let agents test apps on iOS simulators with Seiji, with evidence on the ticket. |
 | [assistant.md](assistant.md) | Ask, research and plan tickets with the Slack and Discord assistant. |
 

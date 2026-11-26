@@ -16,6 +16,11 @@ Each line gives one feature and how it is verified. "Mocked" means the
 | A6 | Reconciliation: a moved or cancelled ticket stops the attempt and cleans up | `test_reconcile.py`, Kind (terminal cleanup) |
 | A7 | Strict Liquid prompt from `WORKFLOW.md`, hot reload with last-known-good | `test_prompt.py`, `test_config.py` |
 | A8 | Hooks `after_create`, `before_run`, `after_run`, `before_remove` | `test_workspace.py` |
+| A9 | Retry budget (`agent.max_failed_attempts`): after that many failed attempts in a row the ticket is blocked with the last failure, who acts and the next step | `test_retry_budget.py` |
+| A10 | Intake verdicts (`tracker.intake_states`): a labeled ticket is told once per change whether it is queued and what is missing | `test_intake.py` |
+| A11 | Failure triage (`triage:`): one `investigation` ticket per failure signature, with the cluster's evidence | `test_triage.py` |
+| A12 | Canceled tickets (`tracker.abandon_states`): open questions close, the merger closes the ticket's pull requests and releases their preview devices | `test_abandon.py` |
+| A13 | Repository discovery (runtime, components, default branch, policy) and provisioning (labels, one policy pull request) | `test_discovery.py`, `test_provision.py` |
 
 ## K. Trackers
 
@@ -43,6 +48,7 @@ Each line gives one feature and how it is verified. "Mocked" means the
 | B13 | Docker in the workspace (privileged) and `runtime_class` (sysbox, kata) | `test_deploy.py` |
 | B14 | The tracker tool (`linear_graphql` or `github_graphql`) is a host tool; the tracker credential never enters the workspace | `test_hosttools.py`, `test_gateway.py`, `test_github_tracker.py` |
 | B15 | GitHub App tokens per attempt, scoped to the repositories of the ticket | `test_ghapp.py`, Mocked 1 and 2 |
+| B16 | Runner, reflector and busy workspace pods are not evicted to consolidate a node (`safe-to-evict: "false"`, `karpenter.sh/do-not-disrupt: "true"`); a released workspace drops both | `test_workspace_guards.py`, `test_deploy.py` |
 
 ## C. Review watch and learning
 
@@ -52,6 +58,7 @@ Each line gives one feature and how it is verified. "Mocked" means the
 | C18 | Reflector: retrospective → curation → learnings pull request (a person approves) | `test_reflector.py`, `test_curation.py`, Mocked 6 |
 | C19 | Nightly sweep | `test_deploy.py`, Kind |
 | C20 | Repository knowledge (`AGENTS.md`, `.agents/skills`) found by omp | `test_runner_real.py` (opt-in) |
+| C21 | Skill sources (`skills.sources`) staged for every agent role, global or per repository, resolved to a commit ([skills.md](skills.md)) | `test_skills.py` |
 
 ## D. Usage and telemetry
 
@@ -60,6 +67,7 @@ Each line gives one feature and how it is verified. "Mocked" means the
 | D21 | Token and cost ledger per attempt (local estimate) | `test_usage.py` |
 | D22 | Native OTLP telemetry with rollup and a report on the ticket | `test_telemetry*.py`, `test_gateway.py`, Kind |
 | D23 | Daemon heartbeat and status | `test_api_board.py`, `test_admin_read.py` |
+| D24 | Telemetry history: daily rollups, `GET /v1/telemetry/history`, `symphony telemetry backfill`, the Dashboard tiles and the Telemetry charts in Tern | `test_rollups.py`, `tests/tern/` |
 
 ## E. Models and providers
 
@@ -115,10 +123,18 @@ Each line gives one feature and how it is verified. "Mocked" means the
 | N18 | `agent_env` for agents (session token and gateway URLs only; literal secrets refused), in the workspace env file and in local mode | `test_mcp_companion.py` |
 | N19 | Session cleanup of held MCP resources (`cleanup`): recorded by the gateway, released at session end and by the gateway sweep; `mcp_leases` and `symphony.mcp_lease` | `test_seiji_gateway.py` |
 | N20 | Seiji preset (`--preset seiji`), the admin test's `/v1/me`, the attempt prompt paragraph, and the operator viewer link `symphony mcp viewer` ([seiji.md](seiji.md)) | `test_mcp_companion.py`, `test_seiji_gateway.py`, `tests/mocks/test_mock_seiji.py`, `test_seiji_real.py` (opt-in, `SYMPHONY_SEIJI_BIN`) |
-| N21 | Assistant soul in Git (`assistant.soul`, `.symphony/assistant.md`): read from the mirror's `origin/main` at each new session, at most 8 KiB, front matter `name`/`language`/`tone`, after the safety rules; the blob sha in the heartbeat ([assistant.md](assistant.md#soul)) | `test_assistant_soul.py`, Mocked 14 |
+| N21 | Assistant soul in Git (`assistant.soul`, `.symphony/assistant.md`): read from the mirror's default branch at each new session, at most 8 KiB, front matter `name`/`language`/`tone`, after the safety rules; the blob sha in the heartbeat ([assistant.md](assistant.md#soul)) | `test_assistant_soul.py`, Mocked 14 |
 | N22 | Per-person assistant memory for mapped people: `remember`/`forget`, "I'll remember: …", 50 items of 500 characters, renewable TTL, credentials refused ([assistant.md](assistant.md#memory)) | `test_assistant_memory.py`, Mocked 14 |
 | N23 | Team facts by PR: `propose_team_fact`, "Open PR" by a mapped person, the App's PR under `## Team facts`, idempotent, audited `assistant.team_fact_pr` ([assistant.md](assistant.md#team-facts)) | `test_assistant_facts.py`, Mocked 14 |
 | N24 | Assistant memory admin: `GET/DELETE /v1/assistant/memory…` (audited), `symphony assistant memory list\|show\|forget\|wipe`, Tern Admin › Assistant | `test_assistant_api.py`, `tests/tern/` |
+| N25 | Assistant sandbox (`assistant.sandbox`, `sandbox_run`): a workspace pod per thread, mapped people only | `test_assistant_sandbox.py` |
+| N26 | `share_file` posts a sandbox file in the thread, with the credential refusals, and attaches it to a ticket on a mapped click | `test_assistant_share.py` |
+| N27 | Ask mode proposes tickets, **Plan this** (`offer_plan`) hands the thread to the planner, sandbox files travel with a proposal | `test_assistant_proposals.py` |
+| N28 | Images attached in Slack and Discord reach the model | `test_assistant_images.py` |
+| N29 | The assistant opens any repository the GitHub App reaches (`open_repository`) | `test_assistant_repos.py` |
+| N30 | Devices from chat: `share_device`, and **Open in simulator** on a merger preview | `test_assistant_devices.py` |
+| N31 | Preview links on the pull request (`/v1/previews/open`): Cloudflare Access or signed links, progress page, one device per (repository, PR, sha) | `test_preview_links.py` |
+| N32 | Direct messages to the assignee (`notify.direct_messages`, `notify.direct_events`) | `test_notify.py` |
 
 ## O. Agent workflow
 
@@ -135,6 +151,8 @@ Each line gives one feature and how it is verified. "Mocked" means the
 | O9 | Session trace on the ticket: each run's omp session exported to HTML, secrets redacted, attached and linked in the session report (`agent.attach_trace`) | `test_sessiontrace.py` |
 | O10 | An agent blocked on a person waits instead of looping: `symphony_blocked`, or `agent.max_idle_continuations` idle continuation turns, end the run; the ticket stays `blocked_on_person` (one comment, kept across restarts) until an answer, a person's comment or a label/state change; Symphony's own comments never reopen it | `test_waiting_for_person.py`, `test_hosttools.py` |
 | O11 | A changed repository set gets a new workspace (pod, session volume, token, engine session); a change mid-run ends the run at the turn boundary | `test_repo_set_change.py` |
+| O12 | Work on a public repository never names its ticket (prompt section, `symphony/<ticket id>` branch, no learnings pull request) | `test_runner_live.py`, `test_discovery.py`, `test_reflector.py` |
+| O13 | An agent question outlives its run: posted on the ticket and in Slack, a reminder after `agent.ask_reminder_ms`, a late answer still reaches the work | `test_questions.py` |
 
 ## R. Merger review
 
@@ -155,6 +173,11 @@ Details are in [merger.md](merger.md#stage-1-review).
 | R11 | CI outside the review (parked) | `test_merger_review.py` |
 | R12 | Report on the pull request and labels; inline review comments on the diff lines | `test_merger_units.py`, `test_merger_inline.py`, Merger run |
 | R13 | A failed run writes no pull request comment | `test_merger_review.py` |
+| R14 | Label filter (`merger.label_filter`): only PRs with a Symphony label or `review-bypass` are reviewed | `test_merger_label_filter.py` |
+| R15 | Human approval gate (`require_approval`): parked "waiting for approval", `wait-approval` label, re-checked by the train | `test_merger_approval.py` |
+| R16 | Polish rounds (`polish_rounds`) for agent-authored PRs with nits | `test_merger_polish.py` |
+| R17 | One merger for every repository with a policy, each with its own train, lease and workers | `test_merger_fleet.py` |
+| R18 | A merger run removes its directory when it ends; old leftovers are swept at start | `test_merger_units.py` |
 
 ## T. Merge train
 

@@ -1,6 +1,7 @@
 // Trackers and notifications: ten scenes. Every time reference points at a narration cue (see ../lib/engine.js `at`).
 // The facts come from docs/configuration.md, docs/concepts.md, docs/internals.md §5 and §8, docs/api.md (Webhooks),
-// docs/merger.md (T8), src/symphony/trackers/{github,linear}.py and src/symphony/notify.py.
+// docs/merger.md (T8), CHANGELOG.md, src/symphony/trackers/{github,linear}.py, src/symphony/notify.py and
+// src/symphony/questions.py.
 
 const SHOT = (name) => `../../tern/${name}-dark.png`;
 
@@ -83,7 +84,12 @@ const SCENES = {
     tk(4, 370, "s2.4+0.8", 'app-6<br><span class="mono">train</span>');
     tk(5, 370, "s2.5+0.3", 'app-3');
     tk(1, 530, "s2.5+2.0", 'app-7<br><span style="color:var(--red)">closed</span>');
-    D.abs(sec, "div", { x: 100, y: 790, in: "s2.5+2.4" }, { html: '<span class="chip red">app-7 is closed</span> &nbsp;<span style="font-size:30px">→ terminal on GitHub, whatever its Status says</span>' });
+    D.abs(sec, "div", { x: 100, y: 790, in: "s2.5+2.4", out: "s2.6" }, { html: '<span class="chip red">app-7 is closed</span> &nbsp;<span style="font-size:30px">→ terminal on GitHub, whatever its Status says</span>' });
+    // The abandon states, inside the terminal group.
+    D.abs(sec, "div", { x: X(6) + 4, y: 294, w: 2 * 215 - 18, h: 392, in: "s2.6", kind: "fade", lift: 0 },
+      { style: { border: "4px dashed var(--red)", borderRadius: "14px" } });
+    tk(6, 370, "s2.6+0.6", 'app-5<br><span class="mono">PR closed</span>');
+    D.abs(sec, "div", { x: 100, y: 790, in: "s2.6+0.3" }, { html: '<span class="chip red">tracker.abandon_states</span> &nbsp;<span style="font-size:30px">→ its open questions close, and the merger closes its pull requests</span>' });
   },
 
   // 3. Identifiers, labels, repositories
@@ -196,21 +202,36 @@ const SCENES = {
 
   // 7. Notices
   s7(sec) {
-    const ev = card(sec, { x: 100, y: 210, w: 820, h: 530, in: "s7.1" }, "<h3>Events</h3>");
+    const ev = card(sec, { x: 100, y: 210, w: 820, h: 620, in: "s7.1" }, "<h3>Events</h3>");
     rows(ev, "s7.1", [
       "🙋 Agent is waiting for an answer", "↩️ PR returned to its author", "🚨 A maintainer is needed",
-      "✂️ Merge train batch was split", "🔴 main is broken", "🟢 main is green again", "❌ Run failed with an error",
-    ], 0.35, { lineHeight: "1.85" });
-    const box = (y, ref, name, a, b) => D.abs(sec, "div", { x: 1000, y, w: 820, h: 200, in: ref }, {
+      "👀 Waiting for human approval", "📱 Simulator preview ready", "✂️ Merge train batch was split",
+      "🔴 main is broken", "🟢 main is green again", "❌ Run failed with an error",
+      "🛑 Symphony stopped retrying a ticket", "📥 Ticket not queued", "🩺 Failure under investigation",
+    ], 0.3, { lineHeight: "1.5" });
+    const box = (y, ref, name, a, b) => D.abs(sec, "div", { x: 1000, y, w: 820, h: 200, in: ref, out: "s7.6" }, {
       class: "node", html: `<div class="t">${name}</div><div class="s mono" style="font-size:26px">bot: ${a}</div><div class="s mono" style="font-size:26px">or ${b}</div>`,
     });
     box(210, "s7.2", "Slack", "SLACK_BOT_TOKEN + SLACK_CHANNEL", "SLACK_WEBHOOK_URL");
     box(440, "s7.2+0.4", "Discord", "DISCORD_BOT_TOKEN + DISCORD_CHANNEL_ID", "DISCORD_WEBHOOK_URL");
     D.abs(sec, "div", { x: 1000, y: 215, w: 820, h: 425, in: "s7.3", kind: "fade", lift: 0, out: "s7.4+2" },
       { style: { border: "4px solid var(--amber)", borderRadius: "20px" } });
-    chip(sec, 1000, 670, "s7.4", "both set → the bot wins", "amber");
-    chip(sec, 1000, 740, "s7.5", "no channel → nothing sent", "");
-    chip(sec, 1000, 810, "s7.5+1.8", "post() never raises · 2 s per send", "green");
+    chip(sec, 1000, 670, "s7.4", "both set → the bot wins", "amber", "s7.6");
+    chip(sec, 1000, 740, "s7.5", "no channel → nothing sent", "", "s7.6");
+    chip(sec, 1000, 810, "s7.5+1.8", "post() never raises · 2 s per send", "green", "s7.6");
+
+    // Direct messages, and a question in Slack.
+    const msg = (y, ref, where, html) => D.abs(sec, "div", { x: 1000, y, w: 820, in: ref }, { class: "msg", html: `<div class="who">${where}</div>${html}` });
+    msg(210, "s7.6+0.3", "Slack · direct message to bob, the assignee",
+      "🛑 <b>Symphony stopped retrying a ticket</b><br>ENG-42 stopped after 8 failed attempts in a row.");
+    msg(410, "s7.7", "Slack · #symphony",
+      '<div style="border-top:2px solid #2b3648;margin:4px 0 10px"></div>🙋 <b>Agent is waiting for an answer</b> · <span style="color:var(--blue)">ENG-42 · Add the CSV export</span> · <span class="at">@alice</span>'
+      + '<div style="margin-top:8px">Which delimiter should the export use?</div>'
+      + '<div style="margin-top:10px"><span class="chip">1. Comma</span> <span class="chip">2. Semicolon</span></div>'
+      + '<div style="margin-top:8px;font-size:26px;color:var(--muted)">Answer with a button, in this thread, on the ticket or in a comment on the PR.</div>');
+    chip(sec, 1000, 784, "s7.7+4.4", "its DM: the same buttons", "violet");
+    chip(sec, 100, 850, "s7.8", "notify.direct_messages: true", "");
+    chip(sec, 1000, 850, "s7.8+2.2", "notify.direct_events: [retries_exhausted]", "");
   },
 
   // 8. Mentions

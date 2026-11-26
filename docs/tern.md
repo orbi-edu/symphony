@@ -1,8 +1,10 @@
 # Symphony in Tern
 
 The `symphony` plugin brings Symphony into Tern. It shows what the agents are doing, opens a live
-chat with each session, and covers the merger and team administration (models, providers, tokens
-and MCP servers). It is built and tested for Tern 0.8.3. The source is in
+chat with each session, and covers the merger and team administration (models, providers, tokens,
+MCP servers and skill sources). It is built and tested for Tern 0.8.3; `plugin.toml` declares no
+minimum Tern version. The screenshots on this page come from Tern 0.9.35, except **Offline** and
+the live chat on the real stack, which are from 0.8.3. The source is in
 [`tern-plugin/`](../tern-plugin).
 
 ## Install and sign in
@@ -90,6 +92,11 @@ and whether the assistant runs (its heartbeat and active threads).
 
 ![The Assistant step](tern/setup-assistant-light.png)
 ![The Assistant step, dark theme](tern/setup-assistant-dark.png)
+
+**Skills** is the last optional step. It adds a skill source ([skills.md](skills.md)): the
+source repository, and if you want the path (default `skills`), the ref, the roles and the target
+repositories. **Verify and save** runs `symphony setup skills --repo … [--path …] [--ref …]
+[--role …] [--for-repo …] --json`. The card lists the configured sources, each with **Remove**.
 
 | Verify | Verifying | Done |
 |---|---|---|
@@ -189,12 +196,16 @@ GitHub Projects), the attempt, the cost and the PR.
 
 ## Merger
 
-Each repository has its own merger. **Mergers** lists them: whether each one runs, who holds its
-train lease and its current batch. PRs in review, the merge train and the queue carry a
-**Repository** column, so PR #7 of one repository never mixes with PR #7 of another. On the
-selected PR: **Bypass** (`b`, asks for a reason of at least 8 characters that goes to the audit
-log), **Requeue** (`q`) and **Release** (`l`). Each action goes to the merger of that PR's
-repository.
+One merger serves every repository with a policy, and each repository keeps its own train,
+lease and review workers. **Mergers** has a row per repository: whether its merger runs, who
+holds its train lease, its current batch and what it **Takes**: "labeled: symphony,
+symphony-learnings" under the label filter, or "every PR" when the filter is off for it
+([merger.md](merger.md)). PRs in review, the merge train and the queue carry a **Repository**
+column, so PR #7 of one repository never mixes with PR #7 of another. **Queue and parked** shows
+each PR's title; a clean review parked for its gate says **waiting for CI**, or **waiting for
+approval** once CI passed under `require_approval: true`. On the selected PR: **Bypass** (`b`,
+asks for a reason of at least 8 characters that goes to the audit log), **Requeue** (`q`) and
+**Release** (`l`). Each action goes to the merger of that PR's repository.
 
 ![Merger](tern/merger-light.png)
 ![Merger, dark theme](tern/merger-dark.png)
@@ -276,6 +287,17 @@ lists each server's name, transport, roles, secret headers and state. `↑↓` s
 ![MCP servers, dark theme](tern/admin-mcp-dark.png)
 ![A Seiji server after Test](tern/admin-mcp-seiji-light.png)
 
+### Skills
+
+The skill sources of `skills.sources` ([skills.md](skills.md)), read from `GET /v1/admin/skills`:
+one row per source with its repository, path, scope (`global`, or `repos` when the source names
+repositories), the commit it resolved to and the number of skills, or the error that kept it from
+resolving. Add and remove sources in the Skills step of [Setup](#setup) or with `symphony setup
+skills`.
+
+![Skills](tern/admin-skills-light.png)
+![Skills, dark theme](tern/admin-skills-dark.png)
+
 ### Team omp
 
 The omp defaults that the workers use. **Apply to my omp** (`s`) runs `symphony omp sync`, which
@@ -288,8 +310,9 @@ writes a `symphony` profile separate from yours.
 What the chat assistant is and what it remembers ([assistant.md](assistant.md#soul)).
 
 - The head shows the **soul** in use: the file (`owner/name:path`) and its version, the blob sha
-  on `origin/main` from the assistant's heartbeat. "the built-in text: the file is missing" means
-  that the file is not there. "not reported" means that the assistant is not running.
+  on the repository's default branch, from the assistant's heartbeat. "the built-in text: the
+  file is missing" means that the file is not there. "not reported" means that the assistant is
+  not running.
 - The list shows each person with memory, the number of items and when it last changed. `↑↓`
   selects a person, and the card at the right lists their items: the text, `explicit` or
   `inferred`, when it was stored, and its id.
@@ -304,12 +327,15 @@ What the chat assistant is and what it remembers ([assistant.md](assistant.md#so
 
 ## Repositories, Infrastructure, Telemetry, Learnings and Audit
 
-Read-only views for every role: the repositories Symphony dispatches to (with their configured
-base branch, per-repository runtime override, and components — or "default" for auto-detected), the services and cluster
-resources, usage by model, by month and by session, the learnings from reflection, and the audit
-log (`m` loads more). When a source is stale or unavailable, the view says which one. An empty list
-caused by missing data never shows as "none".
+Views for every role: the repositories the GitHub App reaches (each with its base branch, runtime,
+components, merger policy and how tickets arrive, detected values marked "(detected)"), the
+services and cluster resources, usage by model, by month and by session, the learnings from
+reflection, and the audit log (`m` loads more). On Repositories an admin opens the selected
+repository with **Configure** (`e`) to set its runtime, base branch and components, prefilled
+with what discovery detected; an archived repository stays read-only. When a source is stale or
+unavailable, the view says which one. An empty list caused by missing data never shows as "none".
 
+![Repositories](tern/repositories-light.png)
 ![Infrastructure](tern/infrastructure-light.png)
 ![Telemetry](tern/telemetry-light.png)
 ![Telemetry, dark theme](tern/telemetry-dark.png)

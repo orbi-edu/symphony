@@ -9,8 +9,9 @@
       "title": "From a ready pull request to main",
       "cues": [
         { "text": "The merger takes a pull request from ready to merged." },
-        { "text": "One merger runs for each repository." },
-        { "text": "Only AI agents review. No person approves, and no outside review service takes part." },
+        { "text": "One merger serves every repository that has a merger policy on its default branch." },
+        { "text": "Each repository keeps its own train, lease and review workers." },
+        { "text": "No outside review service takes part. A person approves only if the policy asks." },
         { "text": "First, agents review the pull request and write one report." },
         { "text": "Then a deterministic merge train rebases, tests and merges it." },
         { "text": "Agents help in the train only when a rebase conflicts." }
@@ -22,15 +23,17 @@
       "title": "Webhooks, a safety poll, claims and a queue",
       "cues": [
         { "text": "GitHub webhooks wake the merger: pull requests, check runs, workflow runs and pushes to main." },
-        { "text": "Each webhook wakes only the merger of its repository." },
+        { "text": "Each webhook wakes only the loops of its repository." },
         { "text": "If a webhook is lost, a safety poll runs every 30 seconds.", "say": "If a webhook is lost, a safety poll runs every thirty seconds." },
-        { "text": "Two review workers run by default, beside one train loop and the main watch." },
+        { "text": "Each repository gets two review workers by default, beside its train loop and main watch." },
+        { "text": "Across all repositories, at most eight reviews run at once." },
         { "text": "A heartbeat tells the API that the merger is alive." },
         { "text": "A worker claims a pull request for two minutes, and renews the claim while it works." },
         { "text": "If a pod dies, its claims expire, and another worker takes the pull request." },
         { "text": "The queue takes bypassed pull requests first, then re-reviews, then first reviews." },
         { "text": "In each group, the oldest ready pull request goes first." },
-        { "text": "A pull request is eligible when it is open, ready, based on main, and its head has a check run." }
+        { "text": "A pull request is eligible when it is open, ready, based on the default branch, and its head has a check run." },
+        { "text": "By default, it also needs the symphony or symphony-learnings label, or review-bypass.", "say": "By default, it also needs the symphony or symphony learnings label, or review bypass." }
       ]
     },
     {
@@ -64,9 +67,13 @@
         { "text": "If CI still runs, the merger posts the report now and parks the review.", "say": "If C I still runs, the merger posts the report now and parks the review." },
         { "text": "When CI ends, it edits that same comment.", "say": "When C I ends, it edits that same comment." },
         { "text": "Green CI hands the pull request to the train, with the reviewed label.", "say": "Green C I hands the pull request to the train, with the reviewed label." },
+        { "text": "If the policy requires approval, a green pull request first waits for an approval on GitHub." },
+        { "text": "It gets the wait-approval label and shows as waiting for approval. Its reviewers get one notice.", "say": "It gets the wait approval label and shows as waiting for approval. Its reviewers get one notice." },
         { "text": "A confirmed block, a rule break or red CI sends it back to the author.", "say": "A confirmed block, a rule break or red C I sends it back to the author." },
         { "text": "The first time, it goes to draft with the review-requested label, and the ticket goes to Rework." },
+        { "text": "Its findings also land on their diff lines, in one review that only comments." },
         { "text": "This happens once. A later block leaves the pull request ready." },
+        { "text": "With polish rounds, an agent's pull request with fixable nits goes back too." },
         { "text": "A failed run writes no comment. Only the team channel hears about it." }
       ]
     },
@@ -85,7 +92,8 @@
         { "text": "A block that is confirmed again goes to an AI arbiter." },
         { "text": "If the arbiter upholds it, the needs-maintainer label goes on, and a person decides." },
         { "text": "If the arbiter dismisses every finding, the pull request goes on to the train." },
-        { "text": "If the author pushes during a review, the review stops. The next review covers only the push." }
+        { "text": "If the author pushes during a review, the review stops. The next review covers only the push." },
+        { "text": "If the ticket is canceled, the merger comments once and closes its pull requests." }
       ]
     },
     {
@@ -125,8 +133,9 @@
       "title": "Policy, actions and live sessions",
       "cues": [
         { "text": "Each repository sets its rules in a policy file." },
-        { "text": "The merger reads that file from main, so a pull request cannot weaken its own review." },
-        { "text": "The file sets the lanes, the checks, the merge method and the batch size." },
+        { "text": "The merger reads that file from the default branch, so a pull request cannot weaken its own review." },
+        { "text": "The file sets the lanes, the checks, the merge method, the batch size, an approval gate and polish rounds." },
+        { "text": "With a preview build in CI, the merger posts a button in Slack and keeps one Preview comment, with a link per build.", "say": "With a preview build in C I, the merger posts a button in Slack and keeps one Preview comment, with a link per build." },
         { "text": "Operators can bypass a review, requeue a pull request, or release a stuck claim." },
         { "text": "They use the CLI, the API, or the Merger view in Tern.", "say": "They use the C L I, the API, or the Merger view in Tern." },
         { "text": "Each merger agent is a live session that you can follow and interrupt." }
