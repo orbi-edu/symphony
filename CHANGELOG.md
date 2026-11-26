@@ -33,6 +33,11 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (out of memory, node lost), was stopped as stalled, or was interrupted by an operator. Its
   pod no longer pins a node until `kubernetes.sandbox.timeout_s`, including when the retries
   ran out and the ticket waits for a person.
+- Karpenter no longer evicts the single-replica control-plane pods to consolidate a node.
+  The merger, Redis, the daemon, the gateway and the assistant in `deploy/` carry
+  `karpenter.sh/do-not-disrupt: "true"`. Before, a consolidation restarted reviews and live
+  chats and stopped every component while Redis moved. The API stays movable: it keeps no
+  state and its clients reconnect. No PodDisruptionBudget, which would block node drains.
 
 ### Changed
 

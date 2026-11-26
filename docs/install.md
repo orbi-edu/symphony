@@ -62,6 +62,8 @@ Symphony marks runner pods, reflector pods and busy workspace pods with two anno
 - Karpenter's forceful disruption (node expiry, node repair, Spot interruption) still removes the pods.
 - A NodePool `terminationGracePeriod` limits how long a protected pod can block a drain. After it, Karpenter deletes the pod.
 
+The single-replica control-plane pods of `deploy/` also carry `karpenter.sh/do-not-disrupt: "true"`: the merger, Redis, the daemon, the gateway and the assistant. A consolidation would restart their work in flight (reviews, the merge train, live chats, the MCP calls of every attempt) or stop every component while Redis moves. The API does not carry it: it keeps no state, and its clients reconnect. `deploy/` ships no PodDisruptionBudget, because one that allows no disruption of a single replica blocks every drain. The same limits apply: drains and forceful disruption still move these pods. Karpenter does not consolidate the nodes that run them.
+
 ## 3. Minimal install on Kubernetes
 
 The minimal install needs two Secrets that you make yourself. Setup fills in everything else.

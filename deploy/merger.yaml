@@ -39,6 +39,11 @@ spec:
   template:
     metadata:
       labels: {app: symphony, component: merger, merger: default}
+      # One replica, and agent reviews and the merge train in flight: a consolidation that
+      # evicts it restarts them. Karpenter v1 (EKS Auto Mode included) reads only this
+      # annotation; forceful disruption (expiry, repair, Spot interruption) and `kubectl
+      # drain` still evict. No PodDisruptionBudget: one at 0 on one replica blocks every drain.
+      annotations: {karpenter.sh/do-not-disrupt: "true"}
     spec:
       serviceAccountName: symphony-merger
       securityContext:

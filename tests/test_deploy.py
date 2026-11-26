@@ -330,6 +330,24 @@ def test_a_released_workspace_drops_its_eviction_guards_and_a_reused_one_regains
     }
 
 
+# One replica each, and an eviction loses work in flight or stops every component. The API
+# is left movable: it keeps no state and its clients reconnect (deploy/api.yaml).
+NOT_DISRUPTED = {
+    "symphony-merger", "symphony-redis", "symphony-daemon", "symphony-gateway",
+    "symphony-assistant",
+}
+
+
+def test_single_replica_control_plane_pods_are_not_disrupted_by_karpenter():
+    deployments = _by_kind("Deployment")
+    for name in NOT_DISRUPTED:
+        assert deployments[name]["spec"]["replicas"] == 1
+        annotations = deployments[name]["spec"]["template"]["metadata"].get("annotations") or {}
+        assert annotations.get(kube.DO_NOT_DISRUPT_ANNOTATION) == "true", name
+    # A PodDisruptionBudget at 0 on one replica would block every node drain.
+    assert not _by_kind("PodDisruptionBudget")
+
+
 def test_runner_pod_sizes_come_from_the_workflow(monkeypatch):
     template = _spawned_runner(
         monkeypatch,
