@@ -32,28 +32,35 @@
     {
       "id": "s3",
       "kicker": "What it can use",
-      "title": "Citations and read-only tools",
+      "title": "Citations, tools and an optional sandbox",
       "cues": [
-        { "text": "The agents read your repositories at origin main." },
+        { "text": "The agents read your repositories at their default branch." },
+        { "text": "They can open any other repository the GitHub App reaches." },
         { "text": "A code citation names the repository, the path and the line." },
         { "text": "The assistant turns it into a link to GitHub, at the commit the agent read." },
-        { "text": "The agent can read, grep, glob and search the web." },
+        { "text": "The agent can read, grep, glob and search the web. It also sees the images attached in the chat." },
         { "text": "Symphony status shows tickets, sessions, the merger queue and recent failures." },
         { "text": "Tracker search looks up tickets in Linear or GitHub." },
-        { "text": "It cannot run commands, change files, push, comment, or move a ticket." },
+        { "text": "By default, it cannot run commands, change files, push, comment, or move a ticket." },
+        { "text": "With the optional sandbox, sandbox run executes commands in a pod for the thread, for mapped people only." },
+        { "text": "Share file posts a file from that pod in the thread." },
         { "text": "Its environment holds no chat, tracker or GitHub App credential." }
       ]
     },
     {
       "id": "s4",
       "kicker": "Proposals",
-      "title": "A plan waits for a person's click",
+      "title": "A proposal waits for a person's click",
       "cues": [
-        { "text": "The planner never creates tickets. It calls propose tickets." },
-        { "text": "The assistant posts the plan with three buttons." },
+        { "text": "The assistant and the planner never create tickets. They call propose tickets." },
+        { "text": "In Ask mode, a change it cannot make read-only becomes a proposal of one ticket or a few." },
+        { "text": "The assistant posts the proposal with three buttons." },
         { "text": "Create puts the tickets in Backlog, with a repository label." },
         { "text": "Create and start uses the first active state and the symphony label, so the daemon picks them up." },
         { "text": "Dismiss creates nothing." },
+        { "text": "With the sandbox, a ticket can carry files the agent drafted. Create attaches them." },
+        { "text": "For a goal that needs a plan, the assistant answers with a Plan this button." },
+        { "text": "A mapped click hands the thread to the planner." },
         { "text": "Only a person mapped in notify.users can click.", "say": "Only a person mapped in notify users can click." },
         { "text": "Anyone else gets a private answer, and nothing is created." },
         { "text": "The audit actor is that person's GitHub login." }

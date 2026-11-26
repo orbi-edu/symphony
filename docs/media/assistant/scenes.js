@@ -1,7 +1,8 @@
 // The assistant video: eight scenes. Every time reference points at a narration cue (see ../lib/engine.js `at`).
-// The facts come from docs/assistant.md, docs/install.md and src/symphony/assistant/; the bot texts are the
-// strings of engine.py (WORKING), confirm.py (render, ONLY_MAPPED, the created and busy answers) and the
-// citation format of engine.link_citations. The figures are docs/mocked-certification.md, scenarios 9 to 11.
+// The facts come from docs/assistant.md, docs/install.md and src/symphony/assistant/ (runtime.py, tools.py,
+// sandbox.py, share.py); the bot texts are the strings of engine.py (WORKING, PLAN_THIS, the handed-over note),
+// confirm.py (render with its attachments, ONLY_MAPPED, the created and busy answers) and the citation format
+// of engine.link_citations. The figures are docs/mocked-certification.md, scenarios 9 to 11.
 
 const SHOT = (name) => `../../tern/${name}-dark.png`;
 
@@ -27,6 +28,11 @@ const PROPOSAL =
   "<p style=\"margin-top:8px\">1. API rate limits (acme/app)<br>2. Token bucket per key (part of 'API rate limits')<br>" +
   "3. 429 with Retry-After (part of 'API rate limits'; after 'Token bucket per key')</p>" +
   '<p style="margin-top:8px">Nothing is created until someone mapped in notify.users clicks Create.</p>';
+// The same proposal after the agent drafted a patch in the thread's sandbox (`attachments` of ticket 2).
+const PROPOSAL_FILES = PROPOSAL.replace("(part of 'API rate limits')", "(part of 'API rate limits'; with bucket.patch)");
+// engine.PLAN_THIS: the button of an `offer_plan`.
+const PLAN_BTN = '<div class="btns"><span class="p">Plan this</span></div>';
+const PLAN_ANSWER = "This needs a plan: settle how the limits work, then three changes.";
 const LINEAR = (n) => `<span class="ln">https://linear.app/…/ENG-${n}</span>`;
 const CREATED =
   "<p>Created by alice:</p>" +
@@ -131,64 +137,79 @@ const SCENES = {
     chip(c, X[2], 838, "s2.6+0.6", "team role · own model", "violet");
   },
 
-  // 3. Citations and read-only tools
+  // 3. Citations, tools and the optional sandbox
   s3(sec) {
-    const A = D.layer(sec, { in: "s3", out: "s3.4" });
+    const A = D.layer(sec, { in: "s3", out: "s3.5" });
     const a = A.el;
-    D.term(a, { x: 100, y: 205, w: 1720, in: "s3.1" }, "The agent's working directory: read-only worktrees at origin/main", [
-      { c: "./acme/app    detached at 9f2c41e    (origin/main)", in: "s3.1+0.3" },
-      { c: "./acme/lib    detached at 4b7d0a3    (origin/main)", in: "s3.1+0.6" },
-      { c: "# fetched from a mirror at most every 5 minutes, with a read-only GitHub App token", in: "s3.1+1.4" },
+    D.term(a, { x: 100, y: 205, w: 1720, in: "s3.1" }, "The agent's working directory: read-only worktrees at the default branch", [
+      { c: "./acme/app    detached at 9f2c41e    (origin/HEAD: main)", in: "s3.1+0.3" },
+      { c: "./acme/lib    detached at 4b7d0a3    (origin/HEAD: trunk)", in: "s3.1+0.6" },
+      { c: "# or kubernetes.base_branches · fetched every 5 minutes, read-only App token", in: "s3.1+1.4" },
+      { c: "open_repository(\"acme/docs\")   # any repository the App reaches, kept a day", in: "s3.2+0.3" },
     ]);
     const before = 'The signature is checked in <code>acme/app:src/webhooks.py:42</code>, before the body is parsed.';
     const after = 'The signature is checked in <span class="ln" style="text-decoration:underline">acme/app:src/webhooks.py:42</span>, before the body is parsed.';
-    chat(a, { x: 100, y: 480, w: 1100, in: "s3.2" }, "slack", SLACK("eng-help"), [
-      [["s3.2", msg("bot", before), "s3.3"], ["s3.3+0.1", msg("bot", after)]],
+    chat(a, { x: 100, y: 490, w: 1100, in: "s3.3" }, "slack", SLACK("eng-help"), [
+      [["s3.3", msg("bot", before), "s3.4"], ["s3.4+0.1", msg("bot", after)]],
     ]);
-    D.abs(a, "div", { x: 100, y: 690, in: "s3.2+0.8" }, {
+    D.abs(a, "div", { x: 100, y: 700, in: "s3.3+0.8" }, {
       html: '<span class="chip blue">acme/app</span> <span style="font-size:28px;color:var(--muted)">repository</span> &nbsp; ' +
         '<span class="chip blue">src/webhooks.py</span> <span style="font-size:28px;color:var(--muted)">path</span> &nbsp; ' +
         '<span class="chip blue">42</span> <span style="font-size:28px;color:var(--muted)">line</span>',
     });
-    D.abs(a, "div", { x: 100, y: 765, in: "s3.3+0.3" }, { class: "mono", text: "https://github.com/acme/app/blob/9f2c41e…/src/webhooks.py#L42", style: { fontSize: "28px", color: "var(--green)" } });
-    D.abs(a, "div", { x: 100, y: 815, in: "s3.3+0.9" }, { text: "at the commit of the checkout, so the line matches what the agent read", style: { fontSize: "28px", color: "var(--muted)" } });
-    card(a, { x: 1260, y: 480, w: 560, h: 290, in: "s3.3+0.6" },
+    D.abs(a, "div", { x: 100, y: 775, in: "s3.4+0.3" }, { class: "mono", text: "https://github.com/acme/app/blob/9f2c41e…/src/webhooks.py#L42", style: { fontSize: "28px", color: "var(--green)" } });
+    D.abs(a, "div", { x: 100, y: 825, in: "s3.4+0.9" }, { text: "at the commit of the checkout, so the line matches what the agent read", style: { fontSize: "28px", color: "var(--muted)" } });
+    card(a, { x: 1260, y: 490, w: 560, h: 290, in: "s3.4+0.6" },
       '<h3>The link per transport</h3><p>Slack</p><p class="mono" style="color:var(--amber);margin-bottom:12px">&lt;url|acme/app:…:42&gt;</p><p>Discord</p><p class="mono" style="color:var(--amber)">[acme/app:…:42](&lt;url&gt;)</p>');
 
-    const B = D.layer(sec, { in: "s3.4" });
+    const B = D.layer(sec, { in: "s3.5" });
     const b = B.el;
-    card(b, { x: 100, y: 205, w: 820, h: 180, in: "s3.4" },
+    const built = card(b, { x: 100, y: 205, w: 820, h: 200, in: "s3.5" },
       '<h3>Built-in tools</h3><div class="chips"><span class="chip blue">read</span><span class="chip blue">grep</span><span class="chip blue">glob</span><span class="chip blue">web_search</span></div>');
-    const host = card(b, { x: 100, y: 415, w: 820, h: 465, in: "s3.5" }, "<h3>Host tools, run by Symphony</h3>");
-    [["symphony_status", "read-only: tickets, sessions, merger queue, failures", "s3.5+0.3"],
-      ["tracker_search", "read-only: Linear search or GitHub issue search", "s3.6"],
-      ["propose_tickets", "planner only: records a plan, creates nothing", "s3.6+1.4"]].forEach(([name, what, ref]) => {
-      const r = Engine.h("p", { html: `<span class="mono" style="color:var(--amber)">${name}</span><br>${what}`, style: { marginTop: "16px" } });
+    const img = Engine.h("p", { html: "and the chat's images: PNG, JPEG, GIF, WebP · ≤ 5 MiB · 4 a turn", style: { marginTop: "12px", fontSize: "26px" } });
+    built.append(img);
+    Engine.anim(img, { in: "s3.5+2.6", lift: 6 });
+    const host = card(b, { x: 100, y: 430, w: 820, h: 450, in: "s3.6" }, "<h3>Host tools, run by Symphony</h3>");
+    [["symphony_status", "read-only: tickets, sessions, merger, failures", "s3.6+0.3"],
+      ["tracker_search", "read-only: Linear or GitHub issue search", "s3.7"],
+      ["propose_tickets", "assistant and planner: creates nothing", "s3.7+1.4"],
+      ["offer_plan", "assistant: a Plan this button", "s3.7+2.0"]].forEach(([name, what, ref]) => {
+      const r = Engine.h("p", { html: `<span class="mono" style="color:var(--amber)">${name}</span><br>${what}`, style: { marginTop: "14px" } });
       host.append(r);
       Engine.anim(r, { in: ref, lift: 6 });
     });
-    const no = card(b, { x: 980, y: 205, w: 840, h: 300, in: "s3.7" }, "<h3>It cannot</h3>");
+    const no = card(b, { x: 980, y: 205, w: 840, h: 300, in: "s3.8", out: "s3.9" }, "<h3>By default, it cannot</h3>");
     ["run commands (no bash)", "change files (no edit, no write)", "push, comment, or move a ticket", "create a ticket without a person's click"].forEach((s, i) => {
       const r = Engine.h("p", { html: `<span class="cross">✕</span> ${s}`, style: { lineHeight: "1.6" } });
       no.append(r);
-      Engine.anim(r, { in: t("s3.7", 0.2 + i * 0.35), lift: 6 });
+      Engine.anim(r, { in: t("s3.8", 0.2 + i * 0.35), lift: 6 });
     });
-    card(b, { x: 980, y: 535, w: 840, h: 345, in: "s3.8" },
+    const sb = card(b, { x: 980, y: 205, w: 840, h: 300, in: "s3.9" }, '<h3>Optional: <span class="mono" style="font-size:30px">assistant.sandbox</span></h3>');
+    [['<span class="mono" style="color:var(--amber)">sandbox_run</span> · bash in a pod per thread', "s3.9+0.4"],
+      ["the repository cloned at its default branch", "s3.9+1.4"],
+      ["only for people mapped in notify.users", "s3.9+3.0"],
+      ['<span class="mono" style="color:var(--amber)">share_file</span> · a file of the pod in the thread', "s3.10"]].forEach(([s, ref]) => {
+      const r = Engine.h("p", { html: s, style: { lineHeight: "1.6" } });
+      sb.append(r);
+      Engine.anim(r, { in: ref, lift: 6 });
+    });
+    card(b, { x: 980, y: 535, w: 840, h: 345, in: "s3.11" },
       "<h3>The agent's environment</h3>" +
       '<div class="chips">' + ["SLACK_*", "DISCORD_*", "GITHUB_APP_*", "LINEAR_*", "SYMPHONY_API_*", "REDIS_URL"].map((v) =>
         `<span class="chip red" style="text-decoration:line-through">${v}</span>`).join("") + "</div>" +
       '<p style="margin-top:16px">Removed before omp starts. The model credential stays. The tools that reach the tracker run on the host.</p>');
   },
 
-  // 4. Proposals and who can confirm
+  // 4. Proposals, Plan this and who can confirm
   s4(sec) {
     chat(sec, { x: 100, y: 205, w: 1040, h: 600, in: "s4" }, "slack", SLACK("eng-plan"), [
       ["s4", msg("alice", ASK_PLAN)],
-      [["s4.1", msg("bot", WORKING), "s4.2"], ["s4.2+0.1", msg("bot", PROPOSAL + BUTTONS)]],
-      ["s4.7+0.4", ephemeral("Only people mapped in notify.users can create tickets.")],
+      [["s4.1", msg("bot", WORKING), "s4.3"], ["s4.3+0.1", msg("bot", PROPOSAL + BUTTONS), "s4.7"],
+        ["s4.7+0.1", msg("bot", PROPOSAL_FILES + BUTTONS)]],
+      ["s4.11+0.4", ephemeral("Only people mapped in notify.users can create tickets.")],
     ]);
-    const R0 = D.layer(sec, { in: "s4", out: "s4.2" });
-    D.term(R0.el, { x: 1180, y: 205, w: 640, in: "s4.1" }, "propose_tickets (planner only)", [
+    const R0 = D.layer(sec, { in: "s4", out: "s4.3" });
+    D.term(R0.el, { x: 1180, y: 205, w: 640, in: "s4.1" }, "propose_tickets", [
       { c: "summary", in: "s4.1+0.3" },
       { c: "tickets: [{key, title, body,", in: "s4.1+0.5" },
       { c: "  repo, labels, parent,", in: "s4.1+0.7" },
@@ -196,25 +217,46 @@ const SCENES = {
       { c: "# at most 15 tickets", in: "s4.1+1.4" },
       { c: "# title ≤ 120, body ≤ 20,000", in: "s4.1+1.8" },
     ]);
-    const R1 = D.layer(sec, { in: "s4.2", out: "s4.6" });
-    card(R1.el, { x: 1180, y: 205, w: 640, h: 200, in: "s4.3" },
+    chip(R0.el, 1180, 590, "s4.2", "Ask: one ticket or a few", "violet");
+    chip(R0.el, 1180, 660, "s4.2+1.6", "Plan: a plan, with a spec first", "violet");
+    const R1 = D.layer(sec, { in: "s4.3", out: "s4.7" });
+    card(R1.el, { x: 1180, y: 205, w: 640, h: 200, in: "s4.4" },
       '<span class="chip green">Create</span><p style="margin-top:12px">state <b>Backlog</b> (assistant.ticket_state), the ticket labels and <span class="mono">repo:acme/app</span></p>');
-    card(R1.el, { x: 1180, y: 430, w: 640, h: 230, in: "s4.4" },
+    card(R1.el, { x: 1180, y: 430, w: 640, h: 230, in: "s4.5" },
       '<span class="chip blue">Create and start</span><p style="margin-top:12px">the first active state, plus the required labels such as <span class="mono">symphony</span>: the daemon picks them up</p>');
-    card(R1.el, { x: 1180, y: 685, w: 640, h: 130, in: "s4.5" },
+    card(R1.el, { x: 1180, y: 685, w: 640, h: 130, in: "s4.6" },
       '<span class="chip red">Dismiss</span><p style="margin-top:12px">creates nothing</p>');
-    const R2 = D.layer(sec, { in: "s4.6" });
-    D.term(R2.el, { x: 1180, y: 205, w: 640, in: "s4.6" }, "WORKFLOW.md: GitHub login → chat ID", [
-      { c: "notify:", in: "s4.6+0.2" },
-      { c: "  users:", in: "s4.6+0.3" },
-      { c: "    slack:", in: "s4.6+0.4" },
-      { c: "      alice: U0ALICE", in: "s4.6+0.6" },
-      { c: "    discord:", in: "s4.6+0.8" },
-      { c: "      octocat: \"123456789…\"", in: "s4.6+1.0" },
+    const R2 = D.layer(sec, { in: "s4.7", out: "s4.8" });
+    D.term(R2.el, { x: 1180, y: 205, w: 640, in: "s4.7" }, "Files from the sandbox", [
+      { c: "attachments: [{path, title}]", in: "s4.7+0.3" },
+      { c: "  path: /tmp/bucket.patch", in: "s4.7+0.6" },
+      { c: "# read at the call", in: "s4.7+1.2" },
+      { c: "# ≤ 10 files, 50 MB a proposal", in: "s4.7+1.5" },
+      { c: "# ≤ 25 MB a file", in: "s4.7+1.8" },
+      { c: "# no .git, no credential file", in: "s4.7+2.1" },
+      { c: "# kept beside it, 7 days", in: "s4.7+2.4" },
     ]);
-    chip(R2.el, 1180, 640, "s4.7", "bob clicks Create: not mapped", "red");
-    chip(R2.el, 1180, 700, "s4.7+0.8", "no ticket", "");
-    chip(R2.el, 1180, 790, "s4.8", "audit actor: alice", "green");
+    chip(R2.el, 1180, 640, "s4.7+3.0", "Create: each file on its ticket", "green");
+    const R3 = D.layer(sec, { in: "s4.8", out: "s4.10" });
+    chat(R3.el, { x: 1180, y: 205, w: 640, in: "s4.8" }, "slack", SLACK("eng-help"), [
+      ["s4.8", msg("alice", `${MENTION} add rate limits to the public API of acme/app`)],
+      [["s4.8+1.4", msg("bot", PLAN_ANSWER + PLAN_BTN), "s4.9+0.6"], ["s4.9+0.7", msg("bot", PLAN_ANSWER)]],
+      ["s4.9+1.0", msg("bot", "alice handed this thread to the planner.")],
+      ["s4.9+1.5", msg("bot", WORKING)],
+    ]);
+    chip(R3.el, 1180, 790, "s4.9+0.2", "alice clicks Plan this → planner", "green");
+    const R4 = D.layer(sec, { in: "s4.10" });
+    D.term(R4.el, { x: 1180, y: 205, w: 640, in: "s4.10" }, "WORKFLOW.md: GitHub login → chat ID", [
+      { c: "notify:", in: "s4.10+0.2" },
+      { c: "  users:", in: "s4.10+0.3" },
+      { c: "    slack:", in: "s4.10+0.4" },
+      { c: "      alice: U0ALICE", in: "s4.10+0.6" },
+      { c: "    discord:", in: "s4.10+0.8" },
+      { c: "      octocat: \"123456789…\"", in: "s4.10+1.0" },
+    ]);
+    chip(R4.el, 1180, 640, "s4.11", "bob clicks Create: not mapped", "red");
+    chip(R4.el, 1180, 700, "s4.11+0.8", "no ticket", "");
+    chip(R4.el, 1180, 790, "s4.12", "audit actor: alice", "green");
   },
 
   // 5. Idempotency, audit and blocking relations

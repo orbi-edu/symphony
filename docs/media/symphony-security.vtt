@@ -5,217 +5,233 @@ s1.1
 Symphony treats agent code as untrusted.
 
 s1.2
-00:00:03.173 --> 00:00:07.225
+00:00:03.173 --> 00:00:07.222
 People run the CLI and the Tern plugin, with an API token.
 
 s1.3
-00:00:07.225 --> 00:00:10.363
+00:00:07.222 --> 00:00:10.361
 The edge is a Cloudflare Tunnel. It only dials out.
 
 s1.4
-00:00:10.363 --> 00:00:15.136
+00:00:10.361 --> 00:00:15.134
 The trusted side runs the API, the daemon, the runners, the merger and Redis.
 
 s1.5
-00:00:15.136 --> 00:00:19.120
+00:00:15.134 --> 00:00:19.118
 It keeps the integration credentials, and makes every write that needs them.
 
 s1.6
-00:00:19.120 --> 00:00:24.485
+00:00:19.118 --> 00:00:24.482
 The agent runs in a workspace pod, which gets only the credentials of its own attempt.
 
 s2.1
-00:00:24.835 --> 00:00:27.761
+00:00:24.832 --> 00:00:27.758
 Agents call model providers with API keys.
 
 s2.2
-00:00:27.761 --> 00:00:34.044
+00:00:27.758 --> 00:00:34.041
 Host cloud credentials, such as Amazon Bedrock, and custom endpoints with no authentication also work.
 
 s2.3
-00:00:34.044 --> 00:00:37.694
+00:00:34.041 --> 00:00:37.691
 Symphony has no provider OAuth and no subscription login.
 
 s2.4
-00:00:37.694 --> 00:00:40.665
+00:00:37.691 --> 00:00:40.662
 An admin stores a key from Tern or the CLI.
 
 s2.5
-00:00:40.665 --> 00:00:44.320
+00:00:40.662 --> 00:00:44.317
 Keys are write-only. Tern shows only whether a key is set.
 
 s3.1
-00:00:45.170 --> 00:00:47.571
+00:00:45.167 --> 00:00:47.568
 Each attempt runs in its own workspace pod.
 
 s3.2
-00:00:47.571 --> 00:00:53.708
+00:00:47.568 --> 00:00:53.703
 Its NetworkPolicy allows no ingress, and egress only to the gateway, DNS and public addresses.
 
 s3.3
-00:00:53.708 --> 00:00:59.014
+00:00:53.703 --> 00:00:59.009
 Private ranges are excluded: no API, Redis, node or metadata endpoint.
 
 s3.4
-00:00:59.014 --> 00:01:03.843
+00:00:59.009 --> 00:01:03.838
 The pod mounts no ServiceAccount token, so it cannot call the Kubernetes API.
 
 s3.5
-00:01:03.843 --> 00:01:07.199
+00:01:03.838 --> 00:01:07.194
 Nothing connects into the pod. The runner uses pods/exec.
 
 s3.6
-00:01:07.199 --> 00:01:12.006
+00:01:07.194 --> 00:01:12.001
 Public egress is open, so agent code can leak only its own credentials.
 
 s4.1
-00:01:12.356 --> 00:01:14.288
+00:01:12.351 --> 00:01:14.282
 A workspace gets four credentials.
 
 s4.2
-00:01:14.288 --> 00:01:19.008
+00:01:14.282 --> 00:01:19.002
 The model credential of its role, and a GitHub token for the ticket's repositories.
 
 s4.3
-00:01:19.008 --> 00:01:24.437
+00:01:19.002 --> 00:01:24.428
 The telemetry token of the dispatch, and one MCP token for each agent session.
 
 s4.4
-00:01:24.437 --> 00:01:26.622
+00:01:24.428 --> 00:01:26.613
 The runner writes them into private files.
 
 s4.5
-00:01:26.622 --> 00:01:32.573
+00:01:26.613 --> 00:01:32.565
 The pod never holds the Linear key, the App private key, chat tokens or API tokens.
 
 s5.1
-00:01:33.423 --> 00:01:37.422
+00:01:33.415 --> 00:01:37.414
 A normal ticket gets the GitHub scope ghapp.WORKSPACE.
 
 s5.2
-00:01:37.422 --> 00:01:41.627
+00:01:37.414 --> 00:01:41.616
 It writes code and pull requests, and reads checks, actions and statuses.
 
 s5.3
-00:01:41.627 --> 00:01:44.552
+00:01:41.616 --> 00:01:44.542
 It has no issues, projects or workflows permission.
 
 s5.4
-00:01:44.552 --> 00:01:50.624
+00:01:44.542 --> 00:01:50.609
 An investigation gets ghapp.READ_ONLY, so GitHub refuses its push or pull request.
 
 s5.5
-00:01:50.624 --> 00:01:54.914
+00:01:50.609 --> 00:01:54.899
 A token lives at most one hour. The runner renews it between turns.
 
 s6.1
-00:01:55.264 --> 00:01:58.583
+00:01:55.249 --> 00:01:58.569
 An admin picks MCP servers for each agent role.
 
 s6.2
-00:01:58.583 --> 00:02:02.234
+00:01:58.569 --> 00:02:02.220
 Their secret headers live in a Secret that only the gateway mounts.
 
 s6.3
-00:02:02.234 --> 00:02:06.234
+00:02:02.220 --> 00:02:06.220
 The gateway drops the agent's Authorization and adds the stored headers.
 
 s6.4
-00:02:06.234 --> 00:02:10.101
+00:02:06.220 --> 00:02:10.087
 Each agent session gets its own MCP token, for one role.
 
 s6.5
-00:02:10.101 --> 00:02:13.286
+00:02:10.087 --> 00:02:13.271
 Another role, or a disabled server, gets a 403.
 
 s6.6
-00:02:13.286 --> 00:02:15.666
+00:02:13.271 --> 00:02:15.652
 The token is revoked when the session ends.
 
 s6.7
-00:02:15.666 --> 00:02:21.370
+00:02:15.652 --> 00:02:21.384
 Symphony ignores repository MCP configs, and turns tools.xdev off.
 
 s7.1
-00:02:22.220 --> 00:02:26.853
+00:02:22.234 --> 00:02:26.867
 Setup checks each integration credential with its service, then saves it in a Secret.
 
 s7.2
-00:02:26.853 --> 00:02:30.621
+00:02:26.867 --> 00:02:30.636
 Only an admin can write them, and no response or log shows them.
 
 s7.3
-00:02:30.621 --> 00:02:36.483
+00:02:30.636 --> 00:02:36.493
 Each identity has a namespaced Role. The API only patches Secrets that exist before setup.
 
 s7.4
-00:02:36.483 --> 00:02:40.521
+00:02:36.493 --> 00:02:40.531
 Webhooks need a valid HMAC signature, and they only wake a loop.
 
 s7.5
-00:02:40.521 --> 00:02:44.914
+00:02:40.531 --> 00:02:44.925
 Fencing makes sure that only the current dispatch of a ticket can change state.
 
 s8.1
-00:02:45.264 --> 00:02:48.327
+00:02:45.275 --> 00:02:48.339
 API tokens have three roles. A viewer reads.
 
 s8.2
-00:02:48.327 --> 00:02:52.180
+00:02:48.339 --> 00:02:52.192
 An operator also acts: pause, hold, interrupt and bypass.
 
 s8.3
-00:02:52.180 --> 00:02:55.781
+00:02:52.192 --> 00:02:55.793
 An admin also manages tokens, provider keys and setup.
 
 s8.4
-00:02:55.781 --> 00:02:59.693
+00:02:55.793 --> 00:02:59.704
 The API stores only a SHA-256 hash of each secret.
 
 s8.5
-00:02:59.693 --> 00:03:05.256
+00:02:59.704 --> 00:03:05.267
 A token gets 600 requests a minute. Above a limit, the API answers 429.
 
 s8.6
-00:03:05.256 --> 00:03:09.293
+00:03:05.267 --> 00:03:09.305
 The API audits every command and every provider change.
 
 s9.1
-00:03:10.543 --> 00:03:14.835
+00:03:10.555 --> 00:03:14.850
 The assistant answers in Slack and Discord. Every message is untrusted.
 
 s9.2
-00:03:14.835 --> 00:03:19.038
-Its agents can only read and search. They have no bash, edit or write.
+00:03:14.850 --> 00:03:19.715
+By default, its agents can only read and search. They have no bash, edit or write.
 
 s9.3
-00:03:19.038 --> 00:03:24.113
+00:03:19.715 --> 00:03:24.790
 They hold no chat, tracker or App credential, and read code with a read-only token.
 
 s9.4
-00:03:24.113 --> 00:03:27.572
-An agent can propose tickets, but a proposal creates nothing.
+00:03:24.790 --> 00:03:31.097
+The optional sandbox runs commands in a pod for each thread, with the workspace manifest and NetworkPolicy.
 
 s9.5
-00:03:27.572 --> 00:03:31.394
+00:03:31.097 --> 00:03:37.992
+The pod mounts no ServiceAccount token. A read-only App token for one repository reaches it on standard input.
+
+s9.6
+00:03:37.992 --> 00:03:42.957
+Only a person mapped in notify.users can make it run a command or share a file.
+
+s9.7
+00:03:42.957 --> 00:03:50.111
+Share file refuses git directories, credential files, files that hold a secret, and files over 25 MB.
+
+s9.8
+00:03:50.111 --> 00:03:53.569
+An agent can propose tickets, but a proposal creates nothing.
+
+s9.9
+00:03:53.569 --> 00:03:57.400
 Only a person mapped in notify.users can confirm.
 
 s10.1
-00:03:32.844 --> 00:03:36.955
+00:03:58.850 --> 00:04:02.961
 Local mode has no container. The agent runs as the host user.
 
 s10.2
-00:03:36.955 --> 00:03:42.528
+00:04:02.961 --> 00:04:08.528
 Symphony strips its own secrets from the agent's environment. That is hygiene, not a boundary.
 
 s10.3
-00:03:42.528 --> 00:03:46.766
+00:04:08.528 --> 00:04:12.766
 With a GitHub App, each attempt still gets a scoped token in a private file.
 
 s10.4
-00:03:46.766 --> 00:03:50.853
+00:04:12.766 --> 00:04:16.853
 There is no NetworkPolicy, and your own MCP config still loads.
 
 s10.5
-00:03:50.853 --> 00:03:55.589
+00:04:16.853 --> 00:04:21.589
 Use a dedicated user, and run only tickets from people you trust with a shell.
