@@ -20,6 +20,16 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `symphony tern install` without `--plugin` on an install without a source checkout says to
   use `--plugin DIR` or `--no-plugin`, instead of naming a path inside the Python environment.
 
+### Changed
+
+- A generation stop that cannot be confirmed says why. The error keeps its prefix, `Agent
+  generation termination could not be confirmed`, and adds the cause: `timeout`, `exec
+  failed or interrupted` with the exec error or the first line of partial output,
+  `unreadable pid=<pid>` for a live process whose environment cannot be read,
+  or `survivors count=<n>` for processes that outlived the last `KILL` (`survivors
+  pgid=<pgid>` on the local stack). It names pids and counts only, never
+  environment content.
+
 ## [0.2.26] - 2026-11-26
 
 ### Changed

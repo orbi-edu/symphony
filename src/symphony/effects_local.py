@@ -60,6 +60,7 @@ from .sessions import SessionStore
 from .teamconfig import TeamConfig
 from .trackers.base import Issue
 from .workspace import (
+    STOP_UNCONFIRMED,
     HookFatal,
     LocalEngine,
     LocalSandbox,
@@ -472,7 +473,7 @@ class LocalEffects:
                 log.warning("engine_terminate_failed", call_id=record.call_id, error=str(exc))
         if pgid is not None:
             if not stop_process_group(pgid):
-                raise RuntimeError("Agent generation termination could not be confirmed")
+                raise RuntimeError(f"{STOP_UNCONFIRMED}: survivors pgid={pgid}")
             pidfile = self._pgid_file(record.sandbox_name)
             try:
                 if pidfile.read_text().strip() == str(pgid):

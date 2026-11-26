@@ -6,6 +6,7 @@ The server is disposable, has no TCP listener, and never uses a configured REDIS
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -373,6 +374,7 @@ def test_inflight_guard_cannot_reacquire_between_check_and_renewal(commands, mon
 )
 def test_unreadable_live_generation_cannot_confirm_termination():
     issue_id = uuid.uuid4().hex
+    secret = "dummy-secret-" + uuid.uuid4().hex
     process = subprocess.Popen(
         [
             sys.executable,
@@ -380,7 +382,8 @@ def test_unreadable_live_generation_cannot_confirm_termination():
             "import ctypes,time; assert ctypes.CDLL(None).prctl(4, 0, 0, 0, 0) == 0; "
             "print('ready', flush=True); time.sleep(30)",
         ],
-        env={**os.environ, "SYMPHONY_ISSUE_ID": issue_id, "SYMPHONY_DISPATCH_SEQ": "1"},
+        env={**os.environ, "SYMPHONY_ISSUE_ID": issue_id, "SYMPHONY_DISPATCH_SEQ": "1",
+             "API_KEY": secret},
         stdout=subprocess.PIPE,
         text=True,
     )
@@ -394,12 +397,45 @@ def test_unreadable_live_generation_cannot_confirm_termination():
 
     try:
         assert process.stdout.readline().strip() == "ready"
-        with pytest.raises(RuntimeError, match="termination could not be confirmed"):
+        with pytest.raises(RuntimeError, match="termination could not be confirmed") as raised:
             kill_agent_generation(LocalSandbox(), issue_id, 1)
+        # Another non-dumpable process of this user (ssh-agent, say) may be named first.
+        assert re.search(r": unreadable pid=\d+$", str(raised.value))
+        assert secret not in str(raised.value)
         assert process.poll() is None
     finally:
         process.terminate()
         process.wait(timeout=5)
+
+
+def test_failed_exec_names_the_cause_of_an_unconfirmed_stop():
+    class DeadPodSandbox:
+        def exec_script(self, script, timeout_s=None):
+            return -1, "exec failed: (404)\nReason: Not Found\n"
+
+    with pytest.raises(RuntimeError, match="termination could not be confirmed") as raised:
+        kill_agent_generation(DeadPodSandbox(), uuid.uuid4().hex, 1)
+    assert str(raised.value).endswith(": exec failed or interrupted: exec failed: (404)")
+
+
+@pytest.mark.parametrize(
+    ("code", "output", "cause"),
+    [
+        (4, "login banner\nsurvivors count=2\n", "survivors count=2"),
+        (124, "", "timeout"),
+        (137, "", "timeout"),
+        (2, "boom\n", "exit 2: boom"),
+        (2, "x" * 500, "exit 2: " + "x" * 200),
+    ],
+)
+def test_unconfirmed_stop_names_the_script_cause(code, output, cause):
+    class Sandbox:
+        def exec_script(self, script, timeout_s=None):
+            return code, output
+
+    with pytest.raises(RuntimeError) as raised:
+        kill_agent_generation(Sandbox(), uuid.uuid4().hex, 1)
+    assert str(raised.value) == f"Agent generation termination could not be confirmed: {cause}"
 
 
 def _every_process_environment_readable() -> bool:

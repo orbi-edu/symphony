@@ -20,8 +20,8 @@ import redis.asyncio
 from tests.omp_fakes import MAX_BLOCK_S, FakeEngine, aborted_run
 from tests.test_ghapp import _key
 
-from symphony import ghapp, state
-from symphony.effects_local import launch_engine, stop_process_group
+from symphony import effects_local, ghapp, state
+from symphony.effects_local import LocalEffects, _Attempt, launch_engine, stop_process_group
 from symphony.entry.local import LocalStack, ensure_admin_token
 from symphony.sessions import EV_INTENT_APPLIED, EV_STATE
 
@@ -310,3 +310,13 @@ def test_stopping_a_generation_reaches_the_tools_it_spawned(tmp_path):
     # launchd adopted (macOS).
     with pytest.raises((ProcessLookupError, PermissionError)):
         os.killpg(pgid, 0)
+
+
+def test_an_unconfirmed_local_stop_names_the_surviving_group(monkeypatch):
+    monkeypatch.setattr(effects_local, "stop_process_group", lambda pgid: False)
+    record = _Attempt(call_id="c1", issue_id="i1", seq=1, sandbox_name="s1", pgid=4242)
+    with pytest.raises(RuntimeError) as raised:
+        LocalEffects._stop_generation(SimpleNamespace(), record)
+    assert str(raised.value) == (
+        "Agent generation termination could not be confirmed: survivors pgid=4242"
+    )
