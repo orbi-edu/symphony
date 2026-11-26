@@ -1,7 +1,8 @@
 // The merger deep dive: nine scenes. Every time reference points at a narration cue (see ../lib/engine.js `at`).
 // The facts come from docs/merger.md, src/symphony/entry/merger.py and src/symphony/merger/; the comment texts
 // are the formats of merger/comments.py and merger/review.py (compose, ci_line, report_body, hand_off_text,
-// DRAFTED, preview_comment), merger/approval.py (the needs_approval notice) and merger/abandon.py.
+// DRAFTED, preview_comment), merger/inline.py (comment_body, suggestion), merger/approval.py (the
+// needs_approval notice) and merger/abandon.py.
 
 const SHOT = (name) => `../../tern/${name}-dark.png`;
 const SHA = "d45226c47"; // example head commits (9 characters, as the merger prints them)
@@ -197,15 +198,16 @@ const SCENES = {
     D.swap(sec, rp.x, 345, [
       ["s4.1+0.3", "in-audit", "violet"], ["s4.5", "(in-audit removed)", ""], ["s4.7", "reviewed", "green"],
       ["s4.9", "wait-approval", "amber"], ["s4.10", "in-audit", "violet"], ["s4.11", "draft · review-requested", "red"],
-      ["s4.14", "(in-audit removed)", ""],
+      ["s4.15", "(in-audit removed)", ""],
     ]);
     D.swap(sec, rp.x, 425, [["s4.7+0.8", "ticket ENG-8 → Merging", "violet"], ["s4.8+0.6", "ticket waits for the approval", "amber"],
-      ["s4.11+0.8", "ticket ENG-8 → Rework", "red"], ["s4.14", "ticket unchanged", ""]]);
+      ["s4.11+0.8", "ticket ENG-8 → Rework", "red"], ["s4.15", "ticket unchanged", ""]]);
     D.abs(sec, "div", { x: rp.x, y: 505, w: rp.w, h: 285, in: "s4.9+0.8", out: "s4.10" }, { class: "card", html: `<p style="font-size:28px"><b>needs_approval</b> to the reviewers<br>PR #4 ENG-8: add is_even<br>CI: passed on ${SHA}<br>Waiting on: an approval on GitHub from alice</p>` });
-    D.abs(sec, "div", { x: rp.x, y: 505, w: rp.w, h: 150, in: "s4.11+1.6", out: "s4.14" }, { class: "card", html: '<p style="font-size:28px"><b>Slack / Discord</b><br>PR #4 ENG-8: add is_even went back to the author</p>' });
-    D.abs(sec, "div", { x: rp.x, y: 670, w: rp.w, h: 130, in: "s4.12", out: "s4.13" }, { class: "card", html: '<p style="font-size:28px">Draft at most once. The baseline counts the rounds.</p>' });
-    D.abs(sec, "div", { x: rp.x, y: 670, w: rp.w, h: 215, in: "s4.13", out: "s4.14" }, { class: "card", html: '<p style="font-size:28px"><b class="mono">polish_rounds: 1</b><br>An agent\'s PR with fixable nits goes back to draft. Not counted as the rejection. Never a person\'s PR.</p>' });
-    D.abs(sec, "div", { x: rp.x, y: 505, w: rp.w, h: 220, in: "s4.14+0.4" }, { class: "card", html: '<p style="font-size:28px"><b>run_error</b> to the channel<br>The review of PR #4 ENG-8: add is_even failed (no PR comment posted): …</p>' });
+    D.abs(sec, "div", { x: rp.x, y: 505, w: rp.w, h: 150, in: "s4.11+1.6", out: "s4.15" }, { class: "card", html: '<p style="font-size:28px"><b>Slack / Discord</b><br>PR #4 ENG-8: add is_even went back to the author</p>' });
+    D.abs(sec, "div", { x: rp.x, y: 670, w: rp.w, h: 190, in: "s4.12+0.8", out: "s4.13" }, { class: "card", html: '<p style="font-size:28px">Event <b>COMMENT</b>: it never approves or requests changes. Off with <code>inline_comments: false</code>.</p>' });
+    D.abs(sec, "div", { x: rp.x, y: 670, w: rp.w, h: 130, in: "s4.13", out: "s4.14" }, { class: "card", html: '<p style="font-size:28px">Draft at most once. The baseline counts the rounds.</p>' });
+    D.abs(sec, "div", { x: rp.x, y: 670, w: rp.w, h: 215, in: "s4.14", out: "s4.15" }, { class: "card", html: '<p style="font-size:28px"><b class="mono">polish_rounds: 1</b><br>An agent\'s PR with fixable nits goes back to draft. Not counted as the rejection. Never a person\'s PR.</p>' });
+    D.abs(sec, "div", { x: rp.x, y: 505, w: rp.w, h: 220, in: "s4.15+0.4" }, { class: "card", html: '<p style="font-size:28px"><b>run_error</b> to the channel<br>The review of PR #4 ENG-8: add is_even failed (no PR comment posted): …</p>' });
 
     // The parked report, edited in place when CI ends.
     const head = '<b>symphony[bot]</b> commented';
@@ -230,15 +232,24 @@ const SCENES = {
     ]);
 
     // The rejection report.
-    comment(sec, { x: 100, y: 300, w: 1150, h: 585, in: "s4.10", out: "s4.14" }, head, [
+    comment(sec, { x: 100, y: 300, w: 1150, h: 585, in: "s4.10", out: "s4.15" }, head, [
       ["s4.10", "<b>Not merged</b>"],
       ["s4.10+0.3", `<p><b>symphony-merger</b> on <code>${SHA2}</code>: not merged: #4 A: confirmed, for its author to fix.</p>`],
       ["s4.10+0.8", "<h4>A: blocking (bug), confirmed</h4><p><b>Location:</b> app/parity.py:6</p><p><b>Claim:</b> <code>return n % 2 == 1</code> is an odd check, not an even check.</p>"],
       ["s4.10+1.6", '<p><b>Suggested fix:</b><br><span class="box"></span>Change app/parity.py:6 to <code>return n % 2 == 0</code>.</p>'],
       ["s4.11", "<p>This PR is back to draft with the <code>review-requested</code> label: address this comment, then mark it ready for review.</p>"],
     ]);
+    // The inline review (inline.py): the findings on their diff lines, over the report for one cue.
+    const diff = (n, sign, code, bg = "") => `<span style="${bg}"><span style="color:#6e7681">${n} ${sign}</span> ${code}</span>`;
+    comment(sec, { x: 100, y: 300, w: 1150, h: 585, in: "s4.12", out: "s4.13" }, '<b>symphony[bot]</b> reviewed · Comment', [
+      ["s4.12", `<p class="mono" style="font-size:26px;color:#9da7b3;margin-bottom:6px">app/parity.py</p><div class="mono" style="font-size:26px;white-space:pre;background:#161b22;padding:6px 12px;border-radius:8px;margin-bottom:12px">${diff(5, " ", "def is_even(n):")}\n${diff(6, "+", "    return n % 2 == 1", "background:rgba(61,220,151,0.15)")}</div>`],
+      ["s4.12+0.6", "<p><b>A</b> (blocking) — <code>return n % 2 == 1</code> is an odd check, not an even check.</p><p>Fix: Change app/parity.py:6 to <code>return n % 2 == 0</code>.</p>"],
+      ["s4.12+1.4", '<div style="border:2px solid #30363d;border-radius:8px;overflow:hidden;margin-bottom:12px"><div style="background:#161b22;padding:4px 14px;font-size:24px;color:#9da7b3">Suggested change</div><div class="mono" style="white-space:pre;font-size:26px;padding:6px 14px"><span style="color:#f85149">-     return n % 2 == 1</span>\n<span style="color:#3fb950">+     return n % 2 == 0</span></div></div>'],
+      ["s4.12+2.0", '<p><u style="color:var(--blue)">Review report</u> <span style="color:#9da7b3">· the report stays the record</span></p>'],
+      ["s4.12+2.6", '<p><span class="chip green">a re-review resolves the thread of a finding it drops</span></p>'],
+    ]);
     // A failed run: no comment at all.
-    D.abs(sec, "div", { x: 100, y: 300, w: 1150, h: 585, in: "s4.14" }, {
+    D.abs(sec, "div", { x: 100, y: 300, w: 1150, h: 585, in: "s4.15" }, {
       html: '<div style="display:flex;height:100%;align-items:center;justify-content:center;font-size:34px;color:var(--muted)">no comment on the PR, no draft</div>',
       style: { border: "3px dashed #3a475b", borderRadius: "14px" },
     });

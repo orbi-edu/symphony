@@ -71,6 +71,7 @@
         { "text": "It gets the wait-approval label and shows as waiting for approval. Its reviewers get one notice.", "say": "It gets the wait approval label and shows as waiting for approval. Its reviewers get one notice." },
         { "text": "A confirmed block, a rule break or red CI sends it back to the author.", "say": "A confirmed block, a rule break or red C I sends it back to the author." },
         { "text": "The first time, it goes to draft with the review-requested label, and the ticket goes to Rework." },
+        { "text": "Its findings also land on their diff lines, in one review that only comments." },
         { "text": "This happens once. A later block leaves the pull request ready." },
         { "text": "With polish rounds, an agent's pull request with fixable nits goes back too." },
         { "text": "A failed run writes no comment. Only the team channel hears about it." }

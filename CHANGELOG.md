@@ -15,6 +15,11 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   parking, and the videos that described the 0.2.0 behaviour are re-recorded. The Tern
   screenshot harness waits for the current Repositories heading and steps past the Skills tab.
 
+### Fixed
+
+- Tern's Setup › Repositories card and the Merger view's heading say that one merger serves
+  every repository, each with its own train, instead of one merger per repository.
+
 ## [0.2.28] - 2026-11-26
 
 ### Added
