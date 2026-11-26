@@ -161,7 +161,9 @@ rules:
     verbs: ["get", "create"]
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
-    verbs: ["create", "get"]
+    # delete: a workspace built for another repository set is discarded with its session
+    # volume before the new one is created (kube.discard_workspace).
+    verbs: ["create", "get", "delete"]
   - apiGroups: [""]
     resources: ["secrets"]
     resourceNames: ["symphony-providers", "model-provider", "symphony-mcp"]

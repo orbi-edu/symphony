@@ -9,6 +9,7 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+<<<<<<< HEAD
 - Builds an agent uploads to Seiji no longer fill the shared user's build quota
   (`maxBuildsPerUser`) for 72 hours. The gateway records the `app_id` of each upload a
   session makes through `$SEIJI_URL/v1/apps`, and the session's MCP cleanup (attempt, merger
@@ -29,6 +30,11 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   its head moves past it and no live device runs it; a Seiji without the route answers 404,
   which is ignored. A refused upload now shows Seiji's reason, and a full quota says that
   builds are reused and expire ([seiji.md](docs/seiji.md#pr-previews)).
+=======
+- A ticket whose workspace was built for another repository set crashed every attempt with
+  HTTP 403: the runner discards that workspace with its session volume, and its Role could
+  not delete PersistentVolumeClaims. The `symphony-runner` Role can now.
+>>>>>>> 2397369 (fix(rbac): the runner may delete a discarded workspace's session volume)
 
 ## [0.2.29] - 2026-11-26
 

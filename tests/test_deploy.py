@@ -450,6 +450,9 @@ def test_service_accounts_and_rbac():
     assert allows("symphony-daemon", "pods/exec", "create")
     assert allows("symphony-runner", "pods", "create")
     assert allows("symphony-runner", "persistentvolumeclaims", "create")
+    # kube.discard_workspace, run by the runner when the repository set changed
+    assert allows("symphony-runner", "pods", "delete")
+    assert allows("symphony-runner", "persistentvolumeclaims", "delete")
     assert allows("symphony-runner", "pods/exec", "create")
     runner_secrets = next(r for r in roles["symphony-runner"]["rules"] if "secrets" in r["resources"])
     assert set(runner_secrets["resourceNames"]) == {"symphony-providers", kube.SECRET_PROVIDER, "symphony-mcp"}
