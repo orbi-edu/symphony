@@ -8,18 +8,38 @@ local M = {}
 
 export type CliError = { code: string, message: string }
 
--- `SYMPHONY_BIN` names the CLI when the daemon's PATH lacks it (Tern started from the Dock).
-function M.bin(): string
+-- `SYMPHONY_BIN` names the CLI explicitly; it always wins.
+local function explicit(): string?
 	local b = tern.getenv("SYMPHONY_BIN")
-	if b and b ~= "" then
-		return b
+	return if b and b ~= "" then b else nil
+end
+
+-- The command a shell tab types (takeover): the person's shell has their own PATH.
+function M.bin(): string
+	return explicit() or "symphony"
+end
+
+-- A Tern started from the Dock has launchd's PATH, not the login shell's, so its daemon does not
+-- see where `uv tool install` and pipx put the CLI (`$UV_TOOL_BIN_DIR`, `$XDG_BIN_HOME` or
+-- `~/.local/bin`) or where Homebrew puts it. Without `SYMPHONY_BIN` the CLI is looked up on the
+-- daemon's PATH first, then in those directories. `$HOME` expands in the daemon's environment, and
+-- the CLI inherits the extended PATH (its `tern install` writes the absolute path it finds).
+local LOOKUP = 'export PATH="${PATH:+$PATH:}${UV_TOOL_BIN_DIR:+$UV_TOOL_BIN_DIR:}'
+	.. '${XDG_BIN_HOME:+$XDG_BIN_HOME:}$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin"; exec symphony "$@"'
+
+-- The argv that runs `symphony ARGS...`; the arguments stay separate words, never shell text.
+function M.argv(args: { string }): { string }
+	local b = explicit()
+	local argv = if b then { b } else { "/bin/sh", "-c", LOOKUP, "symphony" }
+	for _, a in args do
+		table.insert(argv, a)
 	end
-	return "symphony"
+	return argv
 end
 
 M.MISSING = {
 	code = "cli_missing",
-	message = "The symphony CLI is not on Tern's PATH. Install the Symphony CLI or set SYMPHONY_BIN to its path.",
+	message = "Tern could not find the symphony CLI on its PATH or in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin. Install the Symphony CLI, or set SYMPHONY_BIN to its full path and restart Tern.",
 }
 
 local function trim(s: string): string
@@ -51,10 +71,7 @@ function M.run(
 	opts: { stdin: string?, timeout_ms: number? }?,
 	cb: (data: any, err: CliError?, cx: any) -> ()
 ): (boolean, CliError?)
-	local argv = { M.bin() }
-	for _, a in args do
-		table.insert(argv, a)
-	end
+	local argv = M.argv(args)
 	local o = opts or {}
 	local ok, spawn_err = pcall(tern.process.run, argv, {
 		stdin = o.stdin,

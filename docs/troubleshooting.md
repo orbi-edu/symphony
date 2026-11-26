@@ -329,7 +329,8 @@ If a consumer does not report the new generation (`symphony admin config observe
 | The plugin shows **Sign in** or **disconnected** | Run `symphony whoami`. If it fails, run `symphony login` again. The plugin reads the token from `symphony token print`. |
 | `symphony tern install` says that `settings.json` is not valid JSON | Fix the file. The command changes nothing until the file is valid. |
 | `The tern command is not on PATH` | Install Tern, or use `--no-plugin`. |
-| `The Tern plugin was not found in ...` | Install the CLI from a clone with `uv tool install --editable .`, or use `--plugin <clone>/tern-plugin`. |
+| `This symphony install has no Tern plugin source` or `The Tern plugin was not found in ...` | If the plugin is already in Tern, use `--no-plugin`. Otherwise use `--plugin <clone>/tern-plugin`, or install the CLI from a clone with `uv tool install --editable .`. |
+| The plugin says Tern could not find the symphony CLI | Install the CLI with `uv tool install`, or set `SYMPHONY_BIN` to its full path and restart Tern. A running Tern does not see variables set after it started. |
 | `omp was not found` | Install `omp` through Tern, or set `SYMPHONY_OMP`. |
 | The MCP server answers 401 after a token change | Run `symphony tern install` again. The MCP entry holds the token. |
 | A message in the chat has no effect | The token role must be `operator`. The session must be running or waiting. |

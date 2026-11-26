@@ -417,9 +417,11 @@ a hint. The woken loop reads the source of truth again, so a lost wake costs onl
 - **One credential owner:** the CLI is the only owner of the credential. The ACP bridge
   (`symphony acp`), the Tern plugin (`symphony api … --json`) and `symphony omp sync` use the CLI.
 - **Tern:** `symphony tern install` adds the ACP agent
-  `{id: "symphony", name: "Symphony", command: "symphony", args: ["acp"]}` to
-  `agents.custom`, adds the MCP server, and installs the plugin. See [tern.md](tern.md) and
-  [cli.md](cli.md).
+  `{id: "symphony", name: "Symphony", command: <absolute path of symphony>, args: ["acp"]}` to
+  `agents.custom`, adds the MCP server, and installs the plugin. The plugin's sign-in runs it
+  with `--no-plugin`. Without `SYMPHONY_BIN`, the plugin runs the CLI through `/bin/sh`, on the
+  daemon's PATH followed by `$UV_TOOL_BIN_DIR`, `$XDG_BIN_HOME`, `~/.local/bin`,
+  `/opt/homebrew/bin` and `/usr/local/bin`. See [tern.md](tern.md) and [cli.md](cli.md).
 
 ## 8. Trackers and notifications
 

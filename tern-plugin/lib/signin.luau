@@ -2,7 +2,8 @@
 -- Block `symphony.signin`: guided login. The person types (or pastes) the Symphony URL and an
 -- API token into two fields drawn by the block; Enter runs `symphony login --url U --token -`
 -- with the token on stdin, so it never reaches a process list, the block's args or `save()`.
--- After a login it offers `symphony tern install` (live chat agent + MCP + this plugin).
+-- After a login it offers `symphony tern install --no-plugin` (live chat agent + MCP): the plugin
+-- that draws this block is already installed, and its source may not exist next to the CLI.
 
 local cli = require("./cli")
 local fmt = require("./fmt")
@@ -80,7 +81,7 @@ end
 
 local function install(state: any, cx: any)
 	state.step = "installing"
-	local ok, err = cli.run({ "tern", "install", "--json" }, { timeout_ms = 60000 }, function(data, e)
+	local ok, err = cli.run({ "tern", "install", "--no-plugin", "--json" }, { timeout_ms = 60000 }, function(data, e)
 		if e then
 			state.step = "done"
 			state.error = cli.describe(e)
@@ -148,7 +149,7 @@ local function view_done(state: any): { Node }
 		local lines: { { Spans } } = {
 			{ "Live chat", "ACP agent “Symphony” in the Tern settings" },
 			{ "MCP", "symphony server for your omp and other agents" },
-			{ "Plugin", "this panel, installed in Tern" },
+			{ "Plugin", "this panel, already installed in Tern" },
 		}
 		if type(got.settings) == "string" then
 			table.insert(lines, { "Settings", { ui.span(got.settings, "mono") } })
@@ -160,7 +161,7 @@ local function view_done(state: any): { Node }
 	else
 		local installing = state.step == "installing"
 		table.insert(parts, h.card("next", { ui.span("Next step: install in Tern", "strong") }, {
-			h.muted("Adds live chat with the agents (ACP agent), the Symphony MCP for your omp, and this plugin. It changes only the Symphony entries in your settings."),
+			h.muted("Adds live chat with the agents (ACP agent) and the Symphony MCP for your omp. It changes only the Symphony entries in your settings."),
 			h.row("acts", {
 				h.action_key(if installing then "Installing…" else "Install in Tern", "install", "enter", "accent"),
 				h.action("Not now, open dashboard", "open_panel", "muted"),

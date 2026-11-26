@@ -228,7 +228,8 @@ def test_onboarding_logs_in_with_token_on_stdin_then_installs():
         assert json.loads((h.stub_home / "creds.json").read_text())["token"] == TOKEN
         h.key("Enter")
         h.wait_text("All set in Tern")
-        assert ["tern", "install", "--json"] in h.calls()
+        # The panel already runs from the installed plugin: setup must not reinstall it.
+        assert ["tern", "install", "--no-plugin", "--json"] in h.calls()
         h.key("Enter")  # opens the panel, which re-reads the credential
         h.wait_text("Needs input")
         no_errors(h)
