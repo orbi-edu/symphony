@@ -250,10 +250,10 @@ const SCENES = {
     D.shot(sec, {
       ...VIEW, in: "s6", out: "s6.2",
       shots: [{ src: SHOT("merger"), in: "s6" }],
-      cam: [["s6", 1440, 960, FIT], ["s6.1+0.5", 900, 580, 0.95]],
-      spots: [{ x: 36, y: 398, w: 1750, h: 240, in: "s6.1+1.3" }],
+      cam: [["s6", 1440, 960, FIT], ["s6.1+0.5", 1440, 560, 0.6]],
+      spots: [{ x: 14, y: 398, w: 2846, h: 240, in: "s6.1+1.3" }],
     });
-    D.callout(sec, { x: 130, y: 805, in: "s6.1+1.3", out: "s6.2" }, "Mergers: one per repository, each with its own train lease");
+    D.callout(sec, { x: 130, y: 805, in: "s6.1+1.3", out: "s6.2" }, "One merger for every repository, each with its own train lease");
 
     // Review
     const R = D.layer(sec, { in: "s6.2", out: "s6.8" });
@@ -433,12 +433,12 @@ const SCENES = {
       shots: [{ src: SHOT("setup-verifying"), in: "s9.2", out: "s9.3" }, { src: SHOT("setup-ready"), in: "s9.3" }],
       cam: [["s9.2", 1440, 560, 0.59], ["s9.2+1.0", 1150, 520, 0.75], ["s9.3", 1440, 560, 0.59]],
       spots: [
-        { x: 25, y: 290, w: 1930, h: 318, in: "s9.2+0.6", out: "s9.3" },
+        { x: 25, y: 290, w: 1930, h: 400, in: "s9.2+0.6", out: "s9.3" },
         { x: 25, y: 245, w: 2825, h: 330, in: "s9.3+0.6" },
       ],
     });
     D.callout(sec, { x: 130, y: 810, in: "s9.2+1.2", out: "s9.3" }, "Setup in Tern: the same steps as <span class=\"mono\">symphony setup</span>");
-    D.callout(sec, { x: 130, y: 810, in: "s9.3+0.4", out: "s9.4" }, "Tracker, GitHub App, repositories, models, notifications, assistant, webhooks: each one verified");
+    D.callout(sec, { x: 130, y: 810, in: "s9.3+0.4", out: "s9.4" }, "Tracker, GitHub App, repositories, models, notifications, assistant, webhooks, skills: each one verified");
     D.abs(sec, "div", { x: 0, y: 300, w: 1920, in: "s9.4+0.1" }, { class: "big-word", text: "Symphony", style: { textAlign: "center", fontSize: "150px" } });
     D.abs(sec, "div", { x: 0, y: 520, w: 1920, in: "s9.4+0.4" }, { class: "mono", text: "docs/install.md · docs/architecture.md · docs/concepts.md", style: { textAlign: "center", fontSize: "36px", color: "var(--blue)" } });
     D.abs(sec, "div", { x: 0, y: 600, w: 1920, in: "s9.4+0.7" }, { text: "MIT License", style: { textAlign: "center", fontSize: "32px", color: "var(--muted)" } });

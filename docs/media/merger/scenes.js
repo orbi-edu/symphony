@@ -1,6 +1,7 @@
 // The merger deep dive: nine scenes. Every time reference points at a narration cue (see ../lib/engine.js `at`).
-// The facts come from docs/merger.md and src/symphony/merger/; the comment texts are the formats of
-// merger/comments.py and merger/review.py (compose, ci_line, report_body, hand_off_text, DRAFTED).
+// The facts come from docs/merger.md, src/symphony/entry/merger.py and src/symphony/merger/; the comment texts
+// are the formats of merger/comments.py and merger/review.py (compose, ci_line, report_body, hand_off_text,
+// DRAFTED, preview_comment), merger/approval.py (the needs_approval notice) and merger/abandon.py.
 
 const SHOT = (name) => `../../tern/${name}-dark.png`;
 const SHA = "d45226c47"; // example head commits (9 characters, as the merger prints them)
@@ -36,32 +37,37 @@ const SCENES = {
   s1(sec, sv) {
     const pr = D.box(sec, { x: 100, y: 300, w: 330, h: 230, cls: "ext", in: "s1.1", kick: "acme/app", title: "PR #42",
       sub: "ready for review", body: D.chips([["ready", "green"]]) });
-    D.abs(sec, "div", { x: 520, y: 250, w: 880, h: 370, in: "s1.1+0.4", kind: "fade", lift: 0 },
+    // One merger process; each repository is a lane inside it.
+    D.abs(sec, "div", { x: 500, y: 215, w: 920, h: 590, in: "s1.1+0.4", kind: "fade", lift: 0 },
       { style: { border: "3px solid var(--violet)", borderRadius: "24px", background: "rgba(177,151,252,0.05)" } });
-    D.abs(sec, "div", { x: 548, y: 266, in: "s1.1+0.4" }, { html: '<span style="font-size:34px;font-weight:700">Merger</span> <span class="mono" style="font-size:28px;color:var(--muted)">&nbsp;acme/app</span>' });
-    const review = D.box(sec, { x: 550, y: 325, w: 390, h: 215, cls: "merger", in: "s1.4", kick: "Stage 1", title: "Review",
+    D.abs(sec, "div", { x: 528, y: 226, in: "s1.1+0.4" }, { html: '<span style="font-size:34px;font-weight:700">Merger</span>' });
+    D.abs(sec, "div", { x: 525, y: 280, w: 870, h: 340, in: "s1.1+0.4", kind: "fade", lift: 0 },
+      { style: { border: "2px solid #3a475b", borderRadius: "16px" } });
+    D.abs(sec, "div", { x: 545, y: 288, in: "s1.1+0.4" }, { class: "mono", text: "acme/app", style: { fontSize: "28px", color: "var(--muted)" } });
+    const review = D.box(sec, { x: 545, y: 335, w: 400, h: 215, cls: "merger", in: "s1.5", kick: "Stage 1", title: "Review",
       sub: "agents review, one report", body: D.chips([["lanes", "violet"], ["oracle", "violet"]]) });
-    const train = D.box(sec, { x: 980, y: 325, w: 390, h: 215, cls: "trusted", in: "s1.5", kick: "Stage 2", title: "Merge train",
+    const train = D.box(sec, { x: 975, y: 335, w: 400, h: 215, cls: "trusted", in: "s1.6", kick: "Stage 2", title: "Merge train",
       sub: "rebase, test, merge", body: D.chips([["deterministic", "blue"]]) });
-    const main = D.box(sec, { x: 1490, y: 300, w: 330, h: 230, cls: "good", in: "s1.5+1.0", kick: "acme/app", title: "main",
+    const main = D.box(sec, { x: 1490, y: 300, w: 330, h: 230, cls: "good", in: "s1.6+1.0", kick: "acme/app", title: "main",
       body: D.chips([["merged", "green"]]) });
-    const w1 = D.wire(sec, sv, pr, review, { in: "s1.4" });
-    const w2 = D.wire(sec, sv, review, train, { in: "s1.5", color: "#b197fc" });
-    const w3 = D.wire(sec, sv, train, main, { in: "s1.5+0.8", color: "#3ddc97" });
-    D.packet(sv, w1, "s1.4+0.3", "s1.4+0.9", "#5cb8ff");
-    D.packet(sv, w2, "s1.5+0.2", "s1.5+0.7", "#b197fc");
-    D.packet(sv, w3, "s1.5+1.0", "s1.5+1.5", "#3ddc97");
-    chip(sec, 980, 556, "s1.6", "agents only on a conflict", "amber");
+    const w1 = D.wire(sec, sv, pr, review, { in: "s1.5" });
+    const w2 = D.wire(sec, sv, review, train, { in: "s1.6", color: "#b197fc" });
+    const w3 = D.wire(sec, sv, train, main, { in: "s1.6+0.8", color: "#3ddc97" });
+    D.packet(sv, w1, "s1.5+0.3", "s1.5+0.9", "#5cb8ff");
+    D.packet(sv, w2, "s1.6+0.2", "s1.6+0.7", "#b197fc");
+    D.packet(sv, w3, "s1.6+1.0", "s1.6+1.5", "#3ddc97");
+    chip(sec, 975, 562, "s1.7", "agents only on a conflict", "amber");
     ["acme/lib", "acme/web"].forEach((r, i) =>
-      D.box(sec, { x: 520 + i * 450, y: 660, w: 430, h: 90, cls: "merger", in: `s1.2+${(0.3 + i * 0.3).toFixed(1)}`,
-        title: `<span style="font-size:30px">Merger</span> <span class="mono" style="font-size:28px;color:var(--muted)">${r}</span>` }));
-    D.abs(sec, "div", { x: 100, y: 690, in: "s1.2+0.2" }, { text: "one per repository", style: { fontSize: "30px", color: "var(--muted)" } });
-    D.abs(sec, "div", { x: 100, y: 800, in: "s1.3" }, { html: '<span class="chip violet">AI agents only</span> &nbsp; <span class="chip">no human approval</span> &nbsp; <span class="chip">no outside review service</span>' });
+      D.box(sec, { x: 525 + i * 445, y: 640, w: 425, h: 90, cls: "merger", in: `s1.2+${(0.3 + i * 0.3).toFixed(1)}`,
+        title: `<span class="mono" style="font-size:30px">${r}</span>` }));
+    D.abs(sec, "div", { x: 100, y: 640, w: 370, in: "s1.2+0.2" }, { text: "one merger, every repository with a policy", style: { fontSize: "30px", color: "var(--muted)" } });
+    chip(sec, 525, 745, "s1.3", "each: own train, lease and review workers", "violet");
+    D.abs(sec, "div", { x: 100, y: 835, in: "s1.4" }, { html: '<span class="chip violet">AI agents review</span> &nbsp; <span class="chip">no outside review service</span> &nbsp; <span class="chip amber">human approval: optional</span>' });
   },
 
   // 2. How it watches
   s2(sec) {
-    const A = D.layer(sec, { in: "s2", out: "s2.8" });
+    const A = D.layer(sec, { in: "s2", out: "s2.9" });
     const p = A.el;
     const sv = A.sv;
     const events = ["pull_request", "check_run", "check_suite", "workflow_run", "push to main"];
@@ -75,21 +81,22 @@ const SCENES = {
     const coord = D.box(p, { x: 850, y: 360, w: 330, h: 190, cls: "trusted", in: "s2.3", kick: "Coordinator", title: '<span class="mono" style="font-size:30px">wake.wait</span>', sub: "returns on a wake, or after 30 s" });
     D.wire(p, sv, wake, coord, { in: "s2.3", color: "#5cb8ff" });
     const loops = ["review worker 1", "review worker 2", "train loop", "main watch"].map((n, i) =>
-      D.box(p, { x: 1290, y: 230 + i * 110, w: 330, h: 90, cls: i < 2 ? "merger center" : "trusted center", in: `s2.4+${(0.2 + i * 0.25).toFixed(2)}`, title: `<span style="font-size:30px">${n}</span>` }));
+      D.box(p, { x: 1290, y: 220 + i * 100, w: 330, h: 90, cls: i < 2 ? "merger center" : "trusted center", in: `s2.4+${(0.2 + i * 0.25).toFixed(2)}`, title: `<span style="font-size:30px">${n}</span>` }));
     loops.forEach((l, i) => {
       const w = D.wire(p, sv, coord, l, { in: `s2.4+${(0.1 + i * 0.25).toFixed(2)}`, color: "#b197fc" });
       D.packet(sv, w, t("s2.4", 1.4), t("s2.4", 2.0), "#b197fc", 8);
     });
-    D.abs(p, "div", { x: 1290, y: 662, in: "s2.4+1.5" }, { class: "mono", text: "SYMPHONY_MERGER_REVIEWERS=2", style: { fontSize: "28px", color: "var(--muted)" } });
-    chip(p, 850, 580, "s2.5", "heartbeat · TTL 90 s", "green");
-    card(p, { x: 820, y: 720, w: 1000, h: 160, in: "s2.6" },
+    D.abs(p, "div", { x: 1290, y: 622, in: "s2.4+1.5" }, { class: "mono", text: "SYMPHONY_MERGER_REVIEWERS=2", style: { fontSize: "28px", color: "var(--muted)" } });
+    D.abs(p, "div", { x: 1290, y: 664, in: "s2.5" }, { class: "mono", text: "SYMPHONY_MERGER_CONCURRENCY=8", style: { fontSize: "28px", color: "var(--violet)" } });
+    chip(p, 850, 580, "s2.6", "heartbeat · TTL 90 s", "green");
+    card(p, { x: 820, y: 720, w: 1000, h: 160, in: "s2.7" },
       '<h3>Claim <span class="mono" style="color:var(--amber)">pr:42</span></h3><p>Held for 2 minutes and renewed by a heartbeat while the worker runs. A fix slot lasts 1 minute.</p>');
-    chip(p, 100, 640, "s2.7", "pod A stops ✕", "red");
-    chip(p, 100, 720, "s2.7+1.2", "claim expires", "amber");
-    chip(p, 100, 800, "s2.7+2.2", "pod B takes pr:42", "green");
+    chip(p, 100, 640, "s2.8", "pod A stops ✕", "red");
+    chip(p, 100, 720, "s2.8+1.2", "claim expires", "amber");
+    chip(p, 100, 800, "s2.8+2.2", "pod B takes pr:42", "green");
 
     // The queue
-    const B = D.layer(sec, { in: "s2.8" });
+    const B = D.layer(sec, { in: "s2.9" });
     const q = B.el;
     const groups = [
       ["1 · label review-bypass", [["#51", "Bump the lockfile", "ready 2 min ago", 1]]],
@@ -98,27 +105,32 @@ const SCENES = {
     ];
     let y = 220;
     groups.forEach(([title, prs], gi) => {
-      D.abs(q, "div", { x: 100, y, in: `s2.8+${(0.2 + gi * 0.7).toFixed(1)}` }, { text: title, style: { fontSize: "30px", fontWeight: "700", color: gi === 0 ? "var(--amber)" : gi === 1 ? "var(--violet)" : "var(--blue)" } });
+      D.abs(q, "div", { x: 100, y, in: `s2.9+${(0.2 + gi * 0.7).toFixed(1)}` }, { text: title, style: { fontSize: "30px", fontWeight: "700", color: gi === 0 ? "var(--amber)" : gi === 1 ? "var(--violet)" : "var(--blue)" } });
       y += 50;
       prs.forEach(([n, name, ready, order]) => {
-        D.abs(q, "div", { x: 100, y, w: 960, h: 62, in: `s2.8+${(0.4 + gi * 0.7).toFixed(1)}` }, {
+        D.abs(q, "div", { x: 100, y, w: 960, h: 62, in: `s2.9+${(0.4 + gi * 0.7).toFixed(1)}` }, {
           class: "node", html: `<div style="display:flex;gap:22px;font-size:28px;align-items:center"><b class="mono">${n}</b><span>${name}</span><span style="margin-left:auto;color:var(--muted)">${ready}</span></div>`,
           style: { padding: "0 22px" },
         });
-        D.abs(q, "div", { x: 1080, y: y + 8, in: `s2.9+${(0.2 + order * 0.35).toFixed(2)}`, kind: "pop" }, {
+        D.abs(q, "div", { x: 1080, y: y + 8, in: `s2.10+${(0.2 + order * 0.35).toFixed(2)}`, kind: "pop" }, {
           text: String(order), style: { width: "46px", height: "46px", borderRadius: "50%", background: "var(--green)", color: "#06110c", fontSize: "28px", fontWeight: "800", display: "flex", alignItems: "center", justifyContent: "center" },
         });
         y += 76;
       });
       y += 16;
     });
-    const checks = ["open", "not a draft", "base is main", "the head has a check run", "head not reviewed or parked yet", "not in the train", "no active skip"];
-    const list = card(q, { x: 1200, y: 220, w: 620, h: 560, in: "s2.10" }, "<h3>Eligible when</h3>");
+    const checks = ["open", "not a draft", "base is the default branch", "the head has a check run", "head not reviewed or parked yet", "not in the train", "no active skip"];
+    const list = card(q, { x: 1200, y: 220, w: 620, h: 560, in: "s2.11" }, "<h3>Eligible when</h3>");
     checks.forEach((c, i) => {
       const row = Engine.h("p", { html: `<span class="tick">✓</span> ${c}`, style: { fontSize: "28px", lineHeight: "1.7" } });
       list.append(row);
-      Engine.anim(row, { in: t("s2.10", 0.3 + i * 0.3), lift: 6 });
+      Engine.anim(row, { in: t("s2.11", 0.3 + i * 0.3), lift: 6 });
     });
+    // Label filter (merger.label_filter, on by default).
+    const labelRow = Engine.h("p", { html: '<span class="tick">✓</span> <span style="color:var(--amber)">a symphony label, or review-bypass</span>', style: { fontSize: "28px", lineHeight: "1.7" } });
+    list.append(labelRow);
+    Engine.anim(labelRow, { in: t("s2.12", 0.3), lift: 6 });
+    chip(q, 1200, 800, "s2.12+1.2", "merger.label_filter", "amber");
   },
 
   // 3. One review
@@ -184,12 +196,16 @@ const SCENES = {
     D.abs(sec, "div", { x: rp.x, y: 300, in: "s4.1" }, { text: "Labels and state", style: { fontSize: "28px", color: "var(--muted)" } });
     D.swap(sec, rp.x, 345, [
       ["s4.1+0.3", "in-audit", "violet"], ["s4.5", "(in-audit removed)", ""], ["s4.7", "reviewed", "green"],
-      ["s4.8", "in-audit", "violet"], ["s4.9", "draft · review-requested", "red"], ["s4.11", "(in-audit removed)", ""],
+      ["s4.9", "wait-approval", "amber"], ["s4.10", "in-audit", "violet"], ["s4.11", "draft · review-requested", "red"],
+      ["s4.14", "(in-audit removed)", ""],
     ]);
-    D.swap(sec, rp.x, 425, [["s4.7+0.8", "ticket ENG-8 → Merging", "violet"], ["s4.9+0.8", "ticket ENG-8 → Rework", "red"], ["s4.11", "ticket unchanged", ""]]);
-    D.abs(sec, "div", { x: rp.x, y: 505, w: rp.w, h: 130, in: "s4.9+1.6", out: "s4.11" }, { class: "card", html: '<p style="font-size:28px"><b>Slack / Discord</b><br>PR #4 ENG-8: add is_even went back to the author</p>' });
-    D.abs(sec, "div", { x: rp.x, y: 660, w: rp.w, h: 130, in: "s4.10", out: "s4.11" }, { class: "card", html: '<p style="font-size:28px">Draft at most once. The baseline counts the rounds.</p>' });
-    D.abs(sec, "div", { x: rp.x, y: 505, w: rp.w, h: 220, in: "s4.11+0.4" }, { class: "card", html: '<p style="font-size:28px"><b>run_error</b> to the channel<br>The review of PR #4 ENG-8: add is_even failed (no PR comment posted): …</p>' });
+    D.swap(sec, rp.x, 425, [["s4.7+0.8", "ticket ENG-8 → Merging", "violet"], ["s4.8+0.6", "ticket waits for the approval", "amber"],
+      ["s4.11+0.8", "ticket ENG-8 → Rework", "red"], ["s4.14", "ticket unchanged", ""]]);
+    D.abs(sec, "div", { x: rp.x, y: 505, w: rp.w, h: 285, in: "s4.9+0.8", out: "s4.10" }, { class: "card", html: `<p style="font-size:28px"><b>needs_approval</b> to the reviewers<br>PR #4 ENG-8: add is_even<br>CI: passed on ${SHA}<br>Waiting on: an approval on GitHub from alice</p>` });
+    D.abs(sec, "div", { x: rp.x, y: 505, w: rp.w, h: 150, in: "s4.11+1.6", out: "s4.14" }, { class: "card", html: '<p style="font-size:28px"><b>Slack / Discord</b><br>PR #4 ENG-8: add is_even went back to the author</p>' });
+    D.abs(sec, "div", { x: rp.x, y: 670, w: rp.w, h: 130, in: "s4.12", out: "s4.13" }, { class: "card", html: '<p style="font-size:28px">Draft at most once. The baseline counts the rounds.</p>' });
+    D.abs(sec, "div", { x: rp.x, y: 670, w: rp.w, h: 215, in: "s4.13", out: "s4.14" }, { class: "card", html: '<p style="font-size:28px"><b class="mono">polish_rounds: 1</b><br>An agent\'s PR with fixable nits goes back to draft. Not counted as the rejection. Never a person\'s PR.</p>' });
+    D.abs(sec, "div", { x: rp.x, y: 505, w: rp.w, h: 220, in: "s4.14+0.4" }, { class: "card", html: '<p style="font-size:28px"><b>run_error</b> to the channel<br>The review of PR #4 ENG-8: add is_even failed (no PR comment posted): …</p>' });
 
     // The parked report, edited in place when CI ends.
     const head = '<b>symphony[bot]</b> commented';
@@ -205,16 +221,24 @@ const SCENES = {
     D.abs(sec, "div", { x: 1290, y: 520, w: 530, in: "s4.3", out: "s4.7" }, { html: '<p style="font-size:28px;color:var(--muted);margin:0 0 10px">Report titles</p><span class="chip green">Reviewed</span> <span class="chip red">Not merged</span><br><span class="chip amber" style="margin-top:10px">Waiting for CI</span>' });
     D.abs(sec, "div", { x: 120, y: 820, in: "s4.5", out: "s4.8" }, { html: '<span class="chip amber">parked: kind clean</span> &nbsp;<span class="chip">settle_parked edits the same comment</span>' });
 
+    // The approval gate (require_approval): the PR's merge box on GitHub.
+    comment(sec, { x: 100, y: 300, w: 1150, h: 585, in: "s4.8", out: "s4.10" }, "<b>Review required</b> · merging waits", [
+      ["s4.8", "<p>At least one approving review, and no changes requested: <code>require_approval: true</code> in <code>.symphony/merger.md</code>.</p>"],
+      ["s4.8+1.2", `<p>Merger review: nothing blocking. CI passed on <code>${SHA}</code>.</p>`],
+      ["s4.9", '<p>Label <code>wait-approval</code>. Tern and <code>symphony merger status</code> show it as <b style="color:var(--amber)">waiting for approval</b>.</p>'],
+      ["s4.9+2.0", "<p>Once approved, the merge train takes it, and checks the approval again before it merges.</p>"],
+    ]);
+
     // The rejection report.
-    comment(sec, { x: 100, y: 300, w: 1150, h: 585, in: "s4.8", out: "s4.11" }, head, [
-      ["s4.8", "<b>Not merged</b>"],
-      ["s4.8+0.3", `<p><b>symphony-merger</b> on <code>${SHA2}</code>: not merged: #4 A: confirmed, for its author to fix.</p>`],
-      ["s4.8+0.8", "<h4>A: blocking (bug), confirmed</h4><p><b>Location:</b> app/parity.py:6</p><p><b>Claim:</b> <code>return n % 2 == 1</code> is an odd check, not an even check.</p>"],
-      ["s4.8+1.6", '<p><b>Suggested fix:</b><br><span class="box"></span>Change app/parity.py:6 to <code>return n % 2 == 0</code>.</p>'],
-      ["s4.9", "<p>This PR is back to draft with the <code>review-requested</code> label: address this comment, then mark it ready for review.</p>"],
+    comment(sec, { x: 100, y: 300, w: 1150, h: 585, in: "s4.10", out: "s4.14" }, head, [
+      ["s4.10", "<b>Not merged</b>"],
+      ["s4.10+0.3", `<p><b>symphony-merger</b> on <code>${SHA2}</code>: not merged: #4 A: confirmed, for its author to fix.</p>`],
+      ["s4.10+0.8", "<h4>A: blocking (bug), confirmed</h4><p><b>Location:</b> app/parity.py:6</p><p><b>Claim:</b> <code>return n % 2 == 1</code> is an odd check, not an even check.</p>"],
+      ["s4.10+1.6", '<p><b>Suggested fix:</b><br><span class="box"></span>Change app/parity.py:6 to <code>return n % 2 == 0</code>.</p>'],
+      ["s4.11", "<p>This PR is back to draft with the <code>review-requested</code> label: address this comment, then mark it ready for review.</p>"],
     ]);
     // A failed run: no comment at all.
-    D.abs(sec, "div", { x: 100, y: 300, w: 1150, h: 585, in: "s4.11" }, {
+    D.abs(sec, "div", { x: 100, y: 300, w: 1150, h: 585, in: "s4.14" }, {
       html: '<div style="display:flex;height:100%;align-items:center;justify-content:center;font-size:34px;color:var(--muted)">no comment on the PR, no draft</div>',
       style: { border: "3px dashed #3a475b", borderRadius: "14px" },
     });
@@ -277,8 +301,11 @@ const SCENES = {
     D.wire(A.el, A.sv, arb, up, { tf: 0.5, in: "s5.9", color: "#f5b452" });
     D.wire(A.el, A.sv, arb, dis, { tf: 0.5, in: "s5.10", color: "#3ddc97" });
     chip(A.el, 100, 540, "s5.8+1.2", "require_human: true → no arbiter", "");
-    card(A.el, { x: 100, y: 650, w: 1720, h: 210, in: "s5.11" },
+    card(A.el, { x: 100, y: 650, w: 1720, h: 210, in: "s5.11", out: "s5.12" },
       `<h3>A push during the review</h3><p class="mono" style="color:var(--amber)">stopped: its author pushed 3b9e2f1c0 during the review of ${SHA2}; the next review covers what the push changed since this one.</p><p style="margin-top:10px">No draft. This review becomes the baseline (interrupted).</p>`);
+    // A canceled ticket (tracker.abandon_states): its PRs are closed.
+    card(A.el, { x: 100, y: 650, w: 1720, h: 210, in: "s5.12" },
+      '<h3>A canceled ticket</h3><p class="mono" style="color:var(--amber)">symphony-merger: Closed by symphony-merger: ENG-8 was moved to Canceled. Reopen the PR to work on it again.</p><p style="margin-top:10px">It leaves the queue, the parked reviews and the train. Its preview devices are released.</p>');
   },
 
   // 6. The merge train
@@ -376,27 +403,40 @@ const SCENES = {
 
   // 8. Operators
   s8(sec) {
-    D.term(sec, { x: 100, y: 205, w: 1720, in: "s8.1", out: "s8.4" }, ".symphony/merger.md, read from origin/main", [
+    D.term(sec, { x: 100, y: 205, w: 1720, in: "s8.1", out: "s8.4" }, ".symphony/merger.md, read from the default branch", [
       { c: "lanes:                       # default: correctness, security-spec, design", in: "s8.3" },
       { c: "blocking_classes: [stand-in] # added to the generic blocking classes", in: "s8.3+0.3" },
-      { c: "rule_checks:                 # run at the head", in: "s8.3+0.6" },
-      { c: "  - {name: lint, run: \"make lint\"}", in: "s8.3+0.9" },
-      { c: "merge_method: rebase         # rebase | squash | merge", in: "s8.3+1.2" },
-      { c: "batch_max: 4", in: "s8.3+1.5" },
-      { c: "fix_slots: 3", in: "s8.3+1.8" },
-      { c: "require_human: false", in: "s8.3+2.1" },
+      { c: "rule_checks: [{name: lint, run: \"make lint\"}]   # run at the head", in: "s8.3+0.6" },
+      { c: "merge_method: rebase         # rebase | squash | merge", in: "s8.3+0.9" },
+      { c: "batch_max: 4", in: "s8.3+1.2" },
+      { c: "require_human: false         # true: a maintainer instead of the arbiter", in: "s8.3+1.5" },
+      { c: "require_approval: false      # true: a GitHub approval before the train", in: "s8.3+1.8" },
+      { c: "polish_rounds: 0             # nit rounds for agent pull requests", in: "s8.3+2.1" },
       { c: "ci: {checks: [test, lint], workflow: CI}", in: "s8.3+2.4" },
       { c: "main_watch: {ticket: true, state: Todo, labels: [ci]}", in: "s8.3+2.7" },
+      { c: "preview: {artifact: ios-simulator-preview}", in: "s8.3+3.0" },
     ]);
-    D.abs(sec, "div", { x: 100, y: 770, in: "s8.2", out: "s8.4" }, { html: '<span class="chip amber">a pull request cannot change the rules that review it</span>' });
-    D.shot(sec, {
-      x: 100, y: 200, w: 1720, h: 560, in: "s8.4",
-      shots: [{ src: SHOT("merger"), in: "s8.4" }],
-      cam: [["s8.4", 1440, 1200, 0.59], ["s8.6", 1440, 830, 0.59]],
-      spots: [{ x: 228, y: 1442, w: 492, h: 52, in: "s8.4+0.8", out: "s8.6" }, { x: 20, y: 712, w: 2840, h: 150, in: "s8.6+0.4" }],
+    D.abs(sec, "div", { x: 100, y: 795, in: "s8.2", out: "s8.4" }, { html: '<span class="chip amber">a pull request cannot change the rules that review it</span>' });
+
+    // Previews: one Slack announcement per head, one Preview comment edited in place.
+    comment(sec, { x: 100, y: 205, w: 1100, h: 540, in: "s8.4", out: "s8.5" }, "<b>symphony[bot]</b> commented", [
+      ["s8.4", "<b>Preview</b>"],
+      ["s8.4+0.3", "<p><b>symphony-merger</b>: builds of this PR to try on a simulator in Seiji. A link opens that build, now or later, while GitHub keeps its artifact; open it again for a new viewer.</p>"],
+      [[`s8.4+1.0`, `<p>• <code>${SHA}b80</code> (newest): <u style="color:var(--blue)">Open in Seiji</u></p>`, "s8.4+2.6"],
+        ["s8.4+2.8", `<p>• <code>${SHA2}3f1</code> (newest): <u style="color:var(--blue)">Open in Seiji</u><br>• <code>${SHA}b80</code>: <u style="color:var(--blue)">Open in Seiji</u></p>`]],
+    ]);
+    D.abs(sec, "div", { x: 1260, y: 205, w: 560, h: 300, in: "s8.4+0.6", out: "s8.5" }, {
+      class: "card", html: '<p style="font-size:28px"><b>Slack</b> · preview_ready<br>#4 ENG-8: add is_even: an iOS build of this head is ready to try in a simulator</p><p style="margin-top:14px"><span class="chip green">Open in simulator</span></p>',
     });
-    D.abs(sec, "div", { x: 100, y: 790, in: "s8.5", out: "s8.6" }, { html: '<span class="chip">symphony merger requeue 42 --reason "…" --repo acme/app</span> &nbsp;<span class="chip">POST /v1/merger/prs/42/requeue</span>' });
-    D.callout(sec, { x: 100, y: 785, in: "s8.6+0.2" }, 'Live session <span class="mono">merger:acme:app:42:reviewer:1</span> · follow and interrupt');
+    chip(sec, 1260, 530, "s8.4+2.8", "a new head: one more link", "blue", "s8.5");
+    D.shot(sec, {
+      x: 100, y: 200, w: 1720, h: 560, in: "s8.5",
+      shots: [{ src: SHOT("merger"), in: "s8.5" }],
+      cam: [["s8.5", 1440, 1200, 0.59], ["s8.7", 1440, 830, 0.59]],
+      spots: [{ x: 225, y: 1448, w: 500, h: 52, in: "s8.5+0.8", out: "s8.7" }, { x: 20, y: 712, w: 2840, h: 150, in: "s8.7+0.4" }],
+    });
+    D.abs(sec, "div", { x: 100, y: 790, in: "s8.6", out: "s8.7" }, { html: '<span class="chip">symphony merger requeue 42 --reason "…" --repo acme/app</span> &nbsp;<span class="chip">POST /v1/merger/prs/42/requeue</span>' });
+    D.callout(sec, { x: 100, y: 785, in: "s8.7+0.2" }, 'Live session <span class="mono">merger:acme:app:42:reviewer:1</span> · follow and interrupt');
   },
 
   // 9. Proof
