@@ -7,6 +7,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.29] - 2026-11-26
+
 ### Added
 
 - A team knowledge base for the chat assistant. `assistant.knowledge` lists repositories (or
