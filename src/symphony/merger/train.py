@@ -425,6 +425,7 @@ class Train:
             m.count("merged", rec["pr"], rec["head_sha"])
             m.git.delete_remote_branch(rec["branch"], rec["head_sha"])
             m.store.drop_baseline(rec["pr"])
+            m.store.drop_inline(rec["pr"])
         m.store.drop_rec(rec["pr"])
         log.info("merger_train_outcome", pr=rec["pr"], end=o["end"], text=o["text"][:300])
         return f"#{rec['pr']} {o['end']}: {o['text']}"

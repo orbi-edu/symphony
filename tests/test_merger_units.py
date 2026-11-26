@@ -738,6 +738,30 @@ def test_rest_github_maps_graphql_not_found_and_merges_on_the_expected_head():
                                          {"sha": "abc", "merge_method": "squash"}, "Bearer tok")
 
 
+def test_rest_github_posts_a_comment_review_and_resolves_its_threads():
+    from symphony.merger.github import RestGitHub
+
+    comments = [{"path": "a.py", "line": 6, "side": "RIGHT", "body": "**A** (blocking) — x"}]
+    http = _Http([
+        _Resp(200, {"id": 55, "state": "COMMENTED"}),
+        _Resp(200, [{"id": 901, "body": "**A** (blocking) — x"}]),
+        _Resp(200, {"data": {"repository": {"pullRequest": {"reviewThreads": {
+            "nodes": [{"id": "PRRT_1", "isResolved": False, "comments": {"nodes": [{"databaseId": 901}]}}],
+            "pageInfo": {"hasNextPage": False, "endCursor": None}}}}}}),
+        _Resp(200, {"data": {"resolveReviewThread": {"thread": {"id": "PRRT_1"}}}}),
+    ])
+    gh = RestGitHub("acme/app", lambda: "tok", http=http)
+    assert gh.post_review(7, "abc", "see the report", comments) == [{"id": 901, "body": "**A** (blocking) — x"}]
+    method, url, body, _ = http.sent[0]
+    assert (method, url) == ("POST", "https://api.github.com/repos/acme/app/pulls/7/reviews")
+    assert body == {"commit_id": "abc", "event": "COMMENT", "body": "see the report", "comments": comments}
+    assert http.sent[1][1] == "https://api.github.com/repos/acme/app/pulls/7/reviews/55/comments"
+    assert gh.review_threads(7) == [{"id": "PRRT_1", "resolved": False, "comment": 901}]
+    gh.resolve_thread("PRRT_1")
+    method, url, body, _ = http.sent[-1]
+    assert "resolveReviewThread" in body["query"] and body["variables"] == {"id": "PRRT_1"}
+
+
 # The built-in names omp 18.20.2 accepts in --tools (from its own "Unknown tool" error).
 OMP_TOOLS = {
     "read", "bash", "edit", "ast_grep", "ast_edit", "ask", "debug", "ida", "eval", "github", "glob", "grep",

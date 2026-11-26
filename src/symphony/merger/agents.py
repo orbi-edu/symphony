@@ -200,9 +200,11 @@ def reviewer_tools(classes: tuple[str, ...], rereview: bool) -> list[HostTool]:
         "class": {"type": "string", "enum": [*classes, "nit"],
                   "description": "the SEVERITY class; nit for anything that fits no blocking class"},
         "audit": {"type": "string", "description": "the audit that found it"},
-        "location": {"type": "string", "description": "path:line at the head; 'PR body' or a commit sha when about those"},
+        "location": {"type": "string", "description": "path:line or path:start-end at the head; 'PR body' or a commit sha when about those"},
         "claim": {"type": "string", "description": "what is wrong, with the evidence you checked"},
         "fix": {"type": "string", "description": "the fix, as a checklist the next review can tick"},
+        "replacement": {"type": "string", "description": "optional: exact new text for the lines at location, "
+                        "only when the fix is a few lines there; leave it out otherwise"},
     }
     if rereview:
         finding["reopens"] = {"type": "string", "description": "the id of the EARLIER FINDINGS entry this repeats, left unfixed"}

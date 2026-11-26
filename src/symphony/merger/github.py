@@ -1,8 +1,8 @@
 """GitHub for the merger, as the GitHub App installation (`symphony.ghapp`).
 
 `GitHub` names every call the merger makes; `RestGitHub` is the network edge (REST, plus
-GraphQL where REST has no equivalent: the ready-for-review time and draft conversion). Tests
-substitute an in-memory implementation of the same methods.
+GraphQL where REST has no equivalent: the ready-for-review time, draft conversion and review
+threads). Tests substitute an in-memory implementation of the same methods.
 
 A PR is a dict: `number, state (open|closed|merged), draft, base, head_sha, head_ref, author,
 labels, ready_at (ISO), title, body, url, mergeable (MERGEABLE|CONFLICTING|UNKNOWN)`.
@@ -54,6 +54,10 @@ class GitHub:
     def rerun(self, run_id: int) -> None: raise NotImplementedError
     def cancel(self, run_id: int) -> None: raise NotImplementedError
     def reviews(self, n: int) -> list[dict]: raise NotImplementedError
+    def post_review(self, n: int, commit_id: str, body: str, comments: list[dict]) -> list[dict]:
+        raise NotImplementedError
+    def review_threads(self, n: int) -> list[dict]: raise NotImplementedError
+    def resolve_thread(self, thread_id: str) -> None: raise NotImplementedError
     def artifact_download_url(self, run_id: int, name: str) -> str | None: raise NotImplementedError
 
 
@@ -278,6 +282,43 @@ class RestGitHub(GitHub):
             if (r.get("user") or {}).get("type") != "Bot"
             and not (r.get("user") or {}).get("login", "").endswith("[bot]")
         ]
+
+    def post_review(self, n: int, commit_id: str, body: str, comments: list[dict]) -> list[dict]:
+        """One `COMMENT` review on `commit_id` with inline comments (`{path, line, side, body}`,
+        plus `start_line, start_side` for a range); never an approval or a change request, so
+        the approval gate never counts it. Returns the review's comments, `{id, body}`. A line
+        outside the PR's diff answers 422."""
+        review = self._json("POST", self._repo(f"/pulls/{n}/reviews"), json={
+            "commit_id": commit_id, "event": "COMMENT", "body": body[:65536], "comments": comments})
+        return [{"id": c["id"], "body": c.get("body") or ""}
+                for c in self._pages(self._repo(f"/pulls/{n}/reviews/{review['id']}/comments"))]
+
+    def review_threads(self, n: int) -> list[dict]:
+        """The PR's review threads: `{id (node id), resolved, comment}`, `comment` being the REST
+        id of the thread's first comment."""
+        query = """query($owner: String!, $name: String!, $n: Int!, $after: String) {
+          repository(owner: $owner, name: $name) { pullRequest(number: $n) {
+            reviewThreads(first: 100, after: $after) {
+              nodes { id isResolved comments(first: 1) { nodes { databaseId } } }
+              pageInfo { hasNextPage endCursor } } } } }"""
+        out, after = [], None
+        while True:
+            data = self._graphql(query, {"owner": self.owner, "name": self.name, "n": n, "after": after})
+            pr = data["repository"]["pullRequest"]
+            if pr is None:
+                raise GitHubError(f"PR #{n} not found", 404)
+            conn = pr["reviewThreads"]
+            for t in conn["nodes"]:
+                first = (t.get("comments") or {}).get("nodes") or []
+                out.append({"id": t["id"], "resolved": bool(t["isResolved"]),
+                            "comment": first[0].get("databaseId") if first and first[0] else None})
+            if not conn["pageInfo"]["hasNextPage"]:
+                return out
+            after = conn["pageInfo"]["endCursor"]
+
+    def resolve_thread(self, thread_id: str) -> None:
+        self._graphql("mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { id } } }",
+                      {"id": thread_id})
 
     def artifact_download_url(self, run_id: int, name: str) -> str | None:
         """The download URL for a named artifact of a workflow run, or None."""

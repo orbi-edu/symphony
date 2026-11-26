@@ -17,6 +17,8 @@ and, with the prefix `sym:<ns>:merger:<repo>:`:
 - `skips`      hash pr → why stage 1 stopped on a PR, and when it is worth another try
 - `baseline`   hash pr → the last review of a PR (head, fork point, findings, rounds, outcome)
 - `run`        hash pr → a finished review whose outcome was not applied yet (crash resume)
+- `inline`     hash pr → the findings with an inline review comment open on the PR, by key:
+               `{threads: {key: {comment, id, head}}}` (`inline.py`)
 - `caps`       hash pr → the largest batch the PR may join after a red batch
 - `batch`      the batch the train is merging on one CI run
 - `probe`      hash role → the last tool check of that role
@@ -231,6 +233,15 @@ class MergerStore:
 
     def drop_run(self, pr: int) -> None:
         self._hdel("run", pr)
+
+    def inline(self, pr: int) -> dict | None:
+        return self._hget("inline", pr)
+
+    def put_inline(self, pr: int, doc: dict) -> None:
+        self._hput("inline", pr, doc)
+
+    def drop_inline(self, pr: int) -> None:
+        self._hdel("inline", pr)
 
     def polish_rounds(self, pr: int) -> int:
         raw = self.client.hget(self._k("polish"), str(pr))

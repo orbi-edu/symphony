@@ -7,6 +7,19 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Inline review comments. After a review round posts its report, the merger submits one
+  GitHub review (`COMMENT`, on the reviewed head) that puts each blocking finding and each
+  confirmed nit on its diff lines, with the fix and a link to the report. A finding whose
+  `replacement` (a new optional field of the reviewer's `submit_finding`) is the new text of
+  its lines, at most 30 lines, gets a `suggestion` block. Findings outside the diff or on the
+  PR body stay in the report only. A re-review does not repeat a commented finding and
+  resolves the thread of one it no longer reports. The review never approves or requests
+  changes, so the approval gate is unchanged, and a failed call is logged without failing the
+  round. `inline_comments: false` in `.symphony/merger.md` turns it off
+  ([merger.md](docs/merger.md#inline-comments)).
+
 ## [0.2.27] - 2026-11-26
 
 ### Fixed
