@@ -179,6 +179,8 @@ When a Seiji server named `seiji` is configured and the GitHub App has `actions:
 
 Each build gets its own device, at most 2 per PR (a third releases the oldest). A device goes back after 55 minutes, when the PR is merged or closed, or when the lease is gone. A device from the button also goes back when the head changes or a human approves; one opened from a link keeps its build.
 
+Seiji keeps at most `maxBuildsPerUser` builds per user (10 by default), each for `appRetentionHours` after its upload (72 by default). Symphony uploads each sha's build once: it keeps the `app_id` in Redis (`sym:<ns>:preview:app:<server>:<repo>:<sha12>`) for 60 hours, a margin under the default retention, and every later click, link open or restart of that sha installs the same upload. When Seiji no longer has it (`no uploaded app`, for example under a shorter retention), the start uploads it once more. Symphony deletes a build (`DELETE /v1/apps/{app_id}`) once no live device runs it: when its PR is merged or closed, when the merger closes the PR, or when the PR head has moved past it. A sweep every 10 minutes catches the builds of PRs whose devices ended earlier. A Seiji without the route answers 404 and the build stays until it expires.
+
 ## Limits
 
 - **One account.** All agents share the Seiji user of Symphony: its monthly minutes, its `maxConcurrent` and its builds (`maxBuildsPerUser`, 10 by default).
@@ -197,5 +199,6 @@ Each build gets its own device, at most 2 per PR (a third releases the oldest). 
 | `admin mcp test` says `unreachable` | The gateway cannot reach Seiji. Check the public name, TLS, and that the name is in Seiji's `listen.allowedHosts` (Seiji answers `403 Forbidden: Host header is not allowed` otherwise) |
 | `acquire_device` fails with `device failed to start (not billed)` | The Seiji host cannot boot the simulator (no Xcode runtime, or a wrong `runtime` in Seiji's config). Run `seiji doctor` on the host |
 | `you already hold N device(s), your limit is N` | More attempts want devices than the Symphony user's `maxConcurrent`. Raise it with `seiji user set symphony --max-concurrent N` |
+| `the build upload was refused: you already keep 10 builds, the limit is 10; …` | The Symphony user keeps `maxBuildsPerUser` builds. Previews reuse each build and delete the builds of closed PRs; the others expire `appRetentionHours` after their upload. Wait for one to expire, or raise `maxBuildsPerUser` in Seiji's config |
 | `symphony mcp viewer` says `lease_not_held` | No live session holds the lease: the attempt ended (and released it), or the lease id is wrong. Read `mcp_leases` of `symphony sessions --json` |
 | The agent's `curl` gets `403 {"error": "mcp_forbidden"}` | The role has no Seiji server, the server is disabled, or the session ended |

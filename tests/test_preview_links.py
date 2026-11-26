@@ -514,3 +514,144 @@ def test_a_closed_prs_devices_are_released_at_once(stack):
     assert stack.mgr.release_pr("Acme/App", 7) == 2
     assert stack.mgr.live() == []
     assert {lease["status"] for lease in seiji_state(stack)["leases"]} == {"released"}
+
+
+# -- builds: one upload per sha, deleted when the PR no longer needs it -------------------
+def uploads(stack) -> int:
+    return sum(1 for r in seiji_state(stack)["requests"]
+               if (r["method"], r["path"]) == ("POST", "/v1/apps"))
+
+
+def deletes(stack) -> list[str]:
+    return [r["path"] for r in seiji_state(stack)["requests"] if r["method"] == "DELETE"]
+
+
+def opened(stack, sha: str) -> None:
+    stack.client.get(link(sha), headers=signed_in(stack))
+    stack.spawn.run()
+    assert stack.mgr.progress(REPO, 7, sha[:12])["state"] == "ready"
+
+
+def lease_ended(stack, sha: str) -> None:
+    """Seiji's reaper ends the lease (idle), and Symphony forgets the device, as the next
+    open or viewer link does when Seiji says the lease is gone."""
+    live = stack.mgr.get(REPO, 7, sha[:12])
+    stack.mgr._release_lease(stack.mgr.repository.get("seiji"),
+                             stack.mgr.repository.headers("seiji"), live.lease_id, 7)
+    stack.mgr._forget(live)
+
+
+def kept(stack, sha: str) -> str | None:
+    entry = stack.mgr._cached_app("seiji", REPO, sha[:12])
+    return entry and entry["app_id"]
+
+
+def test_a_sha_is_uploaded_once_and_a_newer_sha_once_more(stack, monkeypatch):
+    # Two starts at once (this API and another replica's): one claim, one upload.
+    stack.client.get(link(SHA_OLD), headers=signed_in(stack))
+    other = PreviewManager(client=stack.mgr.client, namespace=NS, repository=stack.mgr.repository,
+                           github_token=stack.mgr.github_token, http=stack.mgr.http,
+                           spawn=stack.spawn)
+    assert other.open_link(REPO, 7, SHA_OLD[:12]) == "starting"
+    assert len(stack.spawn.pending) == 1
+    stack.spawn.run()
+    app_id = kept(stack, SHA_OLD)
+    assert uploads(stack) == 1 and [a["app_id"] for a in seiji_state(stack)["apps"]] == [app_id]
+    ttl = stack.mgr.client.ttl(stack.mgr._app_key("seiji", REPO, SHA_OLD[:12]))
+    assert 59 * 3600 < ttl <= 60 * 3600
+
+    steps: list[str] = []
+    real_step = stack.mgr._step
+    monkeypatch.setattr(stack.mgr, "_step", lambda key, step: (steps.append(step),
+                                                                 real_step(key, step)))
+    lease_ended(stack, SHA_OLD)
+    opened(stack, SHA_OLD)  # a restart of the same build installs the same upload
+    assert steps == ["installing", "launching"]
+    assert uploads(stack) == 1 and kept(stack, SHA_OLD) == app_id
+
+    opened(stack, SHA_NEW)
+    assert uploads(stack) == 2 and kept(stack, SHA_NEW) not in (None, app_id)
+
+
+def test_a_full_build_quota_shows_seijis_reason(stack):
+    httpx.post(f"{stack.seiji}/_control/config", json={"max_builds": 0})
+    stack.client.get(link(SHA_NEW), headers=signed_in(stack))
+    stack.spawn.run()
+    error = stack.mgr.progress(REPO, 7, SHA_NEW[:12])["error"]
+    assert error.startswith("the device lab keeps as many builds as it allows; previews reuse ")
+    assert error.endswith("The build upload was refused: you already keep 0 builds, the limit "
+                          "is 0; they expire 72h after upload")
+    assert mock_seiji.DEFAULT_TOKEN not in error and "Bearer" not in error
+    assert seiji_state(stack)["leases"] == [] and kept(stack, SHA_NEW) is None
+
+
+def test_a_refused_upload_keeps_at_most_200_characters_of_seijis_error():
+    from symphony.previews import _upload_refused
+
+    long = httpx.Response(413, json={"error": "x" * 500}, headers={"X-Token": "secret"})
+    assert _upload_refused(long) == "the build upload was refused: " + "x" * 199 + "\u2026"
+    assert _upload_refused(httpx.Response(502, text="<html>bad gateway</html>")) == (
+        "the build upload was refused (HTTP 502)")
+
+
+def test_an_upload_seiji_no_longer_has_is_uploaded_once_more(stack):
+    opened(stack, SHA_NEW)
+    old = kept(stack, SHA_NEW)
+    lease_ended(stack, SHA_NEW)
+    httpx.post(f"{stack.seiji}/_control/expire_apps")  # Seiji's retention ran out
+    opened(stack, SHA_NEW)
+    assert uploads(stack) == 2
+    assert kept(stack, SHA_NEW) not in (None, old)
+    assert [a["app_id"] for a in seiji_state(stack)["apps"]] == [kept(stack, SHA_NEW)]
+    # the device acquired before the second upload is the one that runs the build
+    assert [lease["status"] for lease in seiji_state(stack)["leases"]] == ["released", "ready"]
+
+
+def test_closing_the_pr_deletes_its_builds(stack):
+    opened(stack, SHA_NEW)
+    opened(stack, SHA_OLD)
+    ids = {kept(stack, SHA_NEW), kept(stack, SHA_OLD)}
+    assert stack.mgr.release_pr(REPO, 7) == 2
+    assert seiji_state(stack)["apps"] == []
+    assert sorted(deletes(stack)) == sorted(f"/v1/apps/{i}" for i in ids)
+    assert kept(stack, SHA_NEW) is None and kept(stack, SHA_OLD) is None
+
+
+def test_the_sweep_deletes_the_builds_of_a_merged_or_closed_pr(stack):
+    opened(stack, SHA_NEW)
+    stack.github.state = "closed"
+    assert stack.mgr.sweep() == 1
+    assert seiji_state(stack)["apps"] == [] and kept(stack, SHA_NEW) is None
+
+
+def test_builds_no_device_runs_go_when_the_pr_moves_on_or_closes(stack):
+    opened(stack, SHA_NEW)
+    opened(stack, SHA_OLD)
+    lease_ended(stack, SHA_NEW)
+    assert stack.mgr.sweep_apps() == 0 and len(seiji_state(stack)["apps"]) == 2
+
+    stack.github.head = SHA_THIRD  # both builds are behind the head; SHA_OLD's device runs
+    assert stack.mgr.sweep_apps() == 1
+    assert kept(stack, SHA_NEW) is None and kept(stack, SHA_OLD) is not None
+
+    lease_ended(stack, SHA_OLD)
+    stack.github.state = "closed"
+    assert stack.mgr.sweep_apps() == 1 and seiji_state(stack)["apps"] == []
+
+
+def test_a_new_head_deletes_the_build_a_buttons_device_ran(stack):
+    opened(stack, SHA_OLD)
+    live = stack.mgr.get(REPO, 7, SHA_OLD[:12])
+    live.origin = "button"
+    stack.mgr._save(live)
+    stack.github.head = SHA_NEW
+    assert stack.mgr.sweep() == 1
+    assert seiji_state(stack)["apps"] == [] and kept(stack, SHA_OLD) is None
+
+
+def test_a_build_seiji_already_deleted_is_forgotten_quietly(stack):
+    opened(stack, SHA_NEW)
+    app_id = kept(stack, SHA_NEW)
+    httpx.post(f"{stack.seiji}/_control/expire_apps")
+    assert stack.mgr.release_pr(REPO, 7) == 1  # DELETE answers 404: ignored
+    assert deletes(stack) == [f"/v1/apps/{app_id}"] and kept(stack, SHA_NEW) is None

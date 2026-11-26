@@ -300,7 +300,7 @@ The `share_device` host tool lets the assistant post a "Control the device" butt
 
 ## PR previews
 
-A preview runs a pull request's build on a simulator in Seiji, for a person to try. There are two ways to open one. Both use the same start (`previews.py`): download the `ios-simulator-preview` artifact of the sha, extract `app.zip` and `preview.json`, check `head_sha`, upload the app to Seiji, acquire a device, install and launch the app, and record the lease.
+A preview runs a pull request's build on a simulator in Seiji, for a person to try. There are two ways to open one. Both use the same start (`previews.py`): download the `ios-simulator-preview` artifact of the sha, extract `app.zip` and `preview.json`, check `head_sha`, upload the app to Seiji (once per sha, see below), acquire a device, install and launch the app, and record the lease.
 
 ### The Slack button
 
@@ -336,6 +336,8 @@ When someone asks on the PR to open or test the app in Seiji, the answer run ([r
 One device per (repository, PR, sha), at most 2 live per PR: a third build releases the oldest. Another click or open of the same build reuses the live lease and gets a fresh viewer. The device is released when the PR is merged or closed, 55 minutes have passed, or the lease is gone. A device started by the button is also released when a human approves the PR after the preview started, or when the head changes; a device opened from a link keeps its sha and is not. A device acquired for a start that then fails (install, launch) is released at once.
 
 The devices are recorded in Redis (`sym:<ns>:preview:live`), so the assistant (buttons) and the API (links) share them. Each runs a sweep every 60 seconds; a short Redis lock lets one of them sweep a round. A restarted process keeps sweeping what the previous one started.
+
+The upload of a sha is kept in Redis (`sym:<ns>:preview:app:<server>:<repo>:<sha12>`, 60 hours, under Seiji's default `appRetentionHours` of 72), so another click, link open or restart of that build installs it again without downloading or uploading it. The start claim of the build means two concurrent starts never both upload it. When Seiji answers `no uploaded app` at install, the start uploads it once more. The upload is deleted from Seiji (`DELETE /v1/apps/{app_id}`; a 404 from a Seiji without the route is ignored) when its PR is merged or closed, when the merger closes the PR, or when a button's device goes back because the head moved, unless another live device runs that sha. Every 10 minutes the sweep also deletes the uploads, no device running, of PRs that closed or moved past them. When Seiji refuses an upload, the error shows its reason; a full build quota (`429`) also says that builds are reused and expire ([seiji.md](seiji.md#pr-previews)).
 
 Previews are enabled when a Seiji server named `seiji` is configured and the GitHub App has `actions: read`, `contents: read` and `pull_requests: read`. Links also need `SYMPHONY_PUBLIC_URL` on the merger, and either `api.access` or (`previews.public_links` and `SYMPHONY_PREVIEW_LINK_SECRET` on the merger and the API).
 

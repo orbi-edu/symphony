@@ -74,6 +74,8 @@ The `state` keys have no namespace prefix. All other keys have a namespace prefi
 | `sym:<ns>:preview:starting:<owner/name>:<pr>:<sha12>` | String (JSON) | A start in progress, `{step}` (`queued`, `downloading`, `installing`, `launching`): one start per build across the assistant and the API | 15 min; deleted when the start ends |
 | `sym:<ns>:preview:failed:<owner/name>:<pr>:<sha12>` | String | Why the last start of that build failed, for the link's status page | 10 min |
 | `sym:<ns>:preview:sweep` | String | The preview sweep lock: one process sweeps a round | 55 s |
+| `sym:<ns>:preview:sweep:apps` | String | The kept-upload sweep lock: one process looks for the uploads of closed or moved-on PRs a round | 10 min |
+| `sym:<ns>:preview:app:<server>:<owner/name>:<sha12>` | String (JSON) | A sha's upload to Seiji, `{app_id, server, repo, pr, sha12, bundle_id}`: every start of that build installs it. Deleted (with `DELETE /v1/apps/{app_id}`) when no live device runs it and its PR closed or moved past it, or when Seiji no longer has it | 60 h from the upload (Seiji keeps a build 72 h by default) |
 | `sym:<ns>:preview:builds:<owner/name>:<pr>` | String (JSON) | The PR's preview links that the merger listed, `{comment, builds: [{sha, sha12, url, at}]}`, newest first, at most 5; the answer run reads them | 90 days |
 | `sym:<ns>:merger:repos` | Set | Every repository that a merger registered | Never |
 | `sym:<ns>:merger:<repo>:heartbeat` | String | The merger of `<repo>` is alive | 90 s, renewed every 30 s or less |
