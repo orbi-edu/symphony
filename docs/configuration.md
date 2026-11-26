@@ -406,8 +406,9 @@ The chat assistant on Slack and Discord ([assistant.md](assistant.md)). It is of
 | `assistant.sandbox.command_timeout_s` | int, above 0 | `300` | Timeout per command, and the cap for a `timeout_s` the agent asks for. |
 | `assistant.sandbox.max_lifetime_s` | int, above 0 | `14400` | Hard ceiling on a sandbox pod's life (`activeDeadlineSeconds`). The pod is normally deleted when the thread's session ends. |
 | `assistant.sandbox.max_output_chars` | int, above 0 | `20000` | Maximum characters of combined output returned to the agent. Longer output is truncated (head + tail). |
+| `assistant.knowledge` | list of `{repo, paths, name, when}`, at most 10 | `[]` | The team knowledge bases ([assistant.md](assistant.md#team-knowledge)): repositories of engineering docs, always checked out, indexed at each new commit, listed in every role's instructions and searched with `search_knowledge`. `repo` is `owner/name`. `paths` (default `["**/*.md"]`, at most 20) are folders, files or globs (`*`, `?`, `**`) relative to the repository root, without `..`; only Markdown files are read. `name` (at most 40 characters, default `repo`) labels the base and must be unique. `when` is one line (at most 300 characters) that says what questions the base answers. |
 
-Unknown keys, also inside `slack`, `discord`, `soul`, `memory` and `sandbox`, are an error.
+Unknown keys, also inside `slack`, `discord`, `soul`, `memory`, `sandbox` and each `knowledge` entry, are an error.
 
 ```yaml
 assistant:
@@ -422,6 +423,9 @@ assistant:
   soul: {repo: "acme/app", path: ".symphony/assistant.md"}
   memory: {enabled: true, ttl_days: 90}
   sandbox: {enabled: true}
+  knowledge:
+    - {repo: "acme/handbook", name: "handbook", when: "how we release, run on-call and set up environments"}
+    - {repo: "acme/app", paths: ["docs/adr"], name: "decisions"}
 ```
 
 Only a person mapped in [`notify.users`](#notify) can create tickets from a proposal.

@@ -14,6 +14,7 @@ It runs as the Deployment `symphony-assistant`. It dials out to Slack (Socket Mo
 - [Soul](#soul)
 - [Memory](#memory)
 - [Team facts](#team-facts)
+- [Team knowledge](#team-knowledge)
 - [Sandbox](#sandbox)
 - [Device control](#device-control)
 - [PR previews](#pr-previews)
@@ -58,6 +59,7 @@ On Slack a thread is a message thread. On Discord a thread is a reply chain or a
 | Search the web | omp's `web_search`, with its default keyless chain |
 | See Symphony's state | `symphony_status`: tickets, sessions, the merger queue and recent failures |
 | Search the tracker | `tracker_search`: Linear search or GitHub issue search |
+| Consult the team's docs | The page index of each `assistant.knowledge` base in its instructions, and `search_knowledge(query, base?, limit?)` ([Team knowledge](#team-knowledge)) |
 | Propose tickets | `propose_tickets`, for the assistant (one ticket or a few) and the planner (plans), with files from the sandbox ([Files from the sandbox](#files-from-the-sandbox)) |
 | Offer the planner | `offer_plan(summary)` (assistant only): a **Plan this** button under the answer ([What it does](#what-it-does)) |
 | Remember a person | `remember(text, kind)` and `forget(id \| query)`, for people mapped in `notify.users` ([Memory](#memory)) |
@@ -214,6 +216,38 @@ A team fact is a lasting fact about how the team works. The agent proposes it wi
 - The App needs `contents: write` and `pull_requests: write` on the soul repository. Without them the message says: "The GitHub App cannot open this PR: it needs contents: write and pull requests: write on owner/name." The buttons stay, so a person can retry after fixing the App.
 - The fact reaches the assistant after the PR is merged, at its next new session.
 - The agent gets `propose_team_fact` only when the assistant has the GitHub App credentials (`GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_INSTALLATION_ID`). A text that looks like a credential is refused.
+
+## Team knowledge
+
+A knowledge base is a repository, or folders in one, that holds the team's engineering docs: process, environments, releases, playbooks, decision records, the stack. List them in `assistant.knowledge` ([configuration.md](configuration.md#assistant)):
+
+```yaml
+assistant:
+  knowledge:
+    - repo: acme/handbook
+      name: handbook
+      when: how we release, run on-call and set up environments
+    - repo: acme/app
+      paths: [docs/adr]
+      name: decisions
+      when: why the app is built the way it is
+```
+
+- **Always fresh.** The bases' repositories are always checked out read-only, whether or not `assistant.repositories` is set, and fetched on the same 5-minute cycle as the others.
+- **Indexed at each new commit.** When a base's commit changes, the assistant reads every Markdown file (`.md`, `.markdown`) that matches its `paths` at that commit, outside `node_modules`, `vendor` and `.git`, at most 1 MB each and 2,000 files per base. A page is its path, its title (the first `# ` heading, else the file name) and its first paragraph line (cut at 160 characters). The index lives in memory, per base and commit. A base whose sync fails keeps its last index, and the instructions say it may be stale.
+- **In every role's instructions.** The assistant, the researcher and the planner get a "Team knowledge" section: for each base its name, its `when`, the commit and the link prefix, and its pages (`path — title — first line`). Over 300 pages or 40 KB, the base lists its folders with page counts instead, and the agent searches.
+- **Consulted first.** For a question about how the team works, the agent reads the knowledge base before anything else, prefers it over other repositories, and says when it does not cover the question instead of guessing.
+- **Cited at the commit it read.** Every answer that uses a page links to the file on the GitHub server (`GITHUB_SERVER_URL`) at that commit: `https://github.com/acme/handbook/blob/<sha>/process/releases.md#L10-L24`, with the line range when the agent read one. On Slack the link is `<url|title>`; on Discord it is `[title](<url>)`, without an embed, like code citations.
+
+`search_knowledge(query, base?, limit?)` searches the sections of the bases (a section starts at each `#`, `##` or `###` heading) with BM25. Words are lowercased, without accents (`implantacao` finds `implantação`), at least 2 characters, without common English and Portuguese words, and the words of a section's headings count three times. `base` limits the search to one base by its name. It returns up to `limit` results (default 8, at most 20), best first:
+
+```json
+[{"base": "handbook", "path": "process/releases.md", "heading": "Releases > Rollback",
+  "lines": [13, 15], "score": 1.92, "snippet": "## Rollback To roll back, redeploy …",
+  "url": "https://github.com/acme/handbook/blob/<sha>/process/releases.md#L13-L15"}]
+```
+
+The tool is there only when at least one base is configured.
 
 ## Sandbox
 

@@ -1041,6 +1041,15 @@ replies in its threads. Anyone there may ask.
   assistant also gets `offer_plan` (a "Plan this" button). With `assistant.sandbox`, the roles
   also get `sandbox_run` and `share_file` (`sandbox.py`, `share.py`), which only people mapped
   in `notify.users` can use, checked at each call ([assistant.md](assistant.md#sandbox)).
+- **Knowledge (`knowledge.py`):** `assistant.knowledge` bases. `ReadOnlyRepos` always syncs
+  their repositories and, after each refresh, hands the synced commits to `Knowledge.update`.
+  A base whose commit (or entry) changed is rebuilt from the mirror's objects at that commit
+  (`git ls-tree -r -l` and one `git cat-file --batch`): a page per matching Markdown file
+  (path, first `# ` heading or file name, first paragraph line) and a BM25 section per `#`,
+  `##` or `###` heading (folded tokens, heading words ×3). A failed sync or build keeps the
+  last index and marks it stale. Each new session's instructions get `Knowledge.prompt()` (per
+  base: label, `when`, commit, blob link prefix, pages; folders past 300 pages or 40 KB), and
+  the engine adds `search_knowledge` for every role when a base is configured.
 - **Confirmation (`confirm.py`):** a proposal is stored at `sym:<ns>:assistant:proposal:<id>`
   (7 days) and shown with "Create", "Create and start" and "Dismiss" (button ids
   `proposal:<id>:create|start|dismiss`). Only a person mapped in `notify.users` may click;
