@@ -1,8 +1,8 @@
 // One ticket, end to end: twelve scenes. Every time reference points at a narration cue (see ../lib/engine.js `at`).
-// The facts come from docs/concepts.md, docs/internals.md, docs/architecture.md, docs/providers.md, WORKFLOW.md
-// and src/symphony/{orchestrator,runner,prompt,reflector,telemetry}.py. The example ticket ENG-1 and its pull
-// request are those of docs/mocked-certification.md (scenario 1); the figures are from docs/certification.md
-// and docs/mocked-certification.md.
+// The facts come from docs/concepts.md, docs/internals.md, docs/architecture.md, docs/providers.md, WORKFLOW.md,
+// CHANGELOG.md and src/symphony/{orchestrator,runner,prompt,reflector,telemetry,intake,triage,questions,hosttools}.py.
+// The example ticket ENG-1 and its pull request are those of docs/mocked-certification.md (scenario 1); the figures
+// are from docs/certification.md and docs/mocked-certification.md.
 
 const SHOT = (name) => `../../tern/${name}-dark.png`;
 
@@ -105,7 +105,7 @@ const SCENES = {
       row(S.el, { x: 100, y: 540 + i * 112, w: 760, h: 96, in: ref },
         `<span class="chip ${cls}" style="min-width:150px;text-align:center">${k}</span><div><div>${v}</div><div style="color:var(--muted)">${who}</div></div>`));
 
-    const R = D.layer(sec, { in: "s2.4" });
+    const R = D.layer(sec, { in: "s2.4", out: "s2.6" });
     [["repo:acme/app", "acme/app", "s2.4+0.6", "green"],
       ["no repo: label", "the default repository", "s2.4+2", "green"],
       ["no label, no default", "not dispatched", "s2.4+3.6", "red"],
@@ -122,6 +122,13 @@ const SCENES = {
     });
     card(sec, { x: 940, y: 740, w: 880, h: 140, in: "s2.5+2.4" },
       '<h3>Order</h3><p>priority 1 to 4 first · then the oldest · then the identifier</p>');
+
+    // The intake verdict, on a ticket that is not queued.
+    comment(sec, { x: 100, y: 540, w: 760, h: 340, in: "s2.6" }, "<b>symphony</b> commented on ENG-2", [
+      ["s2.6+0.3", "<p><b>Symphony</b> — ENG-2 is not queued: it is in <b>Backlog</b>, and Symphony only takes tickets in Todo, In Progress, Rework.</p>"],
+      ["s2.6+2.6", "<p>Who acts: the ticket's owner.</p>"],
+      ["s2.6+3.2", "<p>Next: move it to <b>Todo</b> when it is ready.</p>"],
+    ]);
   },
 
   // 3. Dispatch
@@ -297,82 +304,129 @@ const SCENES = {
 
   // 8. When an attempt stops
   s8(sec) {
-    const A = D.layer(sec, { in: "s8", out: "s8.4" });
+    const A = D.layer(sec, { in: "s8", out: "s8.5" });
     const a = A.el;
     const outcomes = [
       ["done", "green", "the ticket left the active states", "park, or clean up", "s8.1"],
       ["continuation", "blue", "turn cap, time guard", "same attempt, in about 1 s", "s8.2"],
-      ["failed", "red", "hook, prompt, silence, engine error", "next attempt, after a backoff", "s8.3"],
-      ["fenced", "", "a newer dispatch owns the ticket", "nothing: the runner exits", "s8.1+0.9"],
+      ["blocked", "amber", "symphony_blocked, or idle continuations", "wait for a person, with no slot", "s8.3"],
+      ["failed", "red", "hook, prompt, silence, engine error", "next attempt, after a backoff", "s8.4"],
+      ["fenced", "", "a newer dispatch owns the ticket", "nothing: the runner exits", "s8.1+1.2"],
     ];
+    const focus = ["s8.2", "s8.3", "s8.4"];
     outcomes.forEach(([k, c, cause, next, ref], i) => {
-      D.abs(a, "div", { x: 100, y: 215 + i * 150, w: 1000, h: 130, in: i === 0 ? "s8.1" : t("s8.1", 0.3 * i) }, {
+      D.abs(a, "div", { x: 100, y: 215 + i * 128, w: 1000, h: 112, in: i === 0 ? "s8.1" : t("s8.1", 0.3 * i),
+        o: [["s8", 1], ...focus.map((f) => [f, ref === f ? 1 : 0.4])] }, {
         class: "node", html: `<div style="display:flex;gap:24px;align-items:center;font-size:28px"><span class="chip ${c}" style="min-width:230px;text-align:center">${k}</span><div><div>${cause}</div><div style="color:var(--muted)">→ ${next}</div></div></div>`,
-        style: { padding: "0 22px" }, o: [["s8", 1], ["s8.2", ref === "s8.2" ? 1 : 0.4], ["s8.3", ref === "s8.3" ? 1 : 0.4]],
+        style: { padding: "0 22px" },
       });
     });
-    D.abs(a, "div", { x: 1160, y: 215, w: 660, h: 180, in: "s8.2+2" }, { class: "card", html: '<h3>Cooldown</h3><p>No change on the ticket? Wait <span class="mono">redispatch_cooldown_s</span> (180 in WORKFLOW.md).</p>' });
-    D.abs(a, "div", { x: 1160, y: 420, in: "s8.3+0.4" }, { html: '<span class="chip red">min(10 s × 2<sup>n−1</sup>, 300 s)</span>' });
+    D.abs(a, "div", { x: 1160, y: 215, w: 660, h: 180, in: "s8.2+2", out: "s8.3" }, { class: "card", html: '<h3>Cooldown</h3><p>No change on the ticket? Wait <span class="mono">redispatch_cooldown_s</span> (180 in WORKFLOW.md).</p>' });
+    card(a, { x: 1160, y: 215, w: 660, h: 300, in: "s8.3+0.4", out: "s8.4" },
+      '<h3>Waiting for a person</h3><p>No slot, no dispatch, no continuation. One comment on the ticket says what the agent needs.</p><p style="margin-top:14px">An answer, a comment, a label or a state change starts one new run.</p>');
+    muted(a, { x: 1160, y: 540, w: 660, in: "s8.3+3", out: "s8.4" }, "agent.max_idle_continuations, default 3");
+    D.abs(a, "div", { x: 1160, y: 420, in: "s8.4+0.4" }, { html: '<span class="chip red">min(10 s × 2<sup>n−1</sup>, 300 s)</span>' });
     const waits = [10, 20, 40, 80, 160, 300];
     waits.forEach((w, i) => {
       const h = Math.round(300 * (w / 300)) + 20;
-      D.abs(a, "div", { x: 1180 + i * 106, y: 790 - h, w: 76, h, in: t("s8.3+2", 0.3 + i * 0.45), kind: "pop" }, { style: { background: i === 5 ? "var(--amber)" : "var(--red)", borderRadius: "8px 8px 0 0", opacity: "0.85" } });
-      D.abs(a, "div", { x: 1160 + i * 106, y: 800, w: 116, in: t("s8.3+2", 0.3 + i * 0.45) }, { class: "mono", text: w === 300 ? "5 min" : `${w} s`, style: { fontSize: "28px", textAlign: "center" } });
+      D.abs(a, "div", { x: 1180 + i * 106, y: 790 - h, w: 76, h, in: t("s8.4+2", 0.3 + i * 0.45), kind: "pop" }, { style: { background: i === 5 ? "var(--amber)" : "var(--red)", borderRadius: "8px 8px 0 0", opacity: "0.85" } });
+      D.abs(a, "div", { x: 1160 + i * 106, y: 800, w: 116, in: t("s8.4+2", 0.3 + i * 0.45) }, { class: "mono", text: w === 300 ? "5 min" : `${w} s`, style: { fontSize: "28px", textAlign: "center" } });
     });
-    muted(a, { x: 1160, y: 850, w: 660, in: "s8.3+5" }, "agent.max_retry_backoff_ms caps it", 28);
+    muted(a, { x: 1160, y: 850, w: 660, in: "s8.4+5" }, "agent.max_retry_backoff_ms caps it", 28);
 
-    // Stall detection.
-    const B = D.layer(sec, { in: "s8.4+0.3" });
+    // The retry budget, and failure triage.
+    const B = D.layer(sec, { in: "s8.5", out: "s8.7" });
     const b = B.el;
-    D.abs(b, "div", { x: 100, y: 300, w: 1720, h: 8, in: "s8.4", kind: "wipe", dur: 1.0 }, { style: { background: "#3a4a62", borderRadius: "4px" } });
-    [100, 220, 340].forEach((x, i) => D.abs(b, "div", { x, y: 288, w: 32, h: 32, in: t("s8.4", 0.1 * i), kind: "pop" }, { style: { borderRadius: "50%", background: "var(--amber)" } }));
-    muted(b, { x: 100, y: 230, in: "s8.4" }, "engine events");
-    D.abs(b, "div", { x: 420, y: 270, w: 600, h: 70, in: "s8.4+0.6" }, { class: "node center", html: '<div class="rowline" style="justify-content:center">window 1: silence · strike 1</div>', style: { borderColor: "var(--amber)", padding: 0 } });
-    D.abs(b, "div", { x: 1040, y: 270, w: 600, h: 70, in: "s8.4+1.4" }, { class: "node center", html: '<div class="rowline" style="justify-content:center">window 2: silence · stop</div>', style: { borderColor: "var(--red)", padding: 0 } });
-    muted(b, { x: 420, y: 360, w: 1220, in: "s8.4+1" }, "agent.stall_timeout_ms, 30 minutes in WORKFLOW.md");
-    comment(b, { x: 100, y: 440, w: 1720, h: 300, in: "s8.4+2" }, "<b>symphony</b> commented on ENG-1", [
-      ["s8.4+2", "<p><b>Attempt 2 ended without finishing</b> — it went silent for more than 30 minutes and was stopped. A new attempt is queued; the branch and this Workpad are kept, so the next one continues rather than restarts.</p>"],
-      ["s8.4+2.6", "<p><i>Reported by the orchestrator, not the agent: it was no longer running to report for itself.</i></p>"],
+    comment(b, { x: 100, y: 215, w: 1720, h: 340, in: "s8.5" }, "<b>symphony</b> commented on ENG-1", [
+      ["s8.5", "<p><b>Symphony stopped retrying this ticket</b> — 8 attempts in a row ended without finishing.</p>"],
+      ["s8.5+1.6", "<p>• <b>What failed:</b> the before_run hook exited with status 1</p>"],
+      ["s8.5+3.4", "<p>• <b>Who acts:</b> an agent, in ENG-31, finds the cause; a Symphony operator if it cannot fix it.</p>"],
+      ["s8.5+4.6", "<p>• <b>Next step:</b> once the cause is fixed, run <code>symphony reevaluate ENG-1</code>, or edit the ticket (a comment is enough) to queue a new attempt.</p>"],
     ]);
-    D.abs(b, "div", { x: 100, y: 780, in: "s8.5" }, { html: '<span class="chip green">branch kept</span> <span class="chip green">Workpad kept</span> <span class="chip green">the next attempt continues</span>' });
+    D.abs(b, "div", { x: 100, y: 580, in: "s8.5+1" }, { html: '<span class="chip">agent.max_failed_attempts: 8</span> <span class="chip amber">status: blocked</span> <span class="chip red">🛑 retries_exhausted → the channel</span>' });
+    D.box(b, { x: 100, y: 670, w: 900, h: 210, cls: "trusted", in: "s8.6", kick: "Investigation · triage.repo",
+      title: '<span class="mono" style="font-size:30px">ENG-31</span> Investigate run failure: …', sub: "the evidence: Job condition, exit, last error, log lines" });
+    card(b, { x: 1060, y: 670, w: 760, h: 210, in: "s8.6+1.4" },
+      '<h3>Failure triage</h3><p>Off by default (<span class="mono">triage:</span>). One ticket per failure signature; a repeat adds an occurrence.</p>');
+
+    // Stall detection, and a Job that ended with no outcome.
+    const C = D.layer(sec, { in: "s8.7+0.3" });
+    const c = C.el;
+    D.abs(c, "div", { x: 100, y: 300, w: 1720, h: 8, in: "s8.7", kind: "wipe", dur: 1.0 }, { style: { background: "#3a4a62", borderRadius: "4px" } });
+    [100, 220, 340].forEach((x, i) => D.abs(c, "div", { x, y: 288, w: 32, h: 32, in: t("s8.7", 0.1 * i), kind: "pop" }, { style: { borderRadius: "50%", background: "var(--amber)" } }));
+    muted(c, { x: 100, y: 230, in: "s8.7" }, "engine events");
+    D.abs(c, "div", { x: 420, y: 270, w: 600, h: 70, in: "s8.7+0.6" }, { class: "node center", html: '<div class="rowline" style="justify-content:center">window 1: silence · strike 1</div>', style: { borderColor: "var(--amber)", padding: 0 } });
+    D.abs(c, "div", { x: 1040, y: 270, w: 600, h: 70, in: "s8.7+1.4" }, { class: "node center", html: '<div class="rowline" style="justify-content:center">window 2: silence · stop</div>', style: { borderColor: "var(--red)", padding: 0 } });
+    muted(c, { x: 420, y: 360, w: 1220, in: "s8.7+1" }, "agent.stall_timeout_ms, 30 minutes in WORKFLOW.md");
+    comment(c, { x: 100, y: 420, w: 1720, h: 280, in: "s8.7+2" }, "<b>symphony</b> commented on ENG-1", [
+      ["s8.7+2", "<p><b>Attempt 2 ended without finishing</b> — it went silent for more than 30 minutes and was stopped. A new attempt is queued; the branch and this Workpad are kept, so the next one continues rather than restarts. This is failure 2 of 8 in a row; at 8 Symphony stops retrying and asks for a human.</p>"],
+      ["s8.7+2.6", "<p><i>Reported by the orchestrator, not the agent: it was no longer running to report for itself.</i></p>"],
+    ]);
+    D.abs(c, "div", { x: 100, y: 730, in: "s8.8" }, { html: '<span class="chip amber">runner Job ended, no outcome</span> <span style="font-size:30px">&nbsp;→ requeued at the next tick, not after two windows</span>' });
+    D.abs(c, "div", { x: 100, y: 810, in: "s8.9" }, { html: '<span class="chip green">branch kept</span> <span class="chip green">Workpad kept</span> <span class="chip green">the next attempt continues</span>' });
   },
 
   // 9. Questions and holds
   s9(sec) {
-    const A = D.layer(sec, { in: "s9", out: "s9.4" });
+    const A = D.layer(sec, { in: "s9", out: "s9.5" });
     const a = A.el;
-    source(a, { x: 100, y: 215, w: 1000, h: 170, in: "s9.1" }, "Host tool call", [
-      ["s9.1+0.4", '<span class="k">symphony_ask</span> {question: "Which word should'],
-      ["s9.1+0.4", '  farewell() start with?"}'],
+    source(a, { x: 100, y: 215, w: 1000, h: 225, in: "s9.1" }, "Host tool call", [
+      ["s9.1+0.4", '<span class="k">symphony_ask</span> {question: "Which word should farewell()'],
+      ["s9.1+0.4", '  start with?", options: ["Goodbye", "See you"],'],
+      ["s9.1+3.6", '  to: "alice"}'],
     ]);
-    chip(a, 1160, 230, "s9.2", "session: waiting_input", "amber");
-    message(a, { x: 100, y: 420, w: 1000, h: 170, in: "s9.2+0.4" }, "Symphony",
-      "<p>🙋 <b>Agent is waiting for an answer</b> · ENG-1 needs an answer: Which word should farewell() start with?</p>");
-    D.abs(a, "div", { x: 1160, y: 420, w: 660, in: "s9.2+2.4" }, { html: '<span class="chip">Tern · answer</span> <span class="chip">symphony CLI</span><br><span class="chip mono" style="margin-top:12px">POST /v1/sessions/{sid}/messages</span>' });
-    muted(a, { x: 1160, y: 560, w: 660, in: "s9.2+3.2" }, "The answer completes the tool call. The agent goes on.");
-    card(a, { x: 100, y: 630, w: 1720, h: 200, in: "s9.3" },
-      '<h3>After agent.input_timeout_ms (15 min)</h3><p class="mono" style="color:var(--amber)">No human answered; proceed with your best judgment and record the assumption in the Workpad.</p>');
+    chip(a, 1160, 230, "s9.1+1.6", "session: waiting_input", "amber");
+    chip(a, 1160, 300, "s9.3+0.3", "DM · alice, who decides", "violet");
+    chip(a, 1160, 366, "s9.3+1.4", "DM · bob, the assignee", "violet");
+    comment(a, { x: 100, y: 465, w: 840, h: 370, in: "s9.2" }, "<b>symphony</b> commented on ENG-1", [
+      ["s9.2+0.3", '<p><b>Question from the agent</b> for <b style="color:var(--blue)">@alice</b></p>'],
+      ["s9.2+0.6", "<p>Which word should farewell() start with?</p>"],
+      ["s9.2+0.9", "<p>1. Goodbye<br>2. See you</p>"],
+      ["s9.2+1.4", '<p style="color:#9da7b3">Answer by replying here, in the Slack thread, with a button, or in a comment on the PR …</p>'],
+    ]);
+    message(a, { x: 980, y: 465, w: 840, h: 370, in: "s9.2+2.6" }, "Symphony",
+      '<p>🙋 <b>Agent is waiting for an answer</b> · <u style="color:var(--blue)">ENG-1 · Add farewell() to app/greet.py</u> · <b style="color:var(--blue)">@alice</b></p>'
+      + "<p>Which word should farewell() start with?</p>"
+      + '<p><span class="chip">1. Goodbye</span> <span class="chip">2. See you</span></p>'
+      + '<p style="color:#8a8d91;font-size:26px">Answer with a button, in this thread, on the ticket or in a comment on the PR.</p>');
+    D.abs(a, "div", { x: 100, y: 850, in: "s9.4" }, { html: '<span class="chip">ticket</span> <span class="chip">pull request</span> <span class="chip">Slack</span> <span class="chip">Tern</span> <span class="chip">CLI</span>' });
+    chip(a, 1160, 850, "s9.4+3.4", "the first answer wins", "green");
 
-    const B = D.layer(sec, { in: "s9.4" });
-    const b = B.el;
-    D.term(b, { x: 100, y: 215, w: 760, in: "s9.4" }, "A person's machine", [
-      { cmd: "symphony takeover ENG-147", in: "s9.4+0.3" },
-      { c: "held · transcript · branch · omp --resume", in: "s9.4+1.4" },
-      { cmd: "symphony release ENG-147", in: "s9.5+2.6" },
+    // The question outlives the run.
+    const Q = D.layer(sec, { in: "s9.5", out: "s9.7" });
+    const q = Q.el;
+    card(q, { x: 100, y: 215, w: 1720, h: 200, in: "s9.5" },
+      '<h3>After agent.input_timeout_ms (15 min), the agent reads</h3><p class="mono" style="color:var(--amber)">Nobody answered in time. The question stays open on the ticket and in Slack, and the person who decides is reminded later. Proceed with your best judgment and record the assumption in the Workpad.</p>');
+    chip(q, 100, 450, "s9.6+0.2", "question: still open", "green");
+    chip(q, 520, 450, "s9.6+1.2", "agent.ask_reminder_ms · 2 h", "amber");
+    comment(q, { x: 100, y: 530, w: 1100, h: 260, in: "s9.6+1.6" }, "<b>symphony</b> replied on ENG-1", [
+      ["s9.6+1.6", '<p><b>Still waiting for an answer</b>, <b style="color:var(--blue)">@alice</b>: this question has been open for 2 h.</p>'],
+      ["s9.6+2", '<p style="color:#9da7b3">&gt; Which word should farewell() start with?</p>'],
+      ["s9.6+2.4", "<p>Reply in this thread with an option's number or in your own words.</p>"],
     ]);
-    [["the attempt stops at once", "s9.5"], ["dispatch and gateway tokens removed", "s9.5+0.6"], ["workspace, branch and session stay", "s9.5+1.2"], ["no dispatch, retry or continuation", "s9.5+1.8"]].forEach(([text, ref], i) =>
+    card(q, { x: 1260, y: 450, w: 560, h: 340, in: "s9.6+3.8" },
+      '<h3>A late answer</h3><p>→ a message to the run that went on without it</p><p style="margin-top:12px">→ with no run, the ticket goes back to Rework</p>');
+
+    const B = D.layer(sec, { in: "s9.7" });
+    const b = B.el;
+    D.term(b, { x: 100, y: 215, w: 760, in: "s9.7" }, "A person's machine", [
+      { cmd: "symphony takeover ENG-147", in: "s9.7+0.3" },
+      { c: "held · transcript · branch · omp --resume", in: "s9.7+1.4" },
+      { cmd: "symphony release ENG-147", in: "s9.8+2.6" },
+    ]);
+    [["the attempt stops at once", "s9.8"], ["dispatch and gateway tokens removed", "s9.8+0.6"], ["workspace, branch and session stay", "s9.8+1.2"], ["no dispatch, retry or continuation", "s9.8+1.8"]].forEach(([text, ref], i) =>
       D.abs(b, "div", { x: 920, y: 225 + i * 52, in: ref }, { html: `<span class="tick">✓</span> ${text}`, style: { fontSize: "28px" } }));
     D.shot(b, {
-      x: 100, y: 470, w: 1720, h: 410, in: "s9.4+0.8",
-      shots: [{ src: SHOT("tickets"), in: "s9.4+0.8" }],
-      cam: [["s9.4", 860, 680, 1.0]],
-      spots: [{ x: 20, y: 562, w: 1680, h: 52, in: "s9.5" }, { x: 20, y: 728, w: 1680, h: 88, in: "s9.5+2.6" }],
+      x: 100, y: 470, w: 1720, h: 410, in: "s9.7+0.8",
+      shots: [{ src: SHOT("tickets"), in: "s9.7+0.8" }],
+      cam: [["s9.7", 860, 680, 1.0]],
+      spots: [{ x: 20, y: 562, w: 1680, h: 52, in: "s9.8" }, { x: 20, y: 728, w: 1680, h: 88, in: "s9.8+2.6" }],
     });
   },
 
   // 10. Other kinds of ticket
   s10(sec) {
-    const col = (x, ref, title, cls) => card(sec, { x, y: 210, w: 560, h: 670, in: ref }, `<h3>${title}</h3>`, { borderColor: `var(--${cls})` });
+    const col = (x, ref, title, cls) => card(sec, { x, y: 200, w: 560, h: 690, in: ref }, `<h3>${title}</h3>`, { borderColor: `var(--${cls})` });
     const add = (parent, ref, html, style = {}) => {
       const el = Engine.h("div", { html, style: { fontSize: "28px", lineHeight: "1.4", marginTop: "16px", ...style } });
       parent.append(el);
@@ -386,30 +440,35 @@ const SCENES = {
     add(inv, "s10.2+1.2", "→ new tickets for the follow-up work");
     add(inv, "s10.2+2.4", '→ <span class="chip green">Done</span>');
 
-    const sub = col(680, "s10.3", "Sub-issues and evidence", "violet");
+    const sub = col(680, "s10.3", "Sub-issues and files", "violet");
     add(sub, "s10.3+0.4", '<span class="mono">ENG-4</span> plan the shout() feature', { fontWeight: "700" });
     add(sub, "s10.3+1.6", '&nbsp;└ <span class="mono">ENG-5</span> Add shout()<br>&nbsp;└ <span class="mono">ENG-6</span> Document shout()');
     add(sub, "s10.3+2.4", '<span class="chip violet">ENG-5 blocks ENG-6</span><br><span class="chip blue" style="margin-top:8px">symphony</span> <span class="chip blue" style="margin-top:8px">repo:acme/app</span>');
     add(sub, "s10.4", '<span class="chip amber">pytest evidence · log</span>');
-    add(sub, "s10.4+0.8", '<span style="color:var(--muted)">Linear: a file up to 25 MB. GitHub: text only.</span>');
+    add(sub, "s10.4+0.8", '<span style="color:var(--muted)">Linear: up to 25 MB · GitHub: text</span>');
+    add(sub, "s10.4+3", '<span class="chip amber">session-trace-run-1.html</span><br><span style="color:var(--muted)">Linear only · secrets [REDACTED]</span>');
+    add(sub, "s10.5+0.4", '<span class="mono" style="font-size:26px">symphony_ticket_attachments<br>symphony_fetch_attachment</span>');
 
-    const mr = col(1260, "s10.5", "Several repositories", "green");
-    add(mr, "s10.5+0.4", '<span class="chip blue">repo:acme/app</span> <span class="chip blue">repo:acme/lib</span>');
-    add(mr, "s10.5+1.2", '<span class="mono">/workspace</span> <span style="color:var(--muted)">primary</span><br><span class="mono">/workspace/repos/lib</span>');
-    add(mr, "s10.5+2.6", '<span style="color:var(--muted)">one token</span><br><span class="chip green">acme/app, acme/lib</span>');
-    add(mr, "s10.5+3.8", '<span class="mono">acme/app#2</span> · <span class="mono">acme/lib#1</span><br><span style="color:var(--muted)">one pull request per repository; each merger merges its own</span>');
+    const mr = col(1260, "s10.6", "Several repositories", "green");
+    add(mr, "s10.6+0.4", '<span class="chip blue">repo:acme/app</span> <span class="chip blue">repo:acme/lib</span>');
+    add(mr, "s10.6+1.2", '<span class="mono">/workspace</span> <span style="color:var(--muted)">primary</span><br><span class="mono">/workspace/repos/lib</span>');
+    add(mr, "s10.6+2.6", '<span style="color:var(--muted)">one token</span><br><span class="chip green">acme/app, acme/lib</span>');
+    add(mr, "s10.6+3.8", '<span class="mono">acme/app#2</span> · <span class="mono">acme/lib#1</span><br><span style="color:var(--muted)">one pull request per repository; the merger merges each</span>');
+    add(mr, "s10.7", '<span class="chip amber">repository set changed</span><br><span style="color:var(--muted)">→ a new pod, volume, token and session</span>');
   },
 
   // 11. Reconcile, sweep and learnings
   s11(sec, sv) {
-    const A = D.layer(sec, { in: "s11", out: "s11.4" });
+    const A = D.layer(sec, { in: "s11", out: "s11.5" });
     const a = A.el;
     D.abs(a, "div", { x: 100, y: 215, in: "s11.1" }, { html: '<b style="font-size:32px">Reconcile: what the tracker says now</b>' });
     [["ENG-1", "In Review", "parked: workspace kept, no slot", "violet", "s11.2"],
       ["ENG-9", "gone, or label removed", "stopped, workspace kept", "red", "s11.2+2.4"],
-      ["ENG-1", "Done", "terminal: clean up", "green", "s11.3"]].forEach(([id, s, act, c, ref], i) =>
+      ["ENG-1", "Done", "terminal: clean up", "green", "s11.3"],
+      ["ENG-10", "Canceled", "abandon: questions and PRs close", "red", "s11.4"]].forEach(([id, s, act, c, ref], i) =>
       row(a, { x: 100, y: 285 + i * 100, w: 1000, h: 84, in: ref },
         `<b class="mono" style="min-width:110px">${id}</b><span class="chip ${c}">${s}</span><span>${act}</span>`));
+    muted(a, { x: 100, y: 700, w: 1000, in: "s11.4+2.6" }, "Its Slack question reads ⛔ Ticket canceled, with no buttons. The merger comments once, then closes each open PR.");
     const steps = card(a, { x: 1180, y: 215, w: 640, h: 440, in: "s11.3+0.4" }, "<h3>Terminal, in this order</h3>");
     ["retrospective (reflector Job)", "monthly metrics", "stop the runner and the engine", "delete the workspace", "delete tokens and the record"].forEach((s, i) => {
       const r = Engine.h("p", { html: `<span class="mono" style="color:var(--muted)">${i + 1}</span> &nbsp;${s}`, style: { fontSize: "28px", lineHeight: "1.75" } });
@@ -417,22 +476,25 @@ const SCENES = {
       Engine.anim(r, { in: t("s11.3", 0.6 + i * 0.35), lift: 6 });
     });
 
-    const B = D.layer(sec, { in: "s11.4" });
+    const B = D.layer(sec, { in: "s11.5" });
     const b = B.el;
     const ins = ["PR diff", "review threads", "CI results", "Workpad", "attempts"];
-    ins.forEach((s, i) => chip(b, 100, 230 + i * 66, t("s11.4", 0.2 + i * 0.3), s, "blue"));
-    const rf = D.box(b, { x: 420, y: 250, w: 380, h: 250, cls: "store", in: "s11.4+2", kick: "Reflector", title: "≤ 3 lessons", sub: "general ones, or nothing at all" });
-    D.wire(b, B.sv, [380, 375], rf, { in: "s11.4+1.5" });
-    const cu = D.box(b, { x: 900, y: 250, w: 420, h: 250, cls: "trusted", in: "s11.5", kick: "Code, not a model", title: "curate AGENTS.md", sub: "add, replace, remove · 100-line budget · unused lessons decay" });
-    D.wire(b, B.sv, rf, cu, { in: "s11.5", color: "#b197fc" });
-    const lp = D.box(b, { x: 1420, y: 250, w: 400, h: 250, cls: "people", in: "s11.6", kick: "Pull request", title: '<span style="font-size:30px">learnings: ENG-1</span>', sub: '<span class="mono" style="font-size:28px">symphony-learnings</span><br>a person reviews and merges' });
-    D.wire(b, B.sv, cu, lp, { in: "s11.6", color: "#f5b452" });
-    muted(b, { x: 900, y: 520, w: 420, in: "s11.5+1" }, "A recurring procedure becomes a skill.");
-    comment(b, { x: 100, y: 600, w: 1100, h: 280, in: "s11.6+0.6" }, "<b>symphony[bot]</b> opened <b>learnings: ENG-1</b>", [
-      ["s11.6+0.6", "<p>Lessons distilled from the retrospective of ENG-1 (+1 new, …). Human gate required — never auto-merge.</p>"],
-      ["s11.6+1.4", "<p><code>AGENTS.md</code> + Paste the exact test command and its output in the PR description</p>"],
+    ins.forEach((s, i) => chip(b, 100, 230 + i * 66, t("s11.5", 0.2 + i * 0.3), s, "blue"));
+    const rf = D.box(b, { x: 420, y: 250, w: 380, h: 250, cls: "store", in: "s11.5+2", kick: "Reflector", title: "≤ 3 lessons", sub: "general ones, or nothing at all" });
+    D.wire(b, B.sv, [380, 375], rf, { in: "s11.5+1.5" });
+    const cu = D.box(b, { x: 900, y: 250, w: 420, h: 250, cls: "trusted", in: "s11.6", kick: "Code, not a model", title: "curate AGENTS.md", sub: "add, replace, remove · 100-line budget · unused lessons decay" });
+    D.wire(b, B.sv, rf, cu, { in: "s11.6", color: "#b197fc" });
+    const lp = D.box(b, { x: 1420, y: 250, w: 400, h: 250, cls: "people", in: "s11.7", kick: "Pull request", title: '<span style="font-size:30px">learnings: ENG-1</span>', sub: '<span class="mono" style="font-size:28px">symphony-learnings</span><br>a person reviews and merges' });
+    D.wire(b, B.sv, cu, lp, { in: "s11.7", color: "#f5b452" });
+    muted(b, { x: 900, y: 520, w: 420, in: "s11.6+1" }, "A recurring procedure becomes a skill.");
+    comment(b, { x: 100, y: 600, w: 1100, h: 280, in: "s11.7+0.6", out: "s11.8" }, "<b>symphony[bot]</b> opened <b>learnings: ENG-1</b>", [
+      ["s11.7+0.6", "<p>Lessons distilled from the retrospective of ENG-1 (+1 new, …). Human gate required — never auto-merge.</p>"],
+      ["s11.7+1.4", "<p><code>AGENTS.md</code> + Paste the exact test command and its output in the PR description</p>"],
     ]);
-    card(b, { x: 1260, y: 600, w: 560, h: 280, in: "s11.7" },
+    card(b, { x: 100, y: 600, w: 1100, h: 280, in: "s11.8" },
+      '<h3>Public repository</h3><p>The branch is <span class="mono">symphony/&lt;ticket id&gt;</span>, the tracker\'s opaque id. No ticket key, tracker or company name in the code, commits or PR.</p><p style="margin-top:12px">No learnings PR: the lessons come from the private ticket.</p>');
+    chip(b, 1420, 520, "s11.8+2.6", "public repo: no PR", "red");
+    card(b, { x: 1260, y: 600, w: 560, h: 280, in: "s11.9" },
       '<h3>Nightly sweep</h3><p>CronJob <span class="mono">symphony-nightly-sweep</span>, 03:30. It starts the retrospectives missed in the last 7 days.</p>');
   },
 

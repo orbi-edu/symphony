@@ -17,189 +17,205 @@ s1.4
 The notices go to Slack, to Discord, or to both.
 
 s2.1
-00:00:14.557 --> 00:00:17.329
+00:00:14.557 --> 00:00:17.331
 With Linear, the states are the team's workflow states.
 
 s2.2
-00:00:17.329 --> 00:00:20.518
+00:00:17.331 --> 00:00:20.520
 With GitHub, they are the options of the board's Status field.
 
 s2.3
-00:00:20.518 --> 00:00:24.306
+00:00:20.520 --> 00:00:24.309
 Todo, In Progress and Rework are active. The implementer works there.
 
 s2.4
-00:00:24.306 --> 00:00:27.942
+00:00:24.309 --> 00:00:27.945
 In Review and Merging are parked. There the merger owns the ticket.
 
 s2.5
-00:00:27.942 --> 00:00:32.758
+00:00:27.945 --> 00:00:32.481
 Done, Canceled and Duplicate are terminal. On GitHub, so is a closed issue.
 
+s2.6
+00:00:32.481 --> 00:00:39.622
+Canceled and Duplicate are abandon states. A ticket moved there closes its open questions and its pull requests.
+
 s3.1
-00:00:33.108 --> 00:00:36.343
+00:00:39.972 --> 00:00:43.207
 A Linear ticket keeps its key, like ENG-42.
 
 s3.2
-00:00:36.343 --> 00:00:41.047
+00:00:43.207 --> 00:00:47.911
 A GitHub ticket is the repository name and the issue number, like app-42.
 
 s3.3
-00:00:41.047 --> 00:00:45.349
+00:00:47.911 --> 00:00:52.213
 A ticket needs every required label, such as symphony, to be dispatched.
 
 s3.4
-00:00:45.349 --> 00:00:50.688
+00:00:52.213 --> 00:00:57.550
 A repo label names the repository. On GitHub, the default is the issue's own.
 
 s4.1
-00:00:51.038 --> 00:00:55.050
+00:00:57.900 --> 00:01:01.914
 An agent can split a large ticket into sub-issues, in one tool call.
 
 s4.2
-00:00:55.050 --> 00:00:57.724
+00:01:01.914 --> 00:01:04.587
 On Linear, their order becomes blocks relations.
 
 s4.3
-00:00:57.724 --> 00:01:02.414
+00:01:04.587 --> 00:01:09.278
 On GitHub, they go on the board in the first active state, with blocked-by dependencies.
 
 s4.4
-00:01:02.414 --> 00:01:07.749
+00:01:09.278 --> 00:01:14.611
 Only these links hold a ticket back, until every blocker is terminal. A parent link does not.
 
 s4.5
-00:01:07.749 --> 00:01:11.736
+00:01:14.611 --> 00:01:18.597
 The tool is idempotent. A second call makes no second issue.
 
 s5.1
-00:01:12.086 --> 00:01:16.682
+00:01:18.947 --> 00:01:23.543
 The agent keeps one comment on the ticket, headed Workpad, and edits it in place.
 
 s5.2
-00:01:16.682 --> 00:01:20.345
+00:01:23.543 --> 00:01:27.207
 It writes through linear_graphql or github_graphql, run on the host.
 
 s5.3
-00:01:20.345 --> 00:01:25.653
+00:01:27.207 --> 00:01:32.514
 On Linear, evidence is an uploaded file of up to 25 MB, attached to the issue.
 
 s5.4
-00:01:25.653 --> 00:01:31.896
+00:01:32.514 --> 00:01:38.757
 GitHub has no API to upload a file to an issue. So evidence is text, in a collapsible comment.
 
 s5.5
-00:01:31.896 --> 00:01:38.738
+00:01:38.757 --> 00:01:45.597
 That comment holds at most 65,536 characters. A screenshot is refused.
 
 s6.1
-00:01:39.088 --> 00:01:43.232
+00:01:45.947 --> 00:01:50.090
 When Symphony moves a GitHub ticket to a terminal state, it closes the issue.
 
 s6.2
-00:01:43.232 --> 00:01:48.029
+00:01:50.090 --> 00:01:54.889
 Done closes it as completed, the others as not planned. Any other state reopens it.
 
 s6.3
-00:01:48.029 --> 00:01:51.787
+00:01:54.889 --> 00:01:58.656
 The pull request description starts with Closes and the issue reference.
 
 s6.4
-00:01:51.787 --> 00:01:57.300
+00:01:58.656 --> 00:02:04.169
 When the train merges, GitHub closes the issue, and the board's Item closed workflow sets Done.
 
 s6.5
-00:01:57.300 --> 00:02:01.234
+00:02:04.169 --> 00:02:08.103
 With Linear, the Linear and GitHub integration moves the ticket to Done.
 
 s6.6
-00:02:01.234 --> 00:02:06.491
+00:02:08.103 --> 00:02:13.360
 The merger finds the ticket by the branch, a reference, a closing keyword, or the title.
 
 s7.1
-00:02:06.841 --> 00:02:11.115
-Seven events go to the chat, from a question for a person to a red main.
+00:02:13.710 --> 00:02:19.122
+Twelve events go to the chat, from a question for a person to a failure under investigation.
 
 s7.2
-00:02:11.115 --> 00:02:13.353
+00:02:19.122 --> 00:02:21.357
 Each configured channel gets each event.
 
 s7.3
-00:02:13.353 --> 00:02:19.817
+00:02:21.357 --> 00:02:27.824
 Slack takes a bot token and a channel, or an incoming webhook. Discord takes a bot, or a channel webhook.
 
 s7.4
-00:02:19.817 --> 00:02:22.208
+00:02:27.824 --> 00:02:30.214
 When both methods are set, the bot wins.
 
 s7.5
-00:02:22.208 --> 00:02:26.821
+00:02:30.214 --> 00:02:34.550
 With no channel, nothing is sent. And a failed notice never fails a run.
 
+s7.6
+00:02:34.550 --> 00:02:39.475
+A notice about a ticket also reaches its assignee, as a direct message from the bot.
+
+s7.7
+00:02:39.475 --> 00:02:46.579
+A question in Slack names the ticket and who decides, with one button per option. Its direct message has the same buttons.
+
+s7.8
+00:02:46.579 --> 00:02:53.030
+notify.direct_messages turns direct messages off, and notify.direct_events picks the events.
+
 s8.1
-00:02:27.171 --> 00:02:31.952
+00:02:53.380 --> 00:02:58.160
 notify.users maps a GitHub login to a Slack member, and to a Discord user.
 
 s8.2
-00:02:31.952 --> 00:02:36.742
+00:02:58.160 --> 00:03:02.951
 When a pull request goes back to octocat, the notice mentions octocat's mapped user.
 
 s8.3
-00:02:36.742 --> 00:02:39.092
+00:03:02.951 --> 00:03:05.298
 A login with no mapping gets no mention.
 
 s8.4
-00:02:39.092 --> 00:02:44.560
+00:03:05.298 --> 00:03:10.765
 On Discord, allowed mentions let only that user be pinged. Never a role, everyone, or here.
 
 s8.5
-00:02:44.560 --> 00:02:49.548
+00:03:10.765 --> 00:03:15.753
 A Discord message holds at most 2,000 characters. The text is cut first.
 
 s9.1
-00:02:49.898 --> 00:02:54.212
+00:03:16.103 --> 00:03:20.417
 The API takes webhooks on two routes: one for Linear, one for GitHub.
 
 s9.2
-00:02:54.212 --> 00:02:57.534
+00:03:20.417 --> 00:03:23.739
 Each checks an HMAC signature over the raw body.
 
 s9.3
-00:02:57.534 --> 00:03:03.213
-Ticket events wake the daemon. Pull request and CI events wake the merger of that repository.
+00:03:23.739 --> 00:03:29.444
+Ticket events wake the daemon. Pull request and CI events wake the merger, for that repository.
 
 s9.4
-00:03:03.213 --> 00:03:06.755
+00:03:29.444 --> 00:03:32.986
 With the GitHub tracker, issue and board events wake the daemon too.
 
 s9.5
-00:03:06.755 --> 00:03:12.489
+00:03:32.986 --> 00:03:38.720
 A webhook is only a hint. The loop reads the source again, so a lost delivery costs only time.
 
 s9.6
-00:03:12.489 --> 00:03:17.203
+00:03:38.720 --> 00:03:43.434
 Setup makes both secrets and URLs, and shows the secrets only once.
 
 s10.1
-00:03:17.553 --> 00:03:21.016
+00:03:43.784 --> 00:03:47.247
 The merger's main watch reads the finished CI runs on main.
 
 s10.2
-00:03:21.016 --> 00:03:25.221
+00:03:47.247 --> 00:03:51.452
 When main turns red, it opens one ticket with the logs of the failed jobs.
 
 s10.3
-00:03:25.221 --> 00:03:30.482
+00:03:51.452 --> 00:03:56.715
 On Linear, it goes on the board's team or project. On GitHub, it is an issue on the board.
 
 s10.4
-00:03:30.482 --> 00:03:34.199
+00:03:56.715 --> 00:04:00.432
 Its routing labels make the daemon dispatch an agent to fix main.
 
 s10.5
-00:03:34.199 --> 00:03:39.004
+00:04:00.432 --> 00:04:05.236
 When main is green again, the watch comments, moves the ticket to Done, and sends a notice.
 
 s10.6
-00:03:39.004 --> 00:03:46.010
+00:04:05.236 --> 00:04:12.242
 In the mocked runs, the ticket opened in 2.3 seconds on Linear, and in 2.7 seconds on GitHub.
