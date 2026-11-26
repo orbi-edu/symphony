@@ -165,6 +165,10 @@ def main() -> str:
             mcp.stage(write_file, agent_dir, "implementer", f"{issue_id}:{seq}", token_ttl_s)
         )
 
+    def release(name: str) -> None:
+        # start the idle clock: the reaper — the idle_timeout stand-in — takes it from here
+        kube.set_idle_since(core, ns, name, now_ms())
+
     def ensure_sandbox(issue: Issue, bound: Config, replaced: list[str] | None = None) -> PodSandbox:
         nonlocal installation
         repos = runner_mod.target_repos(issue)
@@ -207,71 +211,99 @@ def main() -> str:
             log.info('workspace_runtime_mismatch_recreating', pod=name, runtime=runtime)
             kube.delete_pod(core, ns, name, wait=True)
             pod = None
-        if pod is None:
-            created = kube.create_workspace(core, ns, bound, name, runtime=runtime, repos=repos)
-        else:
-            kube.wait_workspace_ready(core, ns, name)
-        # The clone hook needs these BEFORE it runs, which is why they belong to the
-        # sandbox wrapper rather than to the engine launch.
-        bb_env = base_branches_env(bound, repos)
-        wrapped = PodSandbox(
-            core,
-            ns,
-            name,
-            env={
-                "SYMPHONY_TARGET_REPO": repos[0] if repos else "",
-                "SYMPHONY_TARGET_REPOS": " ".join(repos),
-                **({"SYMPHONY_BASE_BRANCHES": bb_env} if bb_env else {}),
-                **({"SYMPHONY_COMPONENT": component} if component else {}),
-                **({"SYMPHONY_COMPONENT_PATH": component_path} if component_path else {}),
-            },
-        )
-        wrapped.replaced_repos = replaced
-        if (
-            not created
-            and repos
-            and not workspace_matches_repo(wrapped, bound.workspace_root, repos[0])
-        ):
-            # The ticket was re-pointed at a different repository since this workspace
-            # was built (one older than the recorded set). `after_create` — which owns the
-            # clone — runs only on creation, so reusing this one would work the issue
-            # against the previous repository's code with a credential scoped to the new one.
-            log.warning("workspace_repo_mismatch_recreating", pod=name, target_repo=repos[0])
-            kube.discard_workspace(core, ns, name)
-            return ensure_sandbox(issue, bound, replaced or [])
-        if not created:
-            if not kill_agent_processes(wrapped):
+        try:
+            if pod is None:
+                created = kube.create_workspace(core, ns, bound, name, runtime=runtime, repos=repos)
+                if not created:
+                    # Lost the create race (409): the pod is someone else's, reused as is.
+                    kube.set_idle_since(core, ns, name, None)
+            else:
+                # Busy from the claim on: the reaper and an autoscaler leave the pod alone
+                # through the checks below, not only once the attempt starts.
+                kube.set_idle_since(core, ns, name, None)
+                kube.wait_workspace_ready(core, ns, name)
+            # The clone hook needs these BEFORE it runs, which is why they belong to the
+            # sandbox wrapper rather than to the engine launch.
+            bb_env = base_branches_env(bound, repos)
+            wrapped = PodSandbox(
+                core,
+                ns,
+                name,
+                env={
+                    "SYMPHONY_TARGET_REPO": repos[0] if repos else "",
+                    "SYMPHONY_TARGET_REPOS": " ".join(repos),
+                    **({"SYMPHONY_BASE_BRANCHES": bb_env} if bb_env else {}),
+                    **({"SYMPHONY_COMPONENT": component} if component else {}),
+                    **({"SYMPHONY_COMPONENT_PATH": component_path} if component_path else {}),
+                },
+            )
+            wrapped.replaced_repos = replaced
+            if (
+                not created
+                and repos
+                and not workspace_matches_repo(wrapped, bound.workspace_root, repos[0])
+            ):
+                # The ticket was re-pointed at a different repository since this workspace
+                # was built (one older than the recorded set). `after_create` — which owns
+                # the clone — runs only on creation, so reusing this one would work the issue
+                # against the previous repository's code with a credential scoped to the new
+                # one.
+                log.warning("workspace_repo_mismatch_recreating", pod=name, target_repo=repos[0])
+                kube.discard_workspace(core, ns, name)
+                retry_replaced = replaced or []
+            elif not created and not kill_agent_processes(wrapped):
                 # zombie survived the pkill: terminate and start clean (§3.7.3)
                 log.warning("zombie_survived_terminating_workspace", pod=name)
                 kube.delete_pod(core, ns, name, wait=True)
-                return ensure_sandbox(issue, bound, replaced)
-        kube.set_idle_since(core, ns, name, None)  # busy again: the reaper must not touch it
-        # The credential helper must exist BEFORE after_create, which clones the repo.
-        if installation is not None:
-            app_tokens.append(installation.token())
-            install_credential_helper(wrapped, app_tokens[-1])
-        prepare_provider(wrapped, core, ns, bound, stage_mcp)
-        # Stage central skills from configured sources into the workspace pod.
-        try:
-            from ..skills import deduplicate, resolve_sources, skills_meta, stage_skills_workspace
-            if bound.skill_sources:
-                repos = runner_mod.target_repos(issue)
-                resolved = resolve_sources(
-                    bound.skill_sources, "implementer",
-                    repos[0] if repos else None,
-                    os.environ, now_ms,
-                    cache_client=kv.client, cache_ns=ns,
-                )
-                skills = deduplicate(resolved, repos[0] if repos else None)
-                stage_skills_workspace(wrapped, skills)
-                if resolved:
-                    env.sessions.update(sid=f"{issue_id}:{seq}", skills=skills_meta(resolved))
-        except Exception as exc:  # noqa: BLE001 — skill staging never fails a run
-            log.warning("skill_staging_failed", error=str(exc))
-        if created:
-            run_hook(wrapped, "after_create", bound, log=lambda e, **kw: log.warning(e, **kw))
-        run_hook(wrapped, "before_run", bound, log=lambda e, **kw: log.warning(e, **kw))
-        return wrapped
+                retry_replaced = replaced
+            else:
+                # The credential helper must exist BEFORE after_create, which clones the repo.
+                if installation is not None:
+                    app_tokens.append(installation.token())
+                    install_credential_helper(wrapped, app_tokens[-1])
+                prepare_provider(wrapped, core, ns, bound, stage_mcp)
+                # Stage central skills from configured sources into the workspace pod.
+                try:
+                    from ..skills import (
+                        deduplicate,
+                        resolve_sources,
+                        skills_meta,
+                        stage_skills_workspace,
+                    )
+                    if bound.skill_sources:
+                        repos = runner_mod.target_repos(issue)
+                        resolved = resolve_sources(
+                            bound.skill_sources, "implementer",
+                            repos[0] if repos else None,
+                            os.environ, now_ms,
+                            cache_client=kv.client, cache_ns=ns,
+                        )
+                        skills = deduplicate(resolved, repos[0] if repos else None)
+                        stage_skills_workspace(wrapped, skills)
+                        if resolved:
+                            env.sessions.update(
+                                sid=f"{issue_id}:{seq}", skills=skills_meta(resolved)
+                            )
+                except Exception as exc:  # noqa: BLE001 — skill staging never fails a run
+                    log.warning("skill_staging_failed", error=str(exc))
+                if created:
+                    run_hook(
+                        wrapped, "after_create", bound, log=lambda e, **kw: log.warning(e, **kw)
+                    )
+                run_hook(wrapped, "before_run", bound, log=lambda e, **kw: log.warning(e, **kw))
+                return wrapped
+        except BaseException:
+            # The attempt never gets this sandbox, so `release_sandbox` never runs for it:
+            # release it here, or the busy pod blocks its node's scale-down with no idle
+            # clock for the reaper. A superseded runner leaves it to the new owner.
+            try:
+                if runner_mod.fencing_ok(kv, issue_id, attempt, seq):
+                    release(name)
+            except Exception as exc:  # noqa: BLE001 — the preparation failure is the error
+                log.warning("workspace_release_failed", pod=name, error=str(exc))
+            raise
+        # The pod was deleted above: start clean.
+        return ensure_sandbox(issue, bound, retry_replaced)
 
     def refresh_credentials(wrapped: PodSandbox) -> bool:
         """Installation tokens live an hour; attempts run up to four (FR-017)."""
@@ -309,8 +341,7 @@ def main() -> str:
         # (tool subprocesses) and confirms nothing of it survives — or that the pod is
         # gone or ended, so nothing can.
         kill_agent=lambda wrapped: stop_workspace_generation(core, ns, wrapped, issue_id, seq),
-        # start the idle clock: the reaper — the idle_timeout stand-in — takes it from here
-        release_sandbox=lambda wrapped: kube.set_idle_since(core, ns, wrapped.name, now_ms()),
+        release_sandbox=lambda wrapped: release(wrapped.name),
         wall_deadline_ms=runner_mod.compute_env_wall_deadline(started, cfg),
         sessions=SessionStore(kv.client, ns),
         team=TeamConfig(kv.client, ns),

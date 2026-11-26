@@ -19,6 +19,20 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   install without a source checkout.
 - `symphony tern install` without `--plugin` on an install without a source checkout says to
   use `--plugin DIR` or `--no-plugin`, instead of naming a path inside the Python environment.
+- Karpenter (EKS Auto Mode included) no longer evicts a runner, a reflector or a busy
+  workspace to consolidate a node. Their pods carry `karpenter.sh/do-not-disrupt: "true"`
+  next to the cluster autoscaler's `safe-to-evict: "false"`; Karpenter reads only the first.
+  Before, an eviction failed the attempt ("runner died mid-attempt") and a busy workspace
+  lost its uncommitted work. A released workspace drops both annotations with the same
+  patch that starts its idle clock.
+- A reused workspace is marked busy as soon as the runner claims it, before the ready wait
+  and the checks; a workspace reattached after a lost create race is marked busy too. A
+  workspace whose preparation fails is released (unless a newer attempt owns it), so it does
+  not keep its node with no idle clock.
+- The daemon releases the workspace of an attempt whose runner could not: one that died
+  (out of memory, node lost), was stopped as stalled, or was interrupted by an operator. Its
+  pod no longer pins a node until `kubernetes.sandbox.timeout_s`, including when the retries
+  ran out and the ticket waits for a person.
 
 ### Changed
 

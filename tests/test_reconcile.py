@@ -41,6 +41,7 @@ def test_stall_requires_two_windows_and_live_call_confirmation(kv, clock, tracke
     fx2 = FakeEffects(running={"fc-1"})
     tick(kv, tracker, c, clock.now_ms(), fx2, owner="d1")
     assert fx2.cancelled == ["fc-1"]  # 2nd window + live call confirmed ⇒ cancel
+    assert fx2.released == ["i1"]  # the cancelled runner never releases its workspace
     entry = kv.get(state.issue_key("i1"))
     assert entry["status"] == "retry_queued"
     assert entry["attempt"] == 2
@@ -72,6 +73,19 @@ def test_dead_runner_requeued_as_crash_without_waiting_for_the_stall_windows(kv,
     assert fx.cancelled == []  # nothing to cancel — it died on its own
     assert "runner_crash_requeued" in fx.names()
     assert kv.get(state.issue_key("i1"))["attempt"] == 2
+    # It died before its own release: the daemon starts the idle clock, once.
+    assert fx.released == ["i1"]
+
+
+def test_a_dead_runner_out_of_retries_still_has_its_workspace_released(kv, clock, tracker):
+    c = dispatch_one(kv, clock, tracker, cfg(max_failed_attempts=1))
+    set_running(kv, clock)
+    clock.advance(3 * c.polling_interval_ms)
+    fx = FakeEffects(running=set())
+    tick(kv, tracker, c, clock.now_ms(), fx, owner="d1")
+    assert kv.get(state.issue_key("i1"))["status"] == "blocked"
+    # Blocked waits for a human, maybe for hours: the idle workspace must not pin a node.
+    assert fx.released == ["i1"]
 
 
 def test_a_live_silent_runner_is_left_alone_until_the_stall_windows(kv, clock, tracker):
@@ -119,6 +133,27 @@ def test_unconfirmed_live_workspace_stop_does_not_advance_retry(kv, clock, track
         tick(kv, tracker, c, clock.now_ms(), fx, owner="d1")
     assert kv.get(state.issue_key("i1"))["status"] == "running"
     assert kv.get(state.issue_key("i1"))["attempt"] == 1
+
+
+def test_a_runner_dead_before_recording_its_workspace_still_releases_it(
+    kv, clock, tracker, monkeypatch
+):
+    """A first attempt that died while it prepared the workspace (OOM, node loss) left the
+    pod busy, guarded against eviction and with no idle clock, and never recorded its name."""
+    c = dispatch_one(kv, clock, tracker)
+    set_running(kv, clock)
+    assert kv.get(state.issue_key("i1"))["sandbox_name"] is None
+    clock.advance(3 * c.polling_interval_ms)
+    monkeypatch.setattr(kube, "job_status", lambda *args: "failed")
+    released = []
+    monkeypatch.setattr(
+        kube, "set_idle_since", lambda core, ns, name, at_ms: released.append((name, at_ms))
+    )
+    fx = effects.K8sEffects(c, Mock(), Mock(), "test")
+    tick(kv, tracker, c, clock.now_ms(), fx, owner="d1")
+    assert kv.get(state.issue_key("i1"))["status"] == "retry_queued"
+    [(name, at_ms)] = released
+    assert name == effects.sandbox_name("ENG-i1") and at_ms
 
 
 def runner_job(*, issue_id="i1", seq="1"):

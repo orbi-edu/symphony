@@ -707,6 +707,9 @@ def process_commands(store, kv, tracker, cfg, fx, owner, now_ms, *, publish_work
                 fx.kill_agent_process(
                     entry.get("sandbox_name"), issue_id=issue_id, seq=target["dispatchSeq"]
                 )
+                # The cancelled runner never reaches its own release: the workspace keeps
+                # its eviction guards with no idle clock unless the daemon releases it.
+                fx.release_workspace(issue_id, dict(entry))
 
                 def interrupted(r, current, pipe, command_id=command_id, issue_id=issue_id):
                     current = _target_entry(r, current)

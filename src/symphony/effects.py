@@ -322,8 +322,12 @@ class K8sEffects:
 
     def release_workspace(self, issue_id: str, entry: dict) -> None:
         """Claim released while KEEPING the workspace (FR-014). The annotation starts
-        the idle clock; the reaper — not this call — decides when the pod goes."""
-        name = entry.get("sandbox_name")
+        the idle clock and drops the eviction guards; the reaper — not this call — decides
+        when the pod goes. The name is derived when the entry has none yet: a runner that
+        died while it prepared its first workspace never recorded it."""
+        name = entry.get("sandbox_name") or (
+            sandbox_name(entry["identifier"]) if entry.get("identifier") else None
+        )
         if name:
             self._require_lease()
             kube.set_idle_since(self._core, self._ns, name, now_ms())

@@ -260,6 +260,76 @@ def test_runner_pods_are_not_best_effort_and_not_safe_to_evict(monkeypatch):
     assert template["metadata"]["annotations"]["cluster-autoscaler.kubernetes.io/safe-to-evict"] == "false"
 
 
+def test_runner_and_reflector_pods_are_not_disrupted_by_karpenter(monkeypatch):
+    """Karpenter consolidation reads only `karpenter.sh/do-not-disrupt`; without it, it
+    evicts a runner on a nearly empty node and the Job fails (backoffLimit 0)."""
+    monkeypatch.setenv("SYMPHONY_ORCHESTRATOR_IMAGE", "symphony-orchestrator:test")
+    cfg = parse_workflow("---\ntracker: {kind: memory}\n---\nx")
+    captured = []
+
+    class Batch:
+        def create_namespaced_job(self, ns, manifest):
+            captured.append(manifest)
+
+    kube.spawn_runner_job(Batch(), "symphony", cfg, "issue-1", "ENG-1", 1, 1)
+    kube.spawn_reflector_job(Batch(), "symphony", cfg, "issue-1", {"identifier": "ENG-1"})
+    assert [m["spec"]["template"]["metadata"]["labels"]["component"] for m in captured] == [
+        "runner", "reflector",
+    ]
+    for manifest in captured:
+        assert manifest["spec"]["template"]["metadata"]["annotations"]["karpenter.sh/do-not-disrupt"] == "true"
+
+
+class _RunningPod:
+    class status:
+        phase = "Running"
+
+
+class _WorkspaceCore:
+    def __init__(self):
+        self.pods: list[dict] = []
+        self.patches: list[dict] = []
+
+    def create_namespaced_persistent_volume_claim(self, ns, body):
+        pass
+
+    def create_namespaced_pod(self, ns, body):
+        self.pods.append(body)
+
+    def read_namespaced_pod(self, name, ns):
+        return _RunningPod()
+
+    def patch_namespaced_pod(self, name, ns, body):
+        self.patches.append(body)
+
+
+def test_a_new_workspace_pod_is_protected_from_eviction():
+    core = _WorkspaceCore()
+    cfg = parse_workflow("---\ntracker: {kind: memory}\n---\nx")
+    assert kube.create_workspace(core, "symphony", cfg, "ws-1") is True
+    [pod] = core.pods
+    assert pod["metadata"]["annotations"]["karpenter.sh/do-not-disrupt"] == "true"
+    assert pod["metadata"]["annotations"]["cluster-autoscaler.kubernetes.io/safe-to-evict"] == "false"
+
+
+def test_a_released_workspace_drops_its_eviction_guards_and_a_reused_one_regains_them():
+    """An idle workspace must not hold a node; a busy one must not lose its working tree."""
+    core = _WorkspaceCore()
+    kube.set_idle_since(core, "symphony", "ws-1", 123)
+    kube.set_idle_since(core, "symphony", "ws-1", None)
+    released, busy = (p["metadata"]["annotations"] for p in core.patches)
+    assert released == {
+        "symphony.dev/idle-since": "123",
+        "karpenter.sh/do-not-disrupt": None,
+        "cluster-autoscaler.kubernetes.io/safe-to-evict": None,
+    }
+    assert busy == {
+        "symphony.dev/idle-since": None,
+        "karpenter.sh/do-not-disrupt": "true",
+        "cluster-autoscaler.kubernetes.io/safe-to-evict": "false",
+    }
+
+
 def test_runner_pod_sizes_come_from_the_workflow(monkeypatch):
     template = _spawned_runner(
         monkeypatch,
