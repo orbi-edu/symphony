@@ -7,6 +7,14 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- The docs, the Tern screenshots and the videos follow what shipped since 0.2.0: the README
+  and `docs/features.md` list the newer features, Tern's Setup and Admin pages document Skills
+  (with a new Admin › Skills screenshot), the Merger page its label filter and approval
+  parking, and the videos that described the 0.2.0 behaviour are re-recorded. The Tern
+  screenshot harness waits for the current Repositories heading and steps past the Skills tab.
+
 ## [0.2.28] - 2026-11-26
 
 ### Added
@@ -65,11 +73,6 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   or `survivors count=<n>` for processes that outlived the last `KILL` (`survivors
   pgid=<pgid>` on the local stack). It names pids and counts only, never
   environment content.
-- The docs, the Tern screenshots and the videos follow what shipped since 0.2.0: the README
-  and `docs/features.md` list the newer features, Tern's Setup and Admin pages document Skills
-  (with a new Admin › Skills screenshot), the Merger page its label filter and approval
-  parking, and the videos that described the 0.2.0 behaviour are re-recorded. The Tern
-  screenshot harness waits for the current Repositories heading and steps past the Skills tab.
 
 ## [0.2.26] - 2026-11-26
 
