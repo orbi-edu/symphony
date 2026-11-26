@@ -13,6 +13,9 @@ spec:
   template:
     metadata:
       labels: {app: symphony, component: api}
+      # No karpenter.sh/do-not-disrupt, unlike the other single-replica pods: the API keeps
+      # no state of its own, an event stream resumes with Last-Event-ID, and the daemon's
+      # safety poll covers a webhook missed while it moves. A consolidation costs a reconnect.
     spec:
       serviceAccountName: symphony-api
       securityContext:

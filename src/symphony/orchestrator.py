@@ -872,6 +872,9 @@ def _requeue_failed(
     if still_running:
         fx.cancel_runner(call_id, issue_id=issue_id, seq=entry.get("dispatch_seq", 1))
     fx.kill_agent_process(entry.get("sandbox_name"))
+    # A runner that died or was cancelled never reaches its own release: start the idle
+    # clock here (it also drops the eviction guards), or the busy workspace pins its node.
+    fx.release_workspace(issue_id, dict(entry))
     summary = "stall detected (silence > threshold for 2 windows)" if still_running else "runner died mid-attempt"
     if evidence.get("error"):
         summary += f": {evidence['error']}"

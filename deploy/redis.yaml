@@ -29,6 +29,12 @@ spec:
   template:
     metadata:
       labels: {app: symphony, component: redis}
+      # One replica holding all shared state: a consolidation that evicts it stops every
+      # component until the volume reattaches. Karpenter v1 (EKS Auto Mode included) reads
+      # only this annotation; forceful disruption (expiry, repair, Spot interruption) and
+      # `kubectl drain` still evict. No PodDisruptionBudget: one at 0 on one replica blocks
+      # every drain.
+      annotations: {karpenter.sh/do-not-disrupt: "true"}
     spec:
       automountServiceAccountToken: false
       containers:

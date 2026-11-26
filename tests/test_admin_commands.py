@@ -200,6 +200,8 @@ def test_interruption_failure_stays_fenced_until_confirmed_and_revocation_holds_
     assert held["status"] == "blocked"
     assert held["retry_at"] is None
     assert calls == ["owned-job", "owned-job"]
+    # Released once, by the attempt that got past the cancel: the runner never will.
+    assert fx.released == ["i1"]
 
 
 def test_publication_unknown_outcome_replays_same_command_before_later_intents(commands):

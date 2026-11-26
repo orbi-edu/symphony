@@ -76,8 +76,10 @@ def test_the_pod_and_the_session_volume_record_the_repository_set():
     cfg = Config(tracker_kind="memory")
     pod = kube._workspace_manifest(cfg, "ws-eng-1", "img", ("acme/Web", "acme/api"))
     volume = kube._session_pvc_manifest(cfg, "ws-eng-1", ("acme/Web", "acme/api"))
-    for manifest in (pod, volume):
-        assert manifest["metadata"]["annotations"] == {kube.REPOS_ANNOTATION: "acme/api acme/web"}
+    record = {kube.REPOS_ANNOTATION: "acme/api acme/web"}
+    # One annotations dict on the pod: the record next to the eviction guards, neither lost.
+    assert pod["metadata"]["annotations"] == {**record, **kube.BUSY_ANNOTATIONS}
+    assert volume["metadata"]["annotations"] == record
 
 
 def test_a_label_change_between_attempts_discards_the_pod_and_its_session_volume():

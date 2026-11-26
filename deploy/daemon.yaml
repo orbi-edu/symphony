@@ -14,6 +14,12 @@ spec:
   template:
     metadata:
       labels: {app: symphony, component: daemon}
+      # One replica: a consolidation that evicts it stops dispatch, stall detection and the
+      # reaper until its replacement starts. Karpenter v1 (EKS Auto Mode included) reads
+      # only this annotation; forceful disruption (expiry, repair, Spot interruption) and
+      # `kubectl drain` still evict. No PodDisruptionBudget: one at 0 on one replica blocks
+      # every drain.
+      annotations: {karpenter.sh/do-not-disrupt: "true"}
     spec:
       serviceAccountName: symphony-daemon
       securityContext:

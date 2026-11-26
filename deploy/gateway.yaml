@@ -15,6 +15,12 @@ spec:
   template:
     metadata:
       labels: {app: symphony, component: gateway}
+      # One replica on the path of every attempt in flight (MCP calls, traces): a
+      # consolidation that evicts it breaks the attempts the runner and workspace guards
+      # protect. Karpenter v1 (EKS Auto Mode included) reads only this annotation; forceful
+      # disruption (expiry, repair, Spot interruption) and `kubectl drain` still evict. No
+      # PodDisruptionBudget: one at 0 on one replica blocks every drain.
+      annotations: {karpenter.sh/do-not-disrupt: "true"}
     spec:
       serviceAccountName: symphony-gateway
       automountServiceAccountToken: false
