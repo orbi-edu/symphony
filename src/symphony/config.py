@@ -220,6 +220,9 @@ class Config:
     assistant_sandbox_command_timeout_s: int = 300
     assistant_sandbox_max_lifetime_s: int = 14_400
     assistant_sandbox_max_output_chars: int = 20_000
+    # `assistant.knowledge`: the team's docs repositories (`assistant/knowledge.py`), frozen
+    # KnowledgeBase entries; always checked out, indexed and offered to `search_knowledge`.
+    assistant_knowledge: tuple = ()
     # `retention:` how long ended sessions and audit entries stay in Redis (`retention.py`).
     retention_sessions_days: int = retention.SESSIONS_DAYS
     retention_audit_days: int = retention.AUDIT_DAYS
@@ -543,9 +546,60 @@ def _check_github_provider(provider: dict) -> None:
 
 _ASSISTANT_KEYS = frozenset({
     "enabled", "slack", "discord", "repositories", "max_concurrent", "turn_timeout_s",
-    "ticket_state", "ticket_labels", "soul", "memory", "sandbox",
+    "ticket_state", "ticket_labels", "soul", "memory", "sandbox", "knowledge",
 })
 _REPO = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
+_KNOWLEDGE_KEYS = frozenset({"repo", "paths", "name", "when"})
+
+
+def knowledge_bases(raw) -> tuple:
+    """`assistant.knowledge` as KnowledgeBase entries (`assistant/knowledge.py`); the
+    workflow API validates with it too."""
+    from .assistant.knowledge import DEFAULT_PATHS, MAX_BASES, MAX_PATHS, KnowledgeBase
+
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise ConfigError("assistant.knowledge must be a list")
+    if len(raw) > MAX_BASES:
+        raise ConfigError(f"assistant.knowledge may have at most {MAX_BASES} entries")
+    bases, labels = [], set()
+    for i, entry in enumerate(raw):
+        where = f"assistant.knowledge[{i}]"
+        if not isinstance(entry, dict):
+            raise ConfigError(f"{where} must be a mapping")
+        extra = sorted(set(map(str, entry)) - _KNOWLEDGE_KEYS)
+        if extra:
+            raise ConfigError(f"{where} has unknown keys {', '.join(extra)}")
+        repo = entry.get("repo")
+        if not isinstance(repo, str) or not _REPO.fullmatch(repo.strip()):
+            raise ConfigError(f"{where}.repo must be owner/name")
+        paths = entry.get("paths", list(DEFAULT_PATHS))
+        if not isinstance(paths, list) or not paths or not all(
+                isinstance(p, str) and p.strip() for p in paths):
+            raise ConfigError(f"{where}.paths must be a nonempty list of folders or globs")
+        if len(paths) > MAX_PATHS:
+            raise ConfigError(f"{where}.paths may have at most {MAX_PATHS} entries")
+        paths = [p.strip() for p in paths]
+        bad = [p for p in paths if p.startswith("/") or "\\" in p or ".." in p.split("/")
+               or p.strip("/") in ("", ".")]
+        if bad:
+            raise ConfigError(f"{where}.paths must be relative paths without ..: {bad[0]!r}")
+        texts = {}
+        for key, limit in (("name", 40), ("when", 300)):
+            value = entry.get(key)
+            if value is not None and (not isinstance(value, str) or not value.strip()
+                                      or len(value) > limit or "\n" in value.strip()):
+                raise ConfigError(f"{where}.{key} must be one line of at most {limit} characters")
+            texts[key] = value.strip() if value else None
+        base = KnowledgeBase(repo.strip(), tuple(paths), texts["name"], texts["when"])
+        if base.label.casefold() in labels:
+            raise ConfigError(f"{where}: two entries are named {base.label!r}; give each a name")
+        labels.add(base.label.casefold())
+        bases.append(base)
+    return tuple(bases)
+
+
 _SOUL_PATH = re.compile(r"[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*\Z")
 
 
@@ -656,6 +710,7 @@ def _assistant(data: dict) -> dict:
             section, "ticket_labels", defaults.assistant_ticket_labels
         ),
         **_soul_and_memory(section, defaults),
+        "assistant_knowledge": knowledge_bases(section.get("knowledge")),
     }
     if out["assistant_max_concurrent"] <= 0:
         raise ConfigError("assistant.max_concurrent must be positive")

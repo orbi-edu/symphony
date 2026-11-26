@@ -21,6 +21,8 @@
 - **Soul and memory:** a new session's instructions get the soul file (`soul.py`) after the
   built-in rules, and each asker's memory (`memory.py`) once per session. What `remember` and
   `forget` did ends the answer ("I'll remember: …", "I forgot: …").
+- **Team knowledge:** with `assistant.knowledge` bases, every role's instructions get their
+  page index (`knowledge.py`) and the session gets `search_knowledge`.
 """
 
 from __future__ import annotations
@@ -44,7 +46,7 @@ from . import memory as mem
 from .confirm import Confirmer, ProposalStore, buttons, mapped_login, render
 from .soul import Soul
 from .soul import source as soul_source
-from .tools import offer_plan_tool
+from .tools import knowledge_tool, offer_plan_tool
 
 WORKING = "Working on it…"
 BUSY = "I am busy with other questions. I will answer when one ends."
@@ -217,7 +219,8 @@ def instructions(role: str, *, transport: str, is_dm: bool, repos: list[str],
                  soul: Soul | None = None, has_sandbox: bool = False,
                  has_share_file: bool = False, can_propose: bool = False,
                  can_offer_plan: bool = False,
-                 mcp_guidance: str = "", openable: list[str] | None = None) -> str:
+                 mcp_guidance: str = "", openable: list[str] | None = None,
+                 knowledge: str = "") -> str:
     """The session's instructions: the built-in role and safety rules, then the soul."""
     where = f"a {transport.capitalize()} {'direct message' if is_dm else 'thread'}"
     lines = [
@@ -247,6 +250,8 @@ def instructions(role: str, *, transport: str, is_dm: bool, repos: list[str],
                      "checked out yet: " + ", ".join(openable) + ". When the person names one "
                      "of them, open it and read it — never answer that you cannot see a "
                      "repository on this list.")
+    if knowledge:
+        lines.append(knowledge)
     if mcp_guidance:
         lines.append(mcp_guidance)
     if soul is not None and soul.instructions():
@@ -269,8 +274,10 @@ def to_slack(text: str) -> str:
 
 
 def link_citations(text: str, transport: str, commits: dict[str, str], server_url: str) -> str:
-    """`owner/repo:path:line` → a link to that line at the commit the agent read."""
+    """`owner/repo:path:line` → a link to that line at the commit the agent read. On Discord a
+    Markdown link to GitHub (a knowledge page) gets the same `(<url>)` form, without embeds."""
     known = {repo.lower(): sha for repo, sha in commits.items()}
+    server = server_url.rstrip("/")
 
     def sub(m: re.Match) -> str:
         repo, path, line = m.group(1), m.group(2), m.group(3)
@@ -278,10 +285,13 @@ def link_citations(text: str, transport: str, commits: dict[str, str], server_ur
         if sha is None:
             return m.group(0)
         label = f"{repo}:{path}:{line}"
-        url = f"{server_url.rstrip('/')}/{repo}/blob/{sha}/{path}#L{line}"
+        url = f"{server}/{repo}/blob/{sha}/{path}#L{line}"
         return f"<{url}|{label}>" if transport == "slack" else f"[{label}](<{url}>)"
 
-    return _CITATION.sub(sub, text)
+    text = _CITATION.sub(sub, text)
+    if transport == "slack":
+        return text  # to_slack turns Markdown links into <url|label>
+    return re.sub(r"\[([^\]\n]+)\]\((" + re.escape(server) + r"/[^)\s>]+)\)", r"[\1](<\2>)", text)
 
 
 @dataclass
@@ -369,6 +379,7 @@ class Engine:
         on_session_end: Callable[[str], None] | None = None,
         server_url: str = "https://github.com",
         reachable: Callable[[], list[str]] | None = None,
+        knowledge=None,  # knowledge.Knowledge: the team knowledge bases
         clock: Callable[[], float] = time.monotonic,
         idle_s: float = IDLE_S,
         stream_interval_s: float = STREAM_INTERVAL_S,
@@ -384,6 +395,7 @@ class Engine:
         self.agents = agents
         # Every repository the agents may open (`open_repository`), checked out or not.
         self.reachable = reachable
+        self.knowledge = knowledge
         self.policy = policy  # () -> Config, read at each message
         self.confirmer = confirmer
         self.memory = memory
@@ -653,7 +665,9 @@ class Engine:
                                    has_share_file="share_file" in names,
                                    can_propose="propose_tickets" in names,
                                    can_offer_plan="offer_plan" in names,
-                                   mcp_guidance=guidance, openable=openable), context]
+                                   mcp_guidance=guidance, openable=openable,
+                                   knowledge=self.knowledge.prompt() if self.knowledge else ""),
+                      context]
         parts.append(self._memory(th, cfg, turn))
         prompt = "\n\n".join(p for p in (*parts, prompt) if p)
         fmt = self._formatter(th.transport)
@@ -693,6 +707,8 @@ class Engine:
     def _tools(self, th: _Thread, cfg, role: str) -> list:
         """The engine's host tools for a new session of `role`; they act for the turn's asker."""
         tools = []
+        if self.knowledge is not None and self.knowledge.bases():
+            tools.append(knowledge_tool(self.knowledge))
         if self.memory is not None and cfg.assistant_memory_enabled:
             tools += mem.memory_tools(
                 self.memory, th.notes, enabled=lambda: self.policy().assistant_memory_enabled,

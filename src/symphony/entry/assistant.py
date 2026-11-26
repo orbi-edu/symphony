@@ -136,6 +136,7 @@ def build(cfg_holder: ConfigHolder, client, namespace: str, env: Mapping[str, st
     from ..assistant.facts import AUDIT_ACTION as FACT_AUDIT
     from ..assistant.facts import PERMISSIONS as FACT_PERMISSIONS
     from ..assistant.facts import FactConfirmer, FactPRs
+    from ..assistant.knowledge import Knowledge
     from ..assistant.memory import MemoryStore
     from ..assistant.runtime import (
         AssistRunner,
@@ -199,8 +200,11 @@ def build(cfg_holder: ConfigHolder, client, namespace: str, env: Mapping[str, st
         core, _ = kube.get_clients()
     mcp = McpLaunch(client, namespace, McpRepository(core, namespace, env.get("SYMPHONY_MCP_FILE")),
                     gateway_url(policy()))
+    knowledge = Knowledge(lambda: policy().assistant_knowledge, server_url=github_server_url(),
+                          logger=log)
     repos = ReadOnlyRepos(workdir, mirrored, server_url=github_server_url(), token_for=token_for,
-                          base_branch_for=lambda repo: policy().base_branch(repo), logger=log)
+                          base_branch_for=lambda repo: policy().base_branch(repo), logger=log,
+                          knowledge=knowledge)
 
     # Skill staging for the assistant's agents, from the policy at each run (sources published
     # after start must reach the next run): global sources, plus sources scoped to a repository
@@ -388,7 +392,7 @@ def build(cfg_holder: ConfigHolder, client, namespace: str, env: Mapping[str, st
                     evidence=evidence, propose_tool=propose_tool_fn,
                     plans=ProposalStore(client, namespace, kind="plan"),
                     on_session_end=on_session_end_fn,
-                    server_url=github_server_url(), reachable=repositories,
+                    server_url=github_server_url(), reachable=repositories, knowledge=knowledge,
                     mcp_guidance_fn=mcp.chat_prompt_guidance,
                     share_device_tool_fn=_viewer_for_click,
                     preview_handler=preview_mgr.handle if preview_mgr is not None else None,

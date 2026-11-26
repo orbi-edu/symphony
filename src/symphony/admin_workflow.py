@@ -29,6 +29,7 @@ from .config import (
     Config,
     ConfigError,
     _skills,
+    knowledge_bases,
     parse_workflow,
 )
 from .notify import EVENTS
@@ -173,6 +174,7 @@ _FIELDS = {
     "assistant.discord.channels": _Field("assistant_discord_channels", "json"),
     "assistant.repositories": _Field("assistant_repositories", "json"),
     "assistant.sandbox.enabled": _Field("assistant_sandbox_enabled", "boolean"),
+    "assistant.knowledge": _Field("assistant_knowledge", "json"),
     "kubernetes.learning.enabled": _Field("learning_enabled", "boolean"),
     "kubernetes.learning.reflect_on": _Field("reflect_on", "json"),
     "kubernetes.learning.agents_md_budget_lines": _Field("agents_md_budget_lines", "integer"),
@@ -223,7 +225,7 @@ def _at(data: Mapping, path: str) -> Any:
 def _effective(cfg: Config, field: _Field) -> Any:
     root, _, rest = field.attribute.partition(".")
     value = getattr(cfg, root)
-    if root == "skill_sources":
+    if root in ("skill_sources", "assistant_knowledge"):
         return [source.as_entry() for source in value]
     if rest and value is None:
         return None  # an optional section that is off (`api_access`)
@@ -380,6 +382,13 @@ def _check_value(key: str, value: Any, namespace: str, *, submitted: bool) -> An
                     if unknown:
                         raise _invalid(key, f"Component {cname!r} has unknown keys: {', '.join(sorted(unknown))}.")
             return {k.lower(): v for k, v in value.items()}
+        if key == "assistant.knowledge":
+            # The config parser owns the rules ({repo, paths, name, when}), as skills.sources.
+            try:
+                knowledge_bases(value)
+            except ConfigError as exc:
+                raise _invalid(key, str(exc)) from None
+            return list(value or [])
         if key == "notify.users":
             # service (`slack`, `discord`) -> GitHub login -> that service's user id.
             if not isinstance(value, Mapping) or not set(value) <= {"slack", "discord"}:

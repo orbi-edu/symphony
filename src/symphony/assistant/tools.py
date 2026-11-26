@@ -1,7 +1,7 @@
 """The assistant's host tools: `symphony_status`, `tracker_search`, `open_repository`,
-`propose_tickets` and `offer_plan`.
+`search_knowledge`, `propose_tickets` and `offer_plan`.
 
-Every tool runs on the host. The first three only read. `propose_tickets` only records a plan:
+Every tool runs on the host. The first four only read. `propose_tickets` only records a plan:
 the engine shows it with buttons, and nothing reaches the tracker until a mapped person clicks
 (`confirm.py`). Its `attachments` are files of the thread's sandbox, read when the call is made
 (`share.proposal_attacher`). `offer_plan` only asks the engine to put a "Plan this" button under
@@ -158,6 +158,36 @@ def open_repository_tool(reachable: Callable[[], list[str]],
         _obj(["repo"], {"repo": _S}),
         check=check,
         answer=_safe(answer),
+    )
+
+
+def knowledge_tool(knowledge) -> HostTool:
+    """`search_knowledge`: BM25 over the sections of the team knowledge bases (`knowledge.py`)."""
+    from .knowledge import SEARCH_DEFAULT, SEARCH_MAX
+
+    def check(args: dict) -> str | None:
+        if not args["query"].strip():
+            return "query must not be empty"
+        limit = args.get("limit", SEARCH_DEFAULT)
+        if not 1 <= limit <= SEARCH_MAX:
+            return f"limit must be 1-{SEARCH_MAX}"
+        base = args.get("base")
+        if base is not None and knowledge.find(base) is None:
+            return (f"unknown base {base!r}. Bases: "
+                    + ", ".join(b.label for b in knowledge.bases()))
+        return None
+
+    return HostTool(
+        "search_knowledge",
+        "Search the team knowledge bases (process, environments, releases, playbooks, decision "
+        "records) by words. Returns up to `limit` (default 8, at most 20) sections, best first: "
+        "[{base, path, heading, lines: [start, end], score, snippet, url}]. `base` limits the "
+        "search to one base by its name. Read the page before you answer and cite its `url`. "
+        "Read-only.",
+        _obj(["query"], {"query": _S, "base": _S, "limit": {"type": "integer"}}),
+        check=check,
+        answer=_safe(lambda args: knowledge.search(args["query"].strip(), args.get("base"),
+                                                   args.get("limit", SEARCH_DEFAULT))),
     )
 
 

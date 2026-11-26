@@ -13,7 +13,8 @@ until the engine ends the session (30 min idle).
 - **Working dir:** a worktree of each `assistant.repositories` repository at its default branch
   (`<root>/work/<owner>/<name>`), fetched at most every 5 minutes from a mirror with a
   read-only GitHub App token. Any other reachable repository is checked out on demand
-  (`open_repository`) and kept while it is used.
+  (`open_repository`) and kept while it is used. The `assistant.knowledge` repositories are
+  always checked out, and indexed when their commit changes (`knowledge.py`).
 - **Environment:** the pod's, without the chat, tracker and GitHub App credentials.
 """
 
@@ -97,7 +98,9 @@ class ReadOnlyRepos:
 
     Mirrors live in `<root>/mirrors/<owner>/<name>`. A refresh happens at most every
     `refresh_s`: it fetches and checks the new commit out in place. A repository that fails
-    to sync is left out (and logged); the others still serve."""
+    to sync is left out (and logged); the others still serve. The `knowledge` bases'
+    repositories are always synced, and each refresh hands the synced commits to
+    `Knowledge.update`, which indexes a base whose commit changed."""
 
     def __init__(
         self,
@@ -110,6 +113,7 @@ class ReadOnlyRepos:
         refresh_s: float = MIRROR_REFRESH_S,
         clock: Callable[[], float] = time.monotonic,
         logger=None,
+        knowledge=None,  # knowledge.Knowledge
     ) -> None:
         self.root = root
         self.work = os.path.join(root, "work")
@@ -120,6 +124,7 @@ class ReadOnlyRepos:
         self.refresh_s = refresh_s
         self.clock = clock
         self.log = logger
+        self.knowledge = knowledge
         self._mirrors: dict[str, Mirror] = {}
         self._shas: dict[str, str] = {}
         self._at: float | None = None
@@ -169,7 +174,9 @@ class ReadOnlyRepos:
                 for repo, used in list(self._opened.items()):
                     if now - used >= OPENED_IDLE_S:
                         del self._opened[repo]
-                wanted = list(dict.fromkeys([*(r.lower() for r in self.repos()), *self._opened]))
+                knowledge = self.knowledge.repos() if self.knowledge is not None else []
+                wanted = list(dict.fromkeys([*(r.lower() for r in self.repos()), *knowledge,
+                                             *self._opened]))
                 for repo in wanted:
                     try:
                         self._sync(repo)
@@ -180,6 +187,9 @@ class ReadOnlyRepos:
                                              error=type(exc).__name__, detail=str(exc)[:200])
                 for repo in set(self._shas) - set(wanted):
                     self._drop(repo)
+                if self.knowledge is not None:
+                    self.knowledge.update({r: (self._mirrors[r].path, self._shas[r])
+                                           for r in knowledge if r in self._shas})
             os.makedirs(self.work, exist_ok=True)
             return self.work
 

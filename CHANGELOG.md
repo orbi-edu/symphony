@@ -19,6 +19,19 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Tern's Setup › Repositories card and the Merger view's heading say that one merger serves
   every repository, each with its own train, instead of one merger per repository.
+### Added
+
+- A team knowledge base for the chat assistant. `assistant.knowledge` lists repositories (or
+  folders and globs in them) of the team's engineering docs, each with an optional `name` and
+  a `when` line. They are always checked out and fetched every 5 minutes; each new commit
+  rebuilds an in-memory index of their Markdown pages (title, first line, path). The
+  assistant, the researcher and the planner get the index in their instructions with the
+  commit, consult it first for questions about how the team works, cite each page as a link
+  to the file at that commit, and say when the docs do not cover a question. A new
+  `search_knowledge(query, base?, limit?)` tool ranks the pages' sections with BM25 (accents
+  and stopwords folded away, headings boosted) and returns line ranges and blob links. A base
+  whose sync fails keeps its last index and is marked as possibly stale. The workflow API
+  accepts the key ([assistant.md](docs/assistant.md#team-knowledge)).
 
 ## [0.2.28] - 2026-11-26
 
