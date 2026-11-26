@@ -1,9 +1,14 @@
 // The nine scenes of the explainer. Every time reference points at a narration cue (see engine.js `at`).
-// Screenshots are the real Tern captures in docs/tern (2880 x 1920 px).
+// Screenshots are the real Tern captures in docs/tern (2880 x 1920 px; the Dashboard is 2880 x 3800).
 
 const SHOT = (name) => `../../tern/${name}-dark.png`;
 const VIEW = { x: 100, y: 195, w: 1720, h: 690 }; // screenshot viewport
 const FIT = 0.359; // whole screenshot inside VIEW
+// The stylesheet draws every screenshot 2880x1920; a taller one (the Dashboard) keeps its own height.
+const natural = (vp) => {
+  for (const img of vp.querySelectorAll("img")) img.style.height = "auto";
+  return vp;
+};
 
 const SCENES = {
   // 1. The problem and the idea
@@ -179,7 +184,7 @@ const SCENES = {
 
   // 5. People in the loop
   s5(sec) {
-    D.shot(sec, {
+    natural(D.shot(sec, {
       ...VIEW, in: "s5", out: "s5.7",
       shots: [
         { src: SHOT("dashboard"), in: "s5", out: "s5.2" },
@@ -196,7 +201,7 @@ const SCENES = {
         { x: 45, y: 712, w: 1770, h: 228, in: "s5.4+1.0", out: "s5.5" },
         { x: 430, y: 770, w: 255, h: 50, in: "s5.6+0.8", out: "s5.7" },
       ],
-    });
+    }));
     const at = { x: 130, y: 805 };
     D.callout(sec, { ...at, in: "s5.1+1.6", out: "s5.2" }, "Dashboard: needs input, live sessions, and actions");
     D.callout(sec, { ...at, in: "s5.2+0.5", out: "s5.3" }, 'Live chat over ACP &nbsp;<span class="mono">tern acp symphony --resume</span>');

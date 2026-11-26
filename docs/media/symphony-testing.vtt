@@ -17,149 +17,149 @@ s2.3
 It covers every API route, the daemon, the runner, the trackers and the merger.
 
 s3.1
-00:00:21.149 --> 00:00:26.071
+00:00:21.149 --> 00:00:26.072
 The mocks copy six vendor APIs, and each is built from the vendor's published spec.
 
 s3.2
-00:00:26.071 --> 00:00:31.391
+00:00:26.072 --> 00:00:31.389
 SOURCES.md pins each file with its source, its date and its sha256.
 
 s3.3
-00:00:31.391 --> 00:00:36.256
+00:00:31.389 --> 00:00:36.248
 Every request is checked against the spec. One outside it gets the documented error.
 
 s3.4
-00:00:36.256 --> 00:00:41.644
+00:00:36.248 --> 00:00:41.638
 Five mocks answer 501 for an operation they do not serve. No mock invents data.
 
 s3.5
-00:00:41.644 --> 00:00:46.247
+00:00:41.638 --> 00:00:46.242
 Authentication and webhook signatures work as each vendor documents them.
 
 s4.1
-00:00:46.597 --> 00:00:51.090
+00:00:46.592 --> 00:00:51.084
 The mocked run starts Redis, the mocks, Symphony and the merger, on one machine.
 
 s4.2
-00:00:51.090 --> 00:00:55.026
+00:00:51.084 --> 00:00:55.015
 The agents are real: the pinned omp, on Amazon Bedrock.
 
 s4.3
-00:00:55.026 --> 00:01:00.112
+00:00:55.015 --> 00:01:00.096
 Four configurations cover Linear with Slack, GitHub with Discord, and the chat assistant.
 
 s4.4
-00:01:00.112 --> 00:01:03.662
+00:01:00.096 --> 00:01:03.646
 Every check passed, with no request outside the GitHub spec.
 
 s5.1
-00:01:04.012 --> 00:01:08.341
+00:01:03.996 --> 00:01:08.325
 In scenario 1, a webhook started the agent in 44 milliseconds.
 
 s5.2
-00:01:08.341 --> 00:01:11.797
+00:01:08.325 --> 00:01:11.781
 It opened a ready pull request in 18.8 seconds.
 
 s5.3
-00:01:11.797 --> 00:01:17.075
+00:01:11.781 --> 00:01:17.058
 The merger merged it in 64.8 seconds, or 55.8 on GitHub.
 
 s5.4
-00:01:17.075 --> 00:01:23.059
+00:01:17.058 --> 00:01:23.042
 Other scenarios covered two repositories, a read-only investigation, and sub-issues with evidence.
 
 s5.5
-00:01:23.059 --> 00:01:28.862
+00:01:23.042 --> 00:01:28.846
 Then an agent answered an inline comment, and a retrospective opened a learnings pull request.
 
 s6.1
-00:01:29.212 --> 00:01:33.550
+00:01:29.196 --> 00:01:33.533
 Scenario 7 opened a red main ticket in 2.3 seconds.
 
 s6.2
-00:01:33.550 --> 00:01:37.434
+00:01:33.533 --> 00:01:37.418
 Scenario 8 sent a real bug back in 30.3 seconds.
 
 s6.3
-00:01:37.434 --> 00:01:41.218
+00:01:37.418 --> 00:01:41.199
 The assistant answered on Slack and on Discord in about 10 seconds.
 
 s6.4
-00:01:41.218 --> 00:01:45.046
+00:01:41.199 --> 00:01:45.027
 A mapped click created a ticket tree. An unmapped click was refused.
 
 s6.5
-00:01:45.046 --> 00:01:49.264
+00:01:45.027 --> 00:01:49.245
 Through the gateway, an MCP call never carried the agent's own token.
 
 s6.6
-00:01:49.264 --> 00:01:52.971
+00:01:49.245 --> 00:01:52.952
 The run found seven defects. Each fix has a regression test.
 
 s6.7
-00:01:52.971 --> 00:01:59.148
+00:01:52.952 --> 00:01:59.128
 The mocks are not the vendors. Real rate limits, webhook retries and Kubernetes are not in this run.
 
 s7.1
-00:01:59.498 --> 00:02:04.830
+00:01:59.478 --> 00:02:04.811
 The kind run deploys Symphony on a local Kubernetes cluster, and runs one real attempt.
 
 s7.2
-00:02:04.830 --> 00:02:09.544
+00:02:04.811 --> 00:02:09.529
 From an empty machine to a deleted cluster, it took 275 seconds.
 
 s7.3
-00:02:09.544 --> 00:02:14.954
+00:02:09.529 --> 00:02:14.938
 A ticket became a Job in 7.7 seconds, and the agent ran at 15.3.
 
 s7.4
-00:02:14.954 --> 00:02:19.410
+00:02:14.938 --> 00:02:19.394
 Live events reached the host in 3 milliseconds. A steer applied in 13.
 
 s7.5
-00:02:19.410 --> 00:02:22.523
+00:02:19.394 --> 00:02:22.506
 A refresh resumed the same session, on the same pod.
 
 s7.6
-00:02:22.523 --> 00:02:26.777
+00:02:22.506 --> 00:02:26.760
 Its limits: the memory tracker, one turn per attempt, and no merger.
 
 s8.1
-00:02:27.127 --> 00:02:32.845
+00:02:27.110 --> 00:02:32.829
 The merger certification uses a real GitHub repository, real CI and real agents.
 
 s8.2
-00:02:32.845 --> 00:02:37.916
+00:02:32.829 --> 00:02:37.899
 A clean merge, a sent-back bug and a batch passed. A conflict passed on the third round.
 
 s8.3
-00:02:37.916 --> 00:02:42.054
+00:02:37.899 --> 00:02:42.037
 A batch on a protected main failed first. After the fix, it passed.
 
 s8.4
-00:02:42.054 --> 00:02:46.649
+00:02:42.037 --> 00:02:46.632
 With no findings, a review took 10 to 40 seconds. Eight bugs were fixed.
 
 s8.5
-00:02:46.649 --> 00:02:51.780
+00:02:46.632 --> 00:02:51.763
 Its limits: a user token, not a GitHub App, no webhooks, and a recorded tracker and chat.
 
 s8.6
-00:02:51.780 --> 00:02:55.430
+00:02:51.763 --> 00:02:55.413
 Main stayed green, so the main watch opened no ticket there.
 
 s9.1
-00:02:55.780 --> 00:03:00.693
+00:02:55.763 --> 00:03:00.676
 Tern's 46 tests run a real Tern server, headless, with the plugin as a fixture.
 
 s9.2
-00:03:00.693 --> 00:03:06.751
+00:03:00.676 --> 00:03:06.735
 One suite uses a fake API. The other uses Redis, the real API and the real CLI.
 
 s9.3
-00:03:06.751 --> 00:03:09.124
+00:03:06.735 --> 00:03:09.107
 A test fails if Tern logs a plugin error.
 
 s9.4
-00:03:09.124 --> 00:03:12.480
+00:03:09.107 --> 00:03:12.464
 The same harness renders the screenshots in the docs.

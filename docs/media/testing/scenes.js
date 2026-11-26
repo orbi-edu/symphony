@@ -3,6 +3,11 @@
 // docs/tern.md (Tests) and scripts/mocks/specs/SOURCES.md; the test counts from `pytest --collect-only`.
 
 const SHOT = (name) => `../../tern/${name}-dark.png`;
+// The stylesheet draws every screenshot 2880x1920; a taller one (the Dashboard) keeps its own height.
+const natural = (vp) => {
+  for (const img of vp.querySelectorAll("img")) img.style.height = "auto";
+  return vp;
+};
 
 const card = (parent, o, html, style = {}) => D.abs(parent, "div", o, { class: "card", html, style });
 const chip = (parent, x, y, ref, text, cls = "", out = null) =>
@@ -211,11 +216,11 @@ const SCENES = {
   // 9. Tern
   s9(sec) {
     D.abs(sec, "div", { x: 100, y: 205, w: 1720, in: "s9.1+0.6" }, { html: '<span class="chip blue">tern serve</span> <span class="chip">an isolated TERN_CONFIG_DIR</span> <span class="chip">the plugin as a fixture</span>' });
-    D.shot(sec, {
+    natural(D.shot(sec, {
       x: 100, y: 270, w: 1720, h: 420, in: "s9.1",
       shots: [{ src: SHOT("dashboard"), in: "s9.1" }],
-      cam: [["s9.1", 1440, 1060, 0.597]],
-    });
+      cam: [["s9.1", 1440, 540, 0.597]],
+    }));
     card(sec, { x: 100, y: 720, w: 560, h: 140, in: "s9.2" }, '<p class="mono" style="font-size:26px">test_tern_plugin.py · 32</p><p>a fake API and a test CLI</p>');
     card(sec, { x: 690, y: 720, w: 560, h: 140, in: "s9.2+2.2" }, '<p class="mono" style="font-size:26px">test_tern_real_stack.py · 14</p><p>Redis, the real API and CLI</p>');
     chip(sec, 1290, 730, "s9.3", "plugin error → test fails", "red");
