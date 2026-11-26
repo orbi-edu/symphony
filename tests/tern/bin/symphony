@@ -280,8 +280,10 @@ def main(argv: list[str]) -> None:
         reason = flag(args, "--reason", "interrupted from Tern")
         out(api("POST", f"/v1/sessions/{args[1]}/interrupt", {"reason": reason}))
     elif cmd == ["tern", "install"]:
-        out({"settings": "~/Library/Application Support/Tern/settings.json", "agent": "symphony",
-             "mcp": "symphony", "plugin": "symphony 0.1.0"})
+        # Same shape as `symphony.cli.local.tern_install`.
+        out({"settings": "~/Library/Application Support/Tern/settings.json", "agent": "added",
+             "mcp": "added", "command": ["/usr/local/bin/symphony", "acp"],
+             "plugin": None if "--no-plugin" in args else {"source": "tern-plugin", "result": {}}})
     elif cmd == ["omp", "sync"]:
         cfg = api("GET", "/v1/admin/config")
         # Same shape as `symphony.cli.local.omp_sync`, with an omp older than the team's.

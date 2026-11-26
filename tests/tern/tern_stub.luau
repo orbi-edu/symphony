@@ -1,8 +1,8 @@
 --!nonstrict
--- A stub of the `tern` global for rendering the plugin's views outside Tern
--- (tests/tern/test_tern_views.py): view builders return `{k, p, c}` nodes as Tern's do, and
--- `json.encode` writes them as JSON. The test copies the plugin's modules next to this one and
--- has each start with `local tern = require("./tern_stub")`.
+-- A stub of the `tern` global for running the plugin's modules outside Tern
+-- (tests/tern/test_tern_views.py, tests/tern/test_tern_signin.py): view builders return
+-- `{k, p, c}` nodes as Tern's do, and `json.encode` writes them as JSON. The tests copy the
+-- plugin's modules next to this one and have each start with `local tern = require("./tern_stub")`.
 
 local NULL = setmetatable({}, { __tostring = function()
 	return "null"
@@ -108,6 +108,10 @@ local function encode(v: any): string
 	error("cannot encode a " .. t)
 end
 
+-- `env` is what `getenv` reads; `process.run` records each spawn in `runs` and never calls back.
+local env: { [string]: string } = {}
+local runs = {}
+
 return {
 	ui = ui,
 	json = { null = NULL, encode = encode, array = function(t)
@@ -116,8 +120,13 @@ return {
 	now = function()
 		return os.clock() * 1000
 	end,
-	getenv = function()
-		return nil
+	env = env,
+	getenv = function(name)
+		return env[name]
 	end,
+	runs = runs,
+	process = { run = function(argv, opts)
+		table.insert(runs, { argv = argv, opts = opts })
+	end },
 	log = { warn = function() end, info = function() end },
 }

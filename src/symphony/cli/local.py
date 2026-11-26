@@ -182,11 +182,19 @@ def tern_install(cred: creds.Credential, *, plugin_dir: str | None, install_plug
     result = {"settings": str(path), "agent": agent, "mcp": server,
               "command": [command, *args], "plugin": None}
     if install_plugin:
-        result["plugin"] = _install_plugin(Path(plugin_dir) if plugin_dir else REPO_ROOT / "tern-plugin")
+        result["plugin"] = _install_plugin(Path(plugin_dir) if plugin_dir else None)
     return result
 
 
-def _install_plugin(source: Path) -> dict:
+def _install_plugin(source: Path | None) -> dict:
+    if source is None:
+        # Only a source checkout (`uv tool install --editable .`) has the plugin next to the CLI;
+        # a regular install has only the Python package.
+        source = REPO_ROOT / "tern-plugin"
+        if not (source / "plugin.toml").is_file():
+            raise LocalError("This symphony install has no Tern plugin source (it is not a source "
+                             "checkout). Use --plugin DIR, or --no-plugin if the plugin is already "
+                             "installed in Tern.")
     if not (source / "plugin.toml").is_file():
         raise LocalError(f"The Tern plugin was not found in {source}. Use --plugin DIR.")
     tern = shutil.which("tern")

@@ -12,8 +12,9 @@ and MCP servers). It is built and tested for Tern 0.8.3. The source is in
    the API token that an admin created for you (`symphony token create <your-name> --role
    operator`). The token is masked. `symphony login` stores it in the keychain. Tern never stores
    it.
-3. On the same screen, **Install in Tern** runs `symphony tern install`. It adds the "Symphony"
-   ACP agent (live chat), the Symphony MCP server for your omp, and this plugin.
+3. On the same screen, **Install in Tern** runs `symphony tern install --no-plugin`. It adds the
+   "Symphony" ACP agent (live chat) and the Symphony MCP server for your omp. The plugin is
+   already installed, so the step does not install it again. Running it again changes nothing.
 
 | Sign in | Ready |
 |---|---|
@@ -23,8 +24,10 @@ When you are not signed in, the panel and the status line show the next step (**
 
 ![Disconnected](tern/disconnected-light.png)
 
-> If you start Tern from the Dock and its daemon cannot find `symphony` on the `PATH`, set
-> `SYMPHONY_BIN` to the full path of the CLI.
+> A Tern started from the Dock does not get your login shell's `PATH`. The plugin then looks
+> for `symphony` in `$UV_TOOL_BIN_DIR`, `$XDG_BIN_HOME`, `~/.local/bin` (`uv tool install`,
+> pipx), `/opt/homebrew/bin` and `/usr/local/bin`, after Tern's own `PATH`. For a CLI elsewhere,
+> set `SYMPHONY_BIN` to its full path where Tern's daemon reads it, and restart Tern.
 
 ## Commands and shortcuts
 
@@ -419,6 +422,7 @@ uv run pytest tests/tern/test_tern_plugin.py      # flows against the fake API a
 uv run pytest tests/tern/test_tern_real_stack.py  # the real stack: Redis, API, CLI and symphony acp
 uv run python tests/tern/scenarios.py             # regenerates the docs/tern screenshots (light and dark)
 uv run pytest tests/tern/test_tern_views.py       # the Telemetry and Dashboard charts' node shapes (needs luau)
+uv run pytest tests/tern/test_tern_signin.py      # Install in Tern finds the CLI off Tern's PATH (needs luau)
 ```
 
 The first three start `tern serve` with an isolated `TERN_CONFIG_DIR` and the plugin loaded as a fixture
@@ -440,5 +444,13 @@ CLI (`tests/tern/render_views.luau`) and checks the charts' kinds, series length
 empty states. It skips when `luau` is not installed. Its history documents, and the fake API's
 `GET /v1/telemetry/history`, come from `tests/tern/history_fixture.py`: seeded daily rollups
 bucketed like the API.
+
+`test_tern_signin.py` uses the same stub, which records each spawn. It presses Enter on the
+sign-in block's install step (`tests/tern/signin_install.luau`), then runs the recorded argv with
+launchd's PATH and a fake CLI in `~/.local/bin` or `$UV_TOOL_BIN_DIR`. It checks that the step
+runs `tern install --no-plugin --json`, that a CLI on Tern's PATH wins, that `SYMPHONY_BIN`
+wins over both, and that no CLI at all exits 127 (`cli_missing`). `tests/tern/cli_missing.luau`
+checks the error text for a CLI that does not start: the lookup's directories without
+`SYMPHONY_BIN`, and only the configured path with it.
 
 ![Live chat on the real stack](tern/real-chat-light.png)

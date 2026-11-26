@@ -184,7 +184,9 @@ Merges into Tern's `settings.json` (`$TERN_CONFIG_DIR`, else
   {Authorization: "Bearer <token>"}}`. The header is literal because Tern 0.8.3 did not
   expand `${VAR}` in the headless test. For this reason the file keeps mode `0600`.
 - The plugin, from `<repo>/tern-plugin` (or `--plugin DIR`), through
-  `tern plugin install DIR --force`.
+  `tern plugin install DIR --force`. Only a source checkout has `<repo>/tern-plugin`: on another
+  install, pass `--plugin DIR`, or `--no-plugin` when the plugin is already installed. The
+  plugin's **Install in Tern** step uses `--no-plugin`.
 
 Running it again changes nothing when the settings are already correct. The command does not
 touch a `settings.json` that is not valid JSON (for example, one with comments).

@@ -19,7 +19,6 @@ from pathlib import Path
 import pytest
 
 HERE = Path(__file__).resolve().parent
-LIB = HERE.parent.parent / "tern-plugin" / "lib"
 sys.path.insert(0, str(HERE))
 
 from history_fixture import empty_history_doc, history_doc  # noqa: E402
@@ -63,15 +62,8 @@ def base_data(**extra) -> dict:
 
 
 @pytest.fixture(scope="module")
-def runner(tmp_path_factory) -> Path:
-    root = tmp_path_factory.mktemp("render")
-    (root / "lib").mkdir()
-    for src in LIB.glob("*.luau"):
-        first, _, rest = src.read_text().partition("\n")
-        (root / "lib" / src.name).write_text(f'{first}\nlocal tern = require("./tern_stub")\n{rest}')
-    shutil.copyfile(HERE / "tern_stub.luau", root / "lib" / "tern_stub.luau")
-    shutil.copyfile(HERE / "render_views.luau", root / "render_views.luau")
-    return root / "render_views.luau"
+def runner(luau_plugin) -> Path:
+    return luau_plugin("render", "render_views.luau")
 
 
 @pytest.fixture

@@ -8,19 +8,51 @@ local M = {}
 
 export type CliError = { code: string, message: string }
 
--- `SYMPHONY_BIN` names the CLI when the daemon's PATH lacks it (Tern started from the Dock).
-function M.bin(): string
+-- `SYMPHONY_BIN` names the CLI explicitly; it always wins.
+local function explicit(): string?
 	local b = tern.getenv("SYMPHONY_BIN")
-	if b and b ~= "" then
-		return b
-	end
-	return "symphony"
+	return if b and b ~= "" then b else nil
 end
 
-M.MISSING = {
-	code = "cli_missing",
-	message = "The symphony CLI is not on Tern's PATH. Install the Symphony CLI or set SYMPHONY_BIN to its path.",
-}
+-- The command a shell tab types (takeover): the person's shell has their own PATH.
+function M.bin(): string
+	return explicit() or "symphony"
+end
+
+-- A Tern started from the Dock has launchd's PATH, not the login shell's, so its daemon does not
+-- see where `uv tool install` and pipx put the CLI (`$UV_TOOL_BIN_DIR`, `$XDG_BIN_HOME` or
+-- `~/.local/bin`) or where Homebrew puts it. Without `SYMPHONY_BIN` the CLI is looked up on the
+-- daemon's PATH first, then in those directories. `$HOME` expands in the daemon's environment, and
+-- the CLI inherits the extended PATH (its `tern install` writes the absolute path it finds).
+local LOOKUP = 'export PATH="${PATH:+$PATH:}${UV_TOOL_BIN_DIR:+$UV_TOOL_BIN_DIR:}'
+	.. '${XDG_BIN_HOME:+$XDG_BIN_HOME:}$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin"; exec symphony "$@"'
+
+-- The argv that runs `symphony ARGS...`; the arguments stay separate words, never shell text.
+function M.argv(args: { string }): { string }
+	local b = explicit()
+	local argv = if b then { b } else { "/bin/sh", "-c", LOOKUP, "symphony" }
+	for _, a in args do
+		table.insert(argv, a)
+	end
+	return argv
+end
+
+local LOOKUP_MISSING = "Tern could not find the symphony CLI on its PATH or in $UV_TOOL_BIN_DIR, $XDG_BIN_HOME, "
+	.. "~/.local/bin, /opt/homebrew/bin or /usr/local/bin. Install the Symphony CLI, or set SYMPHONY_BIN to its "
+	.. "full path and restart Tern."
+
+-- The `cli_missing` error. An explicit `SYMPHONY_BIN` skips the lookup, so its message names that
+-- path instead of the directories the lookup searches.
+function M.missing(): CliError
+	local b = explicit()
+	if b then
+		return {
+			code = "cli_missing",
+			message = "Tern could not run SYMPHONY_BIN (" .. b .. "). Fix the path and restart Tern.",
+		}
+	end
+	return { code = "cli_missing", message = LOOKUP_MISSING }
+end
 
 local function trim(s: string): string
 	return string.match(s, "^%s*(.-)%s*$") or ""
@@ -51,10 +83,7 @@ function M.run(
 	opts: { stdin: string?, timeout_ms: number? }?,
 	cb: (data: any, err: CliError?, cx: any) -> ()
 ): (boolean, CliError?)
-	local argv = { M.bin() }
-	for _, a in args do
-		table.insert(argv, a)
-	end
+	local argv = M.argv(args)
 	local o = opts or {}
 	local ok, spawn_err = pcall(tern.process.run, argv, {
 		stdin = o.stdin,
@@ -72,7 +101,7 @@ function M.run(
 		elseif type(data) == "table" and type(data.error) == "table" then
 			err = { code = tostring(data.error.code or "error"), message = tostring(data.error.message or "") }
 		elseif r.status == 127 then
-			err = M.MISSING
+			err = M.missing()
 		else
 			local text = trim(if r.stderr ~= "" then r.stderr else r.stdout)
 			err = { code = "cli_failed", message = if text ~= "" then text else "The CLI exited with status " .. r.status }
@@ -83,7 +112,7 @@ function M.run(
 	end)
 	if not ok then
 		tern.log.warn("symphony CLI spawn failed", spawn_err)
-		return false, M.MISSING
+		return false, M.missing()
 	end
 	return true, nil
 end
@@ -116,7 +145,7 @@ end
 -- field list of an `invalid_request`, which names fields, not prose.
 local KNOWN = {
 	not_logged_in = "You are not signed in to Symphony yet.",
-	cli_missing = M.MISSING.message,
+	cli_missing = LOOKUP_MISSING,
 	cli_failed = "The symphony CLI failed.",
 	timeout = "Symphony did not respond in time.",
 	unreachable = "Could not reach Symphony.",
@@ -181,6 +210,10 @@ function M.describe(err: CliError?): string
 	if err.code == "cli_failed" and err.message ~= "" then
 		-- The CLI's own failures are already English.
 		return "The symphony CLI failed: " .. err.message
+	end
+	if err.code == "cli_missing" and err.message ~= "" then
+		-- `M.missing` says whether the lookup or an explicit SYMPHONY_BIN failed.
+		return err.message
 	end
 	if err.code == "invalid_request" then
 		local fields = string.match(err.message or "", "^invalid request:%s*(.+)$")
