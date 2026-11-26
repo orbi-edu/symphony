@@ -266,6 +266,23 @@ def mcp_doc(st: dict) -> dict:
     return {"servers": servers, "roles": ROLES}
 
 
+def skills_doc() -> dict:
+    """`GET /v1/admin/skills`: the configured skill sources, resolved (api/admin.py `list_skills`)."""
+    def source(repo, path, sha, skills, roles=None, repos=None, error=None):
+        return {"repo": repo, "path": path, "ref": None, "roles": roles, "repos": repos,
+                "scope": "repos" if repos else "global", "sha": sha, "skills": skills, "error": error}
+
+    return {"sources": [
+        source("acme/agent-skills", "global", "9f2c41e7a0b3d5c8e1f4a6b9c2d5e8f1a4b7c0d3",
+               ["release-notes", "sql-migrations", "incident-report"]),
+        source("acme/agent-skills", "artifacts", "9f2c41e7a0b3d5c8e1f4a6b9c2d5e8f1a4b7c0d3",
+               ["preview-build"], repos=["acme/web"]),
+        source("acme/agent-skills", "planning", "9f2c41e7a0b3d5c8e1f4a6b9c2d5e8f1a4b7c0d3",
+               ["spec-template", "ticket-split"], roles=["planner", "researcher"]),
+        source("acme/design-system", "skills", None, [], error="ref resolution failed"),
+    ]}
+
+
 def assistant_memory() -> dict:
     """The assistant's soul (from its heartbeat) and per-person memory (`assistant/memory.py`)."""
     def item(iid, text, kind, seconds):
@@ -463,6 +480,7 @@ def setup_doc(st: dict, issues: list[dict], mergers: list[str]) -> dict:
         step("assistant", "Assistant", False, "done" if st["assistant"] else "todo", assistant_detail(st)),
         step("webhooks", "Webhooks", False, "done" if st["deliveries"] else "todo",
              {"linear": hook("linear"), "github": hook("github")}),
+        step("skills", "Skills", False, "skipped", {"sources": []}),
     ]
     complete = all(s["status"] == "done" for s in steps if s["required"])
     return {"complete": complete, "mode": "kubernetes", "steps": steps}
@@ -761,6 +779,8 @@ def make_handler(fake: Fake):
                 return {"items": s["tokens"]}
             if path == "/v1/admin/mcp":
                 return mcp_doc(s)
+            if path == "/v1/admin/skills":
+                return skills_doc()
             if path.startswith("/v1/assistant/memory"):
                 fake.log("GET", path, None, {})  # every read is audited: the tests count them
                 return assistant_doc(s["assistant"], path)

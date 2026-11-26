@@ -174,6 +174,10 @@ def seed_merger(client: redis.Redis, namespace: str) -> None:
     ])
     web.acquire("train", "merger-web-0", 120_000)
     gateway.acquire("train", "merger-gateway-0", 120_000)
+    # The label filter each merger publishes (`merger.label_filter`): web takes labeled PRs only,
+    # gateway is turned off for its repository (`merger.label_filter.repos`), so it takes every PR.
+    web.label_filter = {"active": True, "labels": ["symphony", "symphony-learnings"]}
+    gateway.label_filter = {"active": False, "labels": ["symphony", "symphony-learnings"]}
 
 
 def seed_limits_and_holds(client: redis.Redis) -> None:
