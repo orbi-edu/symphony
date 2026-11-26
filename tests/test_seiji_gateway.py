@@ -1,8 +1,8 @@
 """Symphony's gateway with Seiji (internals §18), against the Seiji mock: the agent's bearer
 never reaches Seiji and the stored one does, links point at the gateway, binary bodies and
-uploads stream through untouched, held leases are released at session end and by the
-sweep, the viewer only opens leases that a live session holds, and the admin test reads
-`/v1/me`."""
+uploads stream through untouched, held leases are released and uploaded builds deleted at
+session end and by the sweep, the viewer only opens leases that a live session holds, and the
+admin test reads `/v1/me`."""
 
 from __future__ import annotations
 
@@ -260,6 +260,81 @@ def test_a_release_that_cannot_reach_seiji_is_left_for_the_sweep(gateway, seiji,
     assert mcp_servers.sweep_held(redis_client, NS, repo) == 1
     assert state(seiji)["leases"][0]["status"] == "released"
     assert mcp_servers.session_leases(redis_client, NS, [SID]) == {SID: []}
+
+
+# -- builds a session uploaded -------------------------------------------------------------
+def upload(gateway, token, server="seiji", body=b"app") -> str:
+    response = httpx.post(f"{gateway}/v1/mcp/{server}/http/v1/apps", content=body, timeout=10,
+                          headers={**bearer(token), "X-Filename": "MyApp.zip"})
+    assert response.status_code == 200, response.text
+    return response.json()["app_id"]
+
+
+def builds_key(token) -> str:
+    return f"sym:{NS}:mcp:builds:{mcp_servers.token_hash(token)}"
+
+
+def deleted(seiji) -> list[str]:
+    return sorted(r["path"] for r in state(seiji)["requests"] if r["method"] == "DELETE")
+
+
+def test_the_builds_a_session_uploaded_are_deleted_when_it_ends(gateway, seiji, token, redis_client, repo):
+    first, second = upload(gateway, token), upload(gateway, token, body=b"other")
+    assert set(redis_client.hkeys(builds_key(token))) == {f"seiji/{first}", f"seiji/{second}"}
+    assert 71 * 3600 < redis_client.ttl(builds_key(token)) <= 72 * 3600
+    assert redis_client.smembers(f"sym:{NS}:mcp:held") == {mcp_servers.token_hash(token)}
+    assert mcp_servers.session_leases(redis_client, NS, [SID]) == {SID: []}  # not a lease
+    assert len(state(seiji)["apps"]) == 2
+    McpLaunch(redis_client, NS, repo, gateway).end(token)
+    assert state(seiji)["apps"] == []
+    assert deleted(seiji) == sorted(f"/v1/apps/{i}" for i in (first, second))
+    assert not redis_client.exists(builds_key(token))
+    assert redis_client.smembers(f"sym:{NS}:mcp:held") == set()
+    # the deletes went to Seiji with the stored header only
+    assert state(seiji)["other_bearers"] == []
+    assert all(r["auth"] == "valid" for r in state(seiji)["requests"])
+
+
+def test_a_build_seiji_no_longer_has_is_forgotten(gateway, seiji, token, redis_client, repo):
+    upload(gateway, token)
+    httpx.post(f"{seiji}/_control/expire_apps")  # Seiji's retention ran out: DELETE is a 404
+    counts = mcp_servers.release_held(redis_client, NS, repo, mcp_servers.token_hash(token))
+    assert counts == {"held": 0, "released": 0, "failed": 0, "kept": 0, "builds": 1, "deleted": 0}
+    assert len(deleted(seiji)) == 1
+    assert not redis_client.exists(builds_key(token))
+    assert redis_client.smembers(f"sym:{NS}:mcp:held") == set()
+
+
+def test_a_released_lease_keeps_the_sessions_builds_for_its_end(gateway, seiji, token, redis_client, repo):
+    upload(gateway, token)
+    acquire(gateway, token)
+    call(gateway, token, "release_device")
+    assert redis_client.smembers(f"sym:{NS}:mcp:held") == {mcp_servers.token_hash(token)}
+    mcp_servers.revoke_token(redis_client, NS, token)  # a crash: the sweep deletes the build
+    assert mcp_servers.sweep_held(redis_client, NS, repo) == 1
+    assert state(seiji)["apps"] == [] and not redis_client.exists(builds_key(token))
+
+
+def test_a_delete_that_cannot_reach_seiji_is_left_for_the_sweep(gateway, seiji, token, redis_client, repo):
+    app_id = upload(gateway, token)
+    stored = repo.get("seiji")
+    definition = {k: v for k, v in stored.items() if k not in ("name", "headers_set")}
+    repo.put("seiji", {**definition, "http_base": "http://127.0.0.1:9"})  # Seiji is down
+    McpLaunch(redis_client, NS, repo, gateway).end(token)
+    assert redis_client.hkeys(builds_key(token)) == [f"seiji/{app_id}"]
+    repo.put("seiji", definition)  # Seiji is back
+    assert mcp_servers.sweep_held(redis_client, NS, repo) == 1
+    assert state(seiji)["apps"] == [] and not redis_client.exists(builds_key(token))
+
+
+def test_a_server_without_the_preset_records_no_build(gateway, seiji, token, redis_client, repo):
+    repo.put("lab", {"transport": "http", "url": f"{seiji}/mcp", "http_base": seiji,
+                     "roles": ["implementer"]})
+    repo.set_headers("lab", {"Authorization": STORED})
+    upload(gateway, token, server="lab")
+    assert not redis_client.exists(builds_key(token))
+    McpLaunch(redis_client, NS, repo, gateway).end(token)
+    assert len(state(seiji)["apps"]) == 1 and deleted(seiji) == []
 
 
 # -- the session list and the viewer ------------------------------------------------------

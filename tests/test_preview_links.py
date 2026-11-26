@@ -655,3 +655,16 @@ def test_a_build_seiji_already_deleted_is_forgotten_quietly(stack):
     httpx.post(f"{stack.seiji}/_control/expire_apps")
     assert stack.mgr.release_pr(REPO, 7) == 1  # DELETE answers 404: ignored
     assert deletes(stack) == [f"/v1/apps/{app_id}"] and kept(stack, SHA_NEW) is None
+
+
+def test_the_session_cleanup_never_deletes_a_preview_build(stack):
+    """A preview uploads with the stored credential, not through a session token, so the
+    MCP cleanup that deletes a session's builds (internals §18) has no record of it."""
+    opened(stack, SHA_NEW)
+    app_id = kept(stack, SHA_NEW)
+    client = stack.mgr.client
+    assert client.keys(f"sym:{NS}:mcp:builds:*") == []
+    live = stack.mgr.get(REPO, 7, SHA_NEW[:12])
+    mcp_servers.revoke_token(client, NS, live.mcp_token)  # the preview's session is over
+    assert mcp_servers.sweep_held(client, NS, stack.mgr.repository) == 1
+    assert [a["app_id"] for a in seiji_state(stack)["apps"]] == [app_id] and deletes(stack) == []

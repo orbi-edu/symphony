@@ -20,7 +20,9 @@ Two routes:
 For a server with `http_base`, JSON and text answers of both routes have the links of
 `http_base` and `rewrite_origins` pointed at the gateway (bodies up to 8 MiB). For a server
 with `cleanup`, the MCP proxy records the ids that `acquire_tool` returns under the session
-token and forgets those that `release_tool` releases; a background sweep releases what
+token and forgets those that `release_tool` releases. For a preset with `builds_path` (Seiji
+`/v1/apps`), the companion route records the build id of each successful upload under the
+session token, for the session's cleanup to delete. A background sweep releases what
 sessions with an expired token still hold.
 
 No model or tracker credential is served here. Models are reached by API key staged
@@ -198,6 +200,18 @@ def build_app(
         except Exception as exc:  # noqa: BLE001 — the answer still reaches the agent
             _log.warning("mcp_lease_record_failed", server=name, error=type(exc).__name__)
 
+    def record_build(token: str, record: dict, name: str, preset, answer) -> None:
+        build_id = mcp_servers.uploaded_build(preset, answer)
+        if build_id is not None:
+            mcp_servers.record_build(redis_client(), namespace, token, record.get("session"),
+                                     name, build_id)
+
+    async def recorded_build(token, record, name, preset, answer) -> None:
+        try:
+            await run_in_threadpool(record_build, token, record, name, preset, answer)
+        except Exception as exc:  # noqa: BLE001 — the answer still reaches the agent
+            _log.warning("mcp_build_record_failed", server=name, error=type(exc).__name__)
+
     def relayed(upstream: httpx.Response, body: AsyncIterator[bytes], headers: dict,
                 ) -> _Proxied:
         async def relay():
@@ -308,7 +322,7 @@ def build_app(
         allowed = await allowed_for(request, name)
         if allowed is None:
             return JSONResponse(status_code=403, content=_FORBIDDEN)
-        definition, stored, _record = allowed
+        definition, stored, record = allowed
         if not definition.get("http_base"):
             return await forward_mcp(request, name, f"http/{path}", allowed)
         target = mcp_servers.http_api_path(path)
@@ -324,8 +338,18 @@ def build_app(
             return JSONResponse(status_code=502, content={"error": "mcp_unreachable"})
         headers = mcp_servers.response_headers(upstream)
         rewrite = mcp_servers.link_rewriter(definition, http_url(request, name))
+        preset = mcp_servers.preset_of(definition)
+        uploading = (request.method == "POST" and preset is not None and preset.builds_path
+                     and target == preset.builds_path.strip("/"))
+
+        async def on_answer(message) -> None:
+            # A build the session uploaded: its cleanup deletes it (internals §18).
+            if 200 <= upstream.status_code < 300:
+                await recorded_build(_bearer(request), record, name, preset, message)
+
         if rewrite and mcp_servers.rewritable(upstream):
-            return await buffered_or_streamed(upstream, headers, rewrite)
+            return await buffered_or_streamed(upstream, headers, rewrite,
+                                              on_answer if uploading else None)
         length = upstream.headers.get("content-length")
         if length is not None and request.method != "HEAD":
             headers["content-length"] = length  # untouched bytes keep their length

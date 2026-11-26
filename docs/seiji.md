@@ -50,7 +50,7 @@ The pieces are generic MCP features ([mcp.md](mcp.md)). The `seiji` preset sets 
 | [Companion HTTP API](mcp.md#companion-http-api) | `$SEIJI_URL/v1/apps`, `/v1/me`, `/v1/runs/…` through the gateway |
 | [Link rewriting](mcp.md#companion-http-api) | Seiji's links in tool results become `$SEIJI_URL/…` links that work for the agent |
 | [`agent_env`](mcp.md#variables-for-the-agent-agent_env) | `SEIJI_TOKEN` (the session token) and `SEIJI_URL` (the gateway URL) in the agent's shell |
-| [Session cleanup](mcp.md#session-cleanup) | `release_device` for every lease still held when the session ends |
+| [Session cleanup](mcp.md#session-cleanup) | `release_device` for every lease still held, and `DELETE /v1/apps/{app_id}` for every build the session uploaded, when the session ends |
 | Timeout | 65 minutes per tool call, above Seiji's longest run (`xctest.timeoutSeconds` 3600 s) |
 
 The protocol matches: omp 18.20.2 speaks MCP `2025-11-25`, and Seiji (rmcp 3.10) accepts `2024-11-05`, `2025-03-26`, `2025-06-18` and `2025-11-25`. Seiji is stateless and answers JSON only, which the gateway passes through.
@@ -135,11 +135,13 @@ The tools appear as `mcp__seiji_<tool>` (local mode: `mcp__symphony_seiji_<tool>
 
 ## Cleanup
 
-A Seiji lease costs budget until it ends. Seiji's idle reaper ends a forgotten lease after `idleMinutes` (15 by default). Symphony ends it sooner:
+A Seiji lease costs budget until it ends, and a build takes one of the user's `maxBuildsPerUser` places until it expires. Seiji's idle reaper ends a forgotten lease after `idleMinutes` (15 by default), and its retention deletes a build `appRetentionHours` after its upload (72 by default). Symphony frees both sooner:
 
-1. The gateway records every lease that `acquire_device` returns, under the session's token. `release_device` removes it.
-2. When the attempt ends, Symphony calls `release_device` for every lease still held, with the stored header. The log line `mcp_cleanup` has the counts: `held`, `released`, `failed`, `kept`.
-3. If the runner crashes, or Seiji is down at that moment, the gateway's sweep releases the leases of expired sessions within a minute, and keeps trying for 24 hours.
+1. The gateway records every lease that `acquire_device` returns, under the session's token. `release_device` removes it. It also records the `app_id` of every build the agent uploads through `$SEIJI_URL/v1/apps`.
+2. When the session ends (an attempt, a merger or chat assistant session), Symphony calls `release_device` for every lease still held, then `DELETE /v1/apps/{app_id}` for every build the session uploaded, with the stored header. A Seiji that already expired the build, or has no such route, answers 404 or 405, which is fine. The log line `mcp_cleanup` has the counts: `held`, `released`, `failed`, `kept`, `builds`, `deleted`.
+3. If the runner crashes, or Seiji is down at that moment, the gateway's sweep releases the leases and deletes the builds of expired sessions within a minute, and keeps trying for 24 hours.
+
+PR previews upload with the stored header, not through a session, so this cleanup never deletes a build a preview reuses. [PR previews](#pr-previews) delete their builds by their own rule.
 
 Sessions show what they hold: `mcp_leases` on each session of `GET /v1/sessions`, and the event `symphony.mcp_lease` on the session's stream ([api.md](api.md#sessions)).
 
@@ -199,6 +201,6 @@ Seiji keeps at most `maxBuildsPerUser` builds per user (10 by default), each for
 | `admin mcp test` says `unreachable` | The gateway cannot reach Seiji. Check the public name, TLS, and that the name is in Seiji's `listen.allowedHosts` (Seiji answers `403 Forbidden: Host header is not allowed` otherwise) |
 | `acquire_device` fails with `device failed to start (not billed)` | The Seiji host cannot boot the simulator (no Xcode runtime, or a wrong `runtime` in Seiji's config). Run `seiji doctor` on the host |
 | `you already hold N device(s), your limit is N` | More attempts want devices than the Symphony user's `maxConcurrent`. Raise it with `seiji user set symphony --max-concurrent N` |
-| `the build upload was refused: you already keep 10 builds, the limit is 10; …` | The Symphony user keeps `maxBuildsPerUser` builds. Previews reuse each build and delete the builds of closed PRs; the others expire `appRetentionHours` after their upload. Wait for one to expire, or raise `maxBuildsPerUser` in Seiji's config |
+| `the build upload was refused: you already keep 10 builds, the limit is 10; …` | The Symphony user keeps `maxBuildsPerUser` builds. An agent's builds go when its session ends; previews reuse each build and delete the builds of closed PRs; the others expire `appRetentionHours` after their upload. Wait for one to expire, or raise `maxBuildsPerUser` in Seiji's config |
 | `symphony mcp viewer` says `lease_not_held` | No live session holds the lease: the attempt ended (and released it), or the lease id is wrong. Read `mcp_leases` of `symphony sessions --json` |
 | The agent's `curl` gets `403 {"error": "mcp_forbidden"}` | The role has no Seiji server, the server is disabled, or the session ended |
