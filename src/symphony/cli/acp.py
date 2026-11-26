@@ -192,6 +192,7 @@ class Bridge:
                 loaded = self._sessions[sid] = _Loaded(sid, meta)
             else:
                 loaded.mapper.meta.update(meta)
+        self._update(sid, acp_map.note(acp_map.remote_note(meta)))
         if replay:
             for upd in acp_map.replay(doc.get("transcript") or []):
                 self._update(sid, upd)

@@ -1,6 +1,6 @@
 [project]
 name = "symphony"
-version = "0.2.24"
+version = "0.2.25"
 description = "Linear-driven autonomous coding agents (Oh My Pi) on Kubernetes, operated from Tern"
 requires-python = ">=3.12"
 dependencies = [

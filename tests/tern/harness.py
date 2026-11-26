@@ -93,7 +93,8 @@ class Harness:
         self.ctl("size", self.size)
         self.ctl("ready")
         self.ctl("plugins", "fixtures")
-        self.ctl("status-bar", "on")
+        # Tern 0.9.26+ dropped `ctl status-bar` (the status line is always on there).
+        self.ctl("status-bar", "on", check=False)
 
     def start_redis(self) -> str:
         """A disposable `redis-server` on a free port; returns its URL."""

@@ -446,7 +446,7 @@ end
 
 local function do_chat(state: any, sid: string)
 	local s = session(state, sid)
-	ask(state, { kind = "chat", sid = sid, label = s and s.identifier or sid })
+	ask(state, { kind = "chat", sid = sid, label = s and s.identifier or sid, repo = s and s.repo or nil })
 end
 
 local function do_say(state: any, sid: string)

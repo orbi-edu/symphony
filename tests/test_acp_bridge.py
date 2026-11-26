@@ -154,6 +154,9 @@ def test_list_load_replays_then_streams_live(bridge, fake_api):
     replayed = bridge.updates_until(lambda u: u["sessionUpdate"] == "available_commands_update")
     kinds = [(u["sessionUpdate"], text_of(u) or u.get("title")) for u in replayed]
     assert kinds == [
+        ("agent_message_chunk", "_Runs in the cluster: `acme/web` · branch `sym/eng-1`. Nothing "
+                                "runs on this machine: this chat shows the session and sends "
+                                "your messages._"),
         ("user_message_chunk", "Implement ENG-1"),
         ("agent_thought_chunk", "Need to look at auth."),
         ("agent_message_chunk", "Reading the auth module."),
@@ -161,11 +164,11 @@ def test_list_load_replays_then_streams_live(bridge, fake_api):
         ("tool_call_update", None),
         ("available_commands_update", None),
     ]
-    call = replayed[3]
+    call = replayed[4]
     assert call["kind"] == "execute" and call["rawInput"] == {"command": "pytest -q"}
-    assert replayed[4]["status"] == "completed"
-    assert {"type": "content", "content": {"type": "text", "text": "3 passed"}} in replayed[4]["content"]
-    assert [c["name"] for c in replayed[5]["availableCommands"]] == [
+    assert replayed[5]["status"] == "completed"
+    assert {"type": "content", "content": {"type": "text", "text": "3 passed"}} in replayed[5]["content"]
+    assert [c["name"] for c in replayed[6]["availableCommands"]] == [
         "interrupt", "pause", "resume", "status", "takeover"]
 
     # Appended after the load: arrives live, without a prompt turn.
