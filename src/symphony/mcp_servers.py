@@ -16,8 +16,9 @@ Local mode keeps the same keys in the 0600 file `<root>/mcp.json`. The gateway r
 Secret as a mounted volume (`mount_dir`), so it needs no Kubernetes token.
 
 Tokens: `sym:<ns>:mcp:token:<sha256(token)>` → `{role, session, exp}`, with a TTL. Held ids of
-a server with `cleanup` live under `sym:<ns>:mcp:held:<sha256(token)>` (internals §18). Redis
-never holds the token itself or any header value.
+a server with `cleanup` live under `sym:<ns>:mcp:held:<sha256(token)>`, and the builds a
+session uploaded to a preset with `builds_path` under `sym:<ns>:mcp:builds:<sha256(token)>`
+(internals §18). Redis never holds the token itself or any header value.
 """
 
 from __future__ import annotations
@@ -297,6 +298,11 @@ class Preset:
     viewer_path: str | None = None
     # For the chat assistant: different guidance (no shell, offer share_device).
     chat_guidance: str | None = None
+    # `POST {http_base}{builds_path}` through the gateway uploads a build, and the answer's
+    # `build_id_field` names it. The gateway records it under the session's token, and the
+    # session's cleanup sends `DELETE {http_base}{builds_path}/{id}`.
+    builds_path: str | None = None
+    build_id_field: str = "app_id"
 
 
 SEIJI_GUIDANCE = """\
@@ -334,6 +340,7 @@ PRESETS: dict[str, Preset] = {
         guidance=SEIJI_GUIDANCE,
         viewer_path="/v1/leases/{id}/viewer",
         chat_guidance=SEIJI_CHAT_GUIDANCE,
+        builds_path="/v1/apps",
     ),
 }
 
@@ -880,9 +887,15 @@ class McpLaunch:
 # -- held resources (B) -------------------------------------------------------------------
 # `sym:<ns>:mcp:held:<sha256(token)>`: hash `<server>/<id>` → `{server, id, session, model?,
 # platform?}`, one entry per id that `cleanup.acquire_tool` returned and the session has not
-# released. `sym:<ns>:mcp:held` indexes the token hashes that hold something, for the sweep.
-# `sym:<ns>:mcp:session-held:<sid>` has the same entries per session, for the session list.
+# released. `sym:<ns>:mcp:held` indexes the token hashes that hold something (a lease or a
+# build), for the sweep. `sym:<ns>:mcp:session-held:<sid>` has the same entries per session,
+# for the session list. `sym:<ns>:mcp:builds:<sha256(token)>`: hash `<server>/<id>` →
+# `{server, id, session, at}`, one entry per build the session uploaded through the gateway
+# to a preset with `builds_path`.
 HELD_TTL_S = 30 * 24 * 3600
+# Seiji's default `appRetentionHours`: after it, Seiji has deleted the build itself.
+BUILDS_TTL_S = 72 * 3600
+_BUILD_ID = re.compile(r"[A-Za-z0-9_.-]{1,128}\Z")
 
 
 def token_hash(token: str) -> str:
@@ -899,6 +912,10 @@ def _held_index(namespace: str) -> str:
 
 def _session_held_key(namespace: str, sid: str) -> str:
     return f"sym:{namespace}:mcp:session-held:{sid}"
+
+
+def _builds_key(namespace: str, digest: str) -> str:
+    return f"sym:{namespace}:mcp:builds:{digest}"
 
 
 def _field(server: str, lease_id: str) -> str:
@@ -970,9 +987,44 @@ def _drop(client, namespace: str, digest: str, entry: Mapping[str, Any]) -> None
     if entry.get("session"):
         pipe.hdel(_session_held_key(namespace, entry["session"]), field)
     pipe.execute()
-    if not client.exists(_held_key(namespace, digest)):
-        client.srem(_held_index(namespace), digest)
+    _unindex_if_empty(client, namespace, digest)
     _emit_lease(client, namespace, entry.get("session"), entry, False)
+
+
+def _unindex_if_empty(client, namespace: str, digest: str) -> None:
+    if not client.exists(_held_key(namespace, digest), _builds_key(namespace, digest)):
+        client.srem(_held_index(namespace), digest)
+
+
+def uploaded_build(preset: Preset, answer: Any) -> str | None:
+    """The build id in a successful upload's JSON answer, or None."""
+    value = answer.get(preset.build_id_field) if isinstance(answer, dict) else None
+    return value if isinstance(value, str) and _BUILD_ID.fullmatch(value) else None
+
+
+def record_build(client, namespace: str, token: str, session: str | None, server: str,
+                 build_id: str) -> None:
+    digest = token_hash(token)
+    entry = {"server": server, "id": build_id, "session": session or "", "at": int(time.time())}
+    pipe = client.pipeline()
+    pipe.hset(_builds_key(namespace, digest), _field(server, build_id),
+              json.dumps(entry, separators=(",", ":")))
+    pipe.expire(_builds_key(namespace, digest), BUILDS_TTL_S)
+    pipe.sadd(_held_index(namespace), digest)
+    pipe.execute()
+
+
+def _build_entries(client, namespace: str, digest: str) -> list[dict]:
+    out = []
+    for raw in (client.hgetall(_builds_key(namespace, digest)) or {}).values():
+        try:
+            entry = json.loads(raw)
+        except ValueError:
+            continue
+        if (isinstance(entry, dict) and isinstance(entry.get("server"), str)
+                and isinstance(entry.get("id"), str) and _BUILD_ID.fullmatch(entry["id"])):
+            out.append(entry)
+    return out
 
 
 def session_leases(client, namespace: str, sids: Iterable[str]) -> dict[str, list[dict]]:
@@ -1018,10 +1070,15 @@ def release_held(client, namespace: str, repository: McpRepository, digest: str,
     """Call `cleanup.release_tool` for every id the token still holds, through the server's
     own url and stored headers, 60 s each, best effort. An id whose server answered is
     forgotten; one whose server could not be reached stays for the sweep, up to
-    `CLEANUP_GIVE_UP_S` after it was recorded. Logs `mcp_cleanup` with counts only."""
+    `CLEANUP_GIVE_UP_S` after it was recorded. Then delete every build the token uploaded
+    (`DELETE {http_base}{builds_path}/{id}`), forgotten and kept by the same rule. Logs
+    `mcp_cleanup` with counts only."""
     entries = _held_entries(client, namespace, digest)
-    counts = {"held": len(entries), "released": 0, "failed": 0, "kept": 0}
-    if not entries:
+    builds = _build_entries(client, namespace, digest)
+    counts = {"held": len(entries), "released": 0, "failed": 0, "kept": 0,
+              "builds": len(builds), "deleted": 0}
+    if not entries and not builds:
+        client.delete(_builds_key(namespace, digest))  # entries that no longer parse
         client.srem(_held_index(namespace), digest)
         return counts
     owned = http is None
@@ -1049,11 +1106,22 @@ def release_held(client, namespace: str, repository: McpRepository, digest: str,
                 _drop(client, namespace, digest, entry)
             else:
                 counts["kept"] += 1
+        for entry in builds:
+            answered = True
+            try:
+                if _delete_build(http, repository, entry):
+                    counts["deleted"] += 1
+            except httpx.HTTPError:
+                answered = False
+            except Exception as exc:  # noqa: BLE001 — best effort: Seiji's retention is the backstop
+                _log.warning("mcp_cleanup_build_failed", server=entry.get("server"),
+                             error=type(exc).__name__)
+            if answered or time.time() - entry.get("at", 0) >= CLEANUP_GIVE_UP_S:
+                client.hdel(_builds_key(namespace, digest), _field(entry["server"], entry["id"]))
     finally:
         if owned:
             http.close()
-    if not client.exists(_held_key(namespace, digest)):
-        client.srem(_held_index(namespace), digest)
+    _unindex_if_empty(client, namespace, digest)
     _log.info("mcp_cleanup", **counts)
     metrics.count_mcp_cleanup(client, namespace, counts["released"], counts["failed"])
     return counts
@@ -1090,6 +1158,23 @@ def _release_one(http: httpx.Client, definition: Mapping[str, Any], stored: Mapp
         _log.warning("mcp_cleanup_release_refused", step="tools/call", status=answer.status_code,
                      result=None if result is None else ("error" if result.get("isError") else "unknown"))
     return ok
+
+
+def _delete_build(http: httpx.Client, repository: McpRepository, entry: Mapping[str, Any]) -> bool:
+    """`DELETE {http_base}{builds_path}/{id}` with the stored headers; True when the server
+    deleted it. A 404 (expired, or deleted already) or a 405 (a server without the route) is
+    fine; another answer is logged. A server that lost its preset gets nothing."""
+    definition = repository.get(entry["server"])
+    preset = preset_of(definition) if definition is not None else None
+    if preset is None or preset.builds_path is None:
+        return False
+    url = f"{definition['http_base']}{preset.builds_path}/{quote(entry['id'], safe='')}"
+    answer = http.delete(url, headers=upstream_headers(None, repository.headers(entry["server"])))
+    if answer.status_code < 300:
+        return True
+    if answer.status_code not in (404, 405):
+        _log.warning("mcp_cleanup_build_refused", server=entry["server"], status=answer.status_code)
+    return False
 
 
 def _sync_result(response: httpx.Response, rpc_id: int) -> dict | None:

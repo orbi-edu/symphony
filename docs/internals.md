@@ -981,18 +981,26 @@ user's own configuration.
 
 - `sym:<ns>:mcp:held:<sha256(token)>`: hash `<server>/<id>` → `{server, id, session, at,
   model?, platform?}`.
-- `sym:<ns>:mcp:held`: set of token hashes that hold something, for the sweep.
+- `sym:<ns>:mcp:held`: set of token hashes that hold something (a lease or a build), for the
+  sweep.
 - `sym:<ns>:mcp:session-held:<sid>`: the same entries per session. `Control` adds them to
   every session meta as `mcp_leases` (`session_leases`, one pipeline per page).
 - Recording or dropping an id appends `symphony.mcp_lease` `{server, id, held, model?,
   platform?}` to the session's events, when the session exists.
+- `sym:<ns>:mcp:builds:<sha256(token)>`: hash `<server>/<id>` → `{server, id, session, at}`,
+  72 h TTL (Seiji's default `appRetentionHours`). The companion route records the build id
+  (`build_id_field`, Seiji `app_id`) of each 2xx `POST {http_base}{builds_path}` answer of a
+  preset with `builds_path` (`record_build`). PR previews upload with the stored headers
+  directly (`previews.py`), so their builds are never recorded here.
 
 `McpLaunch.end(token)` revokes the token, then `release_held` calls `release_tool` for each id
-with the stored headers (`initialize`, `notifications/initialized`, `tools/call`; 60 s each).
-An answered id is dropped; an unreachable one stays. The gateway runs `sweep_held` every 60 s
-in a daemon thread, under the lock `sym:<ns>:mcp:sweep-lock`: it releases what tokens without
-a live `mcp:token` key still hold, and drops an id 24 h after it was recorded. Each pass logs
-`mcp_cleanup` with counts only.
+with the stored headers (`initialize`, `notifications/initialized`, `tools/call`; 60 s each),
+and sends `DELETE {http_base}{builds_path}/{id}` with the stored headers for each recorded
+build (404 and 405 are fine, another answer is logged). An answered id or build is dropped; an
+unreachable one stays. The gateway runs `sweep_held` every 60 s in a daemon thread, under the
+lock `sym:<ns>:mcp:sweep-lock`: it releases and deletes what tokens without a live `mcp:token`
+key still hold, and drops an id or build 24 h after it was recorded. Each pass logs
+`mcp_cleanup` with counts only (`held`, `released`, `failed`, `kept`, `builds`, `deleted`).
 
 **Presets** (`PRESETS`, today `seiji`) fill the fields a `PUT` leaves out; the stored form is
 plain. `preset_of(definition)` matches by the marker variable in `agent_env` plus `http_base`.
@@ -1003,6 +1011,7 @@ A match gives:
 - the admin test's `me` (`identity_path`, Seiji `/v1/me`);
 - the viewer route (`viewer_path`, Seiji `/v1/leases/{id}/viewer`) of
   `POST /v1/mcp/<name>/viewer`, which first checks `held_by_live_session`.
+- build cleanup (`builds_path`, Seiji `/v1/apps`; `build_id_field`, Seiji `app_id`).
 
 The tests are in `tests/test_mcp_servers.py`, `tests/test_mcp_companion.py`,
 `tests/test_gateway_mcp.py`, `tests/test_seiji_gateway.py`, `tests/test_seiji_real.py`
