@@ -411,6 +411,8 @@ class MergerStore:
                 ),
                 key=lambda r: r["started_at"],
             ),
+            # `title` is the PR's (an older record has none: the clients show `PR #n`); a
+            # clean review says what it waits for, `ci` or `approval`.
             "parked": sorted(
                 (
                     {
@@ -419,6 +421,8 @@ class MergerStore:
                         "kind": p["kind"],
                         "parked_at": p["parked_at"],
                         "comment": p.get("comment", ""),
+                        **({"title": p["pr_title"]} if p.get("pr_title") else {}),
+                        **({"waiting": p.get("waiting", "ci")} if p["kind"] == "clean" else {}),
                     }
                     for p in self.all_parked().values()
                 ),

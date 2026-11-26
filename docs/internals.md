@@ -810,7 +810,7 @@ Each method that takes an `issue` or an `identifier` accepts the `Issue.id` or t
 | `attachments(identifier)` | The evidence of the ticket: `[{title, url, kind}]` |
 | `ticket_attachments(issue)` | The files on the ticket, for the agent: `[{id, title, kind, url, created_at}]`. GitHub: `[]` |
 | `fetch_attachment(issue, attachment_id, max_bytes)` | The bytes of one of the ticket's attachments, downloaded with the tracker credential. Another ticket's id, a link that is not a stored file, or a file over `max_bytes` raises `TrackerInputError`. GitHub: always refused |
-| `identifier_in(text, repo)` | The first ticket identifier in a branch name, a pull request title or a body. `repo` lets the GitHub tracker read a bare `#n` after a closing keyword |
+| `identifier_in(text, repo)` | The first ticket identifier in a branch name, a pull request title or a body. `repo` lets the GitHub tracker read a bare `#n` after a closing keyword. Linear on a team's board (`team_key`, no `project_slug`) takes only that team's key |
 | `search(query, limit)` | Tickets whose title or body holds `query`, newest first: `[{identifier, title, state, url}]`. Linear filters the board; GitHub runs issue search over the board owner; read-only (the assistant's `tracker_search`) |
 | `add_blocked_by(issue, blocker)` | `blocker` blocks `issue`, any two tickets of the board (Linear `blocks` relation, GitHub issue dependency, across repositories too). True when new, False when already there; a refusal raises `TrackerInputError` |
 | `kind` | `linear`, `github` or `memory` |
@@ -818,7 +818,9 @@ Each method that takes an `issue` or an `identifier` accepts the `Issue.id` or t
 
 A transport error, a 5xx or a 429 raises `TrackerUnavailable`. The daemon never reads it as "the
 ticket is gone". A request that the tracker cannot serve raises `TrackerInputError`, with a
-message that tells the caller what to fix.
+message that tells the caller what to fix. A Linear single-ticket read (`state_of`,
+`attachments`, `assignee`, …) of an identifier Linear does not know returns no ticket: Linear
+answers it with an `INPUT_ERROR` "Entity not found", which only these reads take as "none".
 
 ## 17. First-run setup
 

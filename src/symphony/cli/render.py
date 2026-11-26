@@ -490,8 +490,8 @@ _MERGER_PHASE_LABEL = {"pin": "preparing the review", "review": "reviewing",
 _TRAIN_STATE_LABEL = {"publishing": "publishing the review",
                       "reviewed": "reviewed, waiting for the train", "train": "in the train",
                       "resolve": "resolving a conflict", "finalizing": "finishing the merge"}
-_PARKED_LABEL = {"clean": "clean review, waiting for CI",
-                 "report": "will not merge, report published"}
+_PARKED_LABEL = {"clean": "clean review", "report": "will not merge, report published"}
+_PARKED_WAITING_LABEL = {"ci": "waiting for CI", "approval": "waiting for approval"}
 _QUEUE_KIND_LABEL = {"bypass": "bypass", "rereview": "new review", "first": "first review"}
 
 
@@ -539,8 +539,12 @@ def merger_repo(doc: dict) -> str:
         return " · ".join(parts)
 
     def parked(p: dict) -> str:
-        return " · ".join([_pr_head(p), _label(_PARKED_LABEL, p.get("kind")),
-                           f"since {ago(p.get('parked_at'))}"])
+        # An older record has no PR title: `PR #n`, never the report comment's URL.
+        head = _pr_head(p) if p.get("title") else f"PR #{p.get('pr', '?')}"
+        state = _label(_PARKED_LABEL, p.get("kind"))
+        if p.get("kind") == "clean":
+            state += ", " + _label(_PARKED_WAITING_LABEL, p.get("waiting") or "ci")
+        return " · ".join([head, state, f"since {ago(p.get('parked_at'))}"])
 
     def record(r: dict) -> str:
         state = "conflict" if r.get("conflict") else _label(_TRAIN_STATE_LABEL, r.get("state"))

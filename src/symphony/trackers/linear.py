@@ -42,6 +42,21 @@ UPLOAD_TIMEOUT_S = 300.0
 # credential in `Authorization`, so only files there are downloaded with it.
 UPLOADS_ORIGIN = "https://uploads.linear.app"
 
+
+class IssueNotFound(TrackerUnavailable):
+    """Linear's answer to `issue(id:)` for an id it does not know: an `INPUT_ERROR` "Entity not
+    found: Issue" error, not `issue: null`. The single-issue lookups (`_issue`) read it as no
+    such ticket; any other call still sees a `TrackerUnavailable`."""
+
+
+def _entity_not_found(errors: list) -> bool:
+    return bool(errors) and all(
+        isinstance(e, dict) and (e.get("extensions") or {}).get("code") == "INPUT_ERROR"
+        and str(e.get("message") or "").startswith("Entity not found")
+        for e in errors
+    )
+
+
 ISSUE_FIELDS = """
       id identifier title description priority createdAt updatedAt url branchName
       state { name type }
@@ -305,7 +320,8 @@ class LinearTracker:
             raise TrackerUnavailable(f"request rejected {resp.status_code}: {resp.text[:200]}")
         data = resp.json()
         if data.get("errors"):
-            raise TrackerUnavailable(f"graphql errors: {data['errors'][:1]}")
+            error = IssueNotFound if _entity_not_found(data["errors"]) else TrackerUnavailable
+            raise error(f"graphql errors: {data['errors'][:1]}")
         return data["data"]
 
     @staticmethod
@@ -484,8 +500,16 @@ class LinearTracker:
         comments = (issue.get("comments") or {}).get("nodes") or []
         return "\n\n".join(c.get("body", "") for c in comments)
 
+    def _issue(self, query: str, issue: str) -> dict | None:
+        """`issue(id:)`: None for an id Linear does not know (a PR branch can name a key that
+        is no ticket of this workspace)."""
+        try:
+            return self._post(query, {"id": issue}).get("issue")
+        except IssueNotFound:
+            return None
+
     def _ticket(self, issue: str) -> dict | None:
-        return self._post(TICKET_QUERY, {"id": issue}).get("issue")
+        return self._issue(TICKET_QUERY, issue)
 
     def move(self, issue: str, state_name: str) -> bool:
         ticket = self._ticket(issue)
@@ -516,7 +540,7 @@ class LinearTracker:
 
     def person(self, issue: str, hint: str | None = None) -> dict | None:
         # Linear turns a profile URL in a comment into a mention of that person.
-        ticket = self._post(PEOPLE_QUERY, {"id": issue}).get("issue") or {}
+        ticket = self._issue(PEOPLE_QUERY, issue) or {}
         users = [ticket.get("creator"), ticket.get("assignee"),
                  *(c.get("user") for c in (ticket.get("comments") or {}).get("nodes") or [])]
         return pick_person([{"name": u.get("name"), "display": u.get("displayName"),
@@ -524,7 +548,7 @@ class LinearTracker:
                             for u in users if u], hint)
 
     def assignee(self, issue: str) -> dict | None:
-        user = (self._post(ASSIGNEE_QUERY, {"id": issue}).get("issue") or {}).get("assignee")
+        user = (self._issue(ASSIGNEE_QUERY, issue) or {}).get("assignee")
         return pick_person([{"name": user.get("name"), "email": user.get("email"),
                              "mention": user.get("url") or ""}] if user else [], None)
 
@@ -551,14 +575,14 @@ class LinearTracker:
                 "canceled": ticket["state"].get("type") in CANCELED_STATE_TYPES}
 
     def comments_since(self, issue: str, since_ms: int) -> list[dict]:
-        nodes = ((self._post(COMMENT_TIMES_QUERY, {"id": issue}).get("issue") or {})
+        nodes = ((self._issue(COMMENT_TIMES_QUERY, issue) or {})
                  .get("comments") or {}).get("nodes") or []
         found = [{"id": c["id"], "at": epoch_ms(c.get("createdAt"))} for c in nodes if c.get("id")]
         return sorted((c for c in found if c["at"] is not None and c["at"] > since_ms),
                       key=lambda c: c["at"])
 
     def attachments(self, identifier: str) -> list[dict]:
-        issue = self._post(ATTACHMENTS_QUERY, {"id": identifier}).get("issue")
+        issue = self._issue(ATTACHMENTS_QUERY, identifier)
         if not issue:
             return []
         return [
@@ -567,7 +591,7 @@ class LinearTracker:
         ]
 
     def ticket_attachments(self, issue: str) -> list[dict]:
-        found = self._post(TICKET_ATTACHMENTS_QUERY, {"id": issue}).get("issue")
+        found = self._issue(TICKET_ATTACHMENTS_QUERY, issue)
         if not found:
             return []
         return [
@@ -614,8 +638,14 @@ class LinearTracker:
         return b"".join(chunks)
 
     def identifier_in(self, text: str, repo: str | None = None) -> str | None:
-        m = IDENTIFIER.search(text or "")
-        return m.group(1).upper() if m else None
+        """On a team's board (`team_key`, no `project_slug`) only that team's keys name a
+        ticket: `widget-5` in a branch is no lookup. A project can hold several teams' tickets,
+        so a project board takes any key."""
+        for m in IDENTIFIER.finditer(text or ""):
+            identifier = m.group(1).upper()
+            if self.project_slug or not self.team_key or identifier.startswith(f"{self.team_key.upper()}-"):
+                return identifier
+        return None
 
     def add_blocked_by(self, issue: str, blocker: str) -> bool:
         blocked, blocking = self._ticket(issue), self._ticket(blocker)

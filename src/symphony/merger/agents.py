@@ -6,6 +6,11 @@ The host registers the role's tools (`submit_finding`, `submit_verdict`, `submit
 `host_tool_result`; an invalid call is answered with the error, so the agent can correct it. A
 role's terminal tool must be called once: a turn that ends without it gets one reminder, then the
 run fails. Steer, follow-up and interrupt intents from the API are applied as they arrive.
+
+Each run's directory (`<session_root>/<sid>`: omp's `--session-dir`, its stderr and the private
+agent dir with the staged models.yml, MCP config and skills) is removed when the run ends; the
+transcript and the events are in the session store by then. `sweep_session_root` removes what a
+crashed process left behind.
 """
 
 from __future__ import annotations
@@ -14,11 +19,13 @@ import json
 import os
 import queue
 import re
+import shutil
 import socket
 import subprocess
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 from .. import metrics
@@ -35,6 +42,52 @@ VERDICTS = ("confirmed", "partial", "refuted", "defer")
 SEVERITIES = ("blocking", "nit")
 # A provider retry caused by throttling (internals §10 `source: retry`).
 THROTTLED = re.compile(r"\b429\b|throttl|rate.?limit|too many requests", re.IGNORECASE)
+
+# A leftover run directory older than this, that no run of this process owns, is removed.
+SWEEP_AGE_S = 3600
+_OWNED: set[str] = set()
+_OWNED_LOCK = threading.Lock()
+
+
+@contextmanager
+def owned_run_dir(path: str) -> Iterator[str]:
+    """A run's directory, removed when the run ends however it ends. While it runs, the sweep
+    leaves it alone."""
+    with _OWNED_LOCK:
+        _OWNED.add(path)
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path, ignore_errors=True)
+        with _OWNED_LOCK:
+            _OWNED.discard(path)
+
+
+def sweep_session_root(root: str, max_age_s: float = SWEEP_AGE_S,
+                       now: Callable[[], float] = time.time) -> list[str]:
+    """Removes the `merger_*` run directories under `root` that a crash or an OOM kill left:
+    older than `max_age_s` and owned by no run of this process (the merger runs every omp as
+    its child, so a run of another process cannot outlive it). Returns the names removed."""
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return []
+    removed = []
+    for name in names:
+        path = os.path.join(root, name)
+        if not name.startswith("merger_"):
+            continue
+        with _OWNED_LOCK:
+            owned = path in _OWNED
+        try:
+            old = now() - os.stat(path).st_mtime > max_age_s
+        except OSError:
+            continue
+        if owned or not old or not os.path.isdir(path):
+            continue
+        shutil.rmtree(path, ignore_errors=True)
+        removed.append(name)
+    return removed
 
 
 def record_rate_limit(sessions: SessionStore, model: dict, doc: dict) -> None:
@@ -347,7 +400,10 @@ class AgentRunner:
         ]
 
     def run(self, spec: AgentSpec) -> AgentResult:
-        session_dir = os.path.join(self.session_root, spec.sid.replace(":", "_"))
+        with owned_run_dir(os.path.join(self.session_root, spec.sid.replace(":", "_"))) as session_dir:
+            return self._run(spec, session_dir)
+
+    def _run(self, spec: AgentSpec, session_dir: str) -> AgentResult:
         self.sessions.open(
             spec.sid, kind=spec.kind, model=model_arg(spec.model), pod=self.pod,
             role=spec.role, **spec.meta,

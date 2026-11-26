@@ -55,7 +55,7 @@ from ..edge import gateway_url, load_config, log, make_tracker, now_ms, pod_name
 from ..endpoints import github_server_url
 from ..ghapp import CredentialError, InstallationCredential, NotAuthorizedForRepo
 from ..mcp_servers import McpLaunch, McpRepository
-from ..merger.agents import AgentRunner
+from ..merger.agents import AgentRunner, sweep_session_root
 from ..merger.context import Merger
 from ..merger.git import GitError, Mirror
 from ..merger.github import GitHubError, RestGitHub
@@ -132,6 +132,11 @@ def build(client, ns: str, cfg, env=os.environ, pulse: Pulse | None = None, *,
     base_workdir = env.get("SYMPHONY_MERGER_WORKDIR", "/var/lib/symphony/merger")
     if workdir is None:
         workdir = _repo_workdir(base_workdir, repo, cfg.default_repo)
+    # Before the fetch: a crash leaves its runs' directories, and a full disk fails the fetch.
+    session_root = os.path.join(workdir, "sessions")
+    swept = sweep_session_root(session_root)
+    if swept:
+        log.info("merger_sessions_swept", repo=repo, removed=len(swept))
     if token is None:
         token = InstallationCredential.from_env(env, now_ms, target_repos=(repo,)).token
     if notify_post is None:
@@ -176,7 +181,7 @@ def build(client, ns: str, cfg, env=os.environ, pulse: Pulse | None = None, *,
         store=MergerStore(client, ns, repo),
         gh=RestGitHub(repo, token),
         git=git,
-        agents=AgentRunner(SessionStore(client, ns), session_root=os.path.join(workdir, "sessions"),
+        agents=AgentRunner(SessionStore(client, ns), session_root=session_root,
                            omp_bin=env.get("SYMPHONY_OMP_BIN", "omp"), providers=providers,
                            mcp=mcp, skill_stager=skill_stager),
         team=TeamConfig(client, ns),

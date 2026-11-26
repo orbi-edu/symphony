@@ -57,8 +57,10 @@ with the state names in `tracker.states`. It works with the Linear and the GitHu
 - `Merging`, at hand-off.
 
 The merger finds the ticket with `tracker.identifier_in()`, from the branch name, the pull
-request title or the pull request body. A tracker failure goes to the log as
-`merger_ticket_failed`. It never stops a merge.
+request title or the pull request body. On a Linear board scoped to a team (`team_key`, no
+`project_slug`), only that team's key names a ticket, so `widget-5` in a branch is not read as
+`WIDGET-5`. An identifier Linear does not know is no ticket. A tracker failure goes to the log
+as `merger_ticket_failed`. It never stops a merge.
 
 The merger moves a ticket to `Done` when a pull request is merged on GitHub outside the merge
 train (a human approved and merged while the merger held the PR parked or in reviewed state).
@@ -246,7 +248,11 @@ point, the findings and the rounds.
 
 - A red CI is a blocker in the same report.
 - If CI is still running, the merger writes the report now and parks the review.
-- A parked review has the kind `clean` or `report`.
+- A parked review has the kind `clean` or `report`. Its record keeps the pull request's title
+  (`pr_title`; `title` is the heading of its report).
+- A clean review records what it waits for (`waiting`): `ci` while CI runs, `approval` once
+  CI passed and the policy's `require_approval` still lacks an approval (T9). The API, Tern
+  and the CLI show "waiting for CI" or "waiting for approval".
 - `settle_parked` edits the same comment when CI ends. Every worker and the train call it.
 - Green CI: hand-off.
 - Red CI: the pull request goes back to the author. It goes to draft only in the first round.
@@ -461,7 +467,8 @@ merge train until a human approves it on GitHub.
   requires `CODEOWNERS` to be meaningful.  Latest-per-reviewer is deterministic and matches
   what GitHub's branch protection does.
 - While waiting, the pull request gets the label `wait-approval` and the reviewers get one
-  `needs_approval` notification per (pull request, head sha).
+  `needs_approval` notification per (pull request, head sha). A parked clean review whose CI
+  passed records `waiting: "approval"` (R11), so the queue shows "waiting for approval".
 - A new review (webhook `pull_request_review`, or the next pass) moves it on.
 - The train re-checks before merging: a dismissed approval after hand-off sends the pull
   request back to `reviewed` and labels it `wait-approval` again.
@@ -602,7 +609,8 @@ s.snapshot() -> {                      # one entry of GET /v1/merger {repos: [..
     "repo":      "owner/name",
     "alive":     bool,                  # the heartbeat key exists
     "reviewing": [{pr, head_sha, worker, phase, started_at, sessions: [sid, ...]}],
-    "parked":    [{pr, head_sha, kind: "clean"|"report", parked_at, comment}],
+    "parked":    [{pr, head_sha, kind: "clean"|"report", parked_at, comment, title?,
+                   waiting?: "ci"|"approval"}],   # title: the PR's; waiting: clean only
     "train":     {"lease": {owner, expires_in_ms} | None,
                   "records": [{pr, state, head_sha, branch, author, reviewed_at, title,
                                pushing?, conflict?, outcome?}]},
@@ -634,6 +642,13 @@ s.heartbeat(); s.alive()
 - **Rate limits:** the agents write provider rate limits to `sym:<ns>:ratelimits`.
 - **Git:** a mirror in `$SYMPHONY_MERGER_WORKDIR/mirror` and worktrees in `…/wt`. The GitHub
   App token is in a credential helper, never in the URL.
+- **Agent runs on disk:** each run has a directory in `…/sessions/<sid>` (omp's
+  `--session-dir`, and the agent dir with the staged `models.yml`, MCP config and skills). The
+  run removes it when it ends, however it ends: the transcript and the events are in Redis by
+  then. On start, each repository's merger removes the `merger_*` directories in its
+  `sessions/` that are older than one hour and that no run of the process owns, which a crash
+  or an OOM kill leaves (`merger_sessions_swept`). A second repository's directories are in
+  `…/repos/<owner>__<name>/sessions`.
 - **GitHub App permissions:** `contents: write`, `pull_requests: write`, `checks: read`,
   `actions: write` (cancel and rerun), `issues: write`. The App also needs permission to merge
   under the branch protection rules.

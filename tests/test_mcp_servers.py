@@ -307,7 +307,7 @@ def test_merger_agents_get_their_role_servers_and_the_token_dies_with_the_run(
     proc = agents.spawned[-1]
     agent_dir = proc.env["PI_CODING_AGENT_DIR"]
     assert agent_dir.startswith(str(tmp_path))
-    staged = json.loads(open(os.path.join(agent_dir, "mcp.json")).read())["mcpServers"]  # noqa: SIM115
+    staged = json.loads(proc.mcp_json)["mcpServers"]
     token = staged["docs"]["headers"]["Authorization"].removeprefix("Bearer ")
     assert mcp_servers.token_record(redis_client, NS, token) is None  # revoked at the end
     assert proc.argv[proc.argv.index("--tools") + 1] == "read,grep"  # the allowlist stays

@@ -18,7 +18,10 @@ spec:
   accessModes: ["ReadWriteOnce"]
   resources:
     requests:
-      storage: 20Gi
+      # The mirrors and worktrees of every repository; each agent run's directory is removed
+      # when the run ends. Raising it on a bound claim needs a StorageClass with
+      # allowVolumeExpansion (EBS gp3 grows online).
+      storage: 40Gi
 ---
 apiVersion: apps/v1
 kind: Deployment

@@ -510,8 +510,14 @@ class ScriptedAgents:
         proc.env = env
         agent_dir = env.get("PI_CODING_AGENT_DIR")
         models = os.path.join(agent_dir, "models.yml") if agent_dir else None
-        # what omp would read at start: its private agent dir's models.yml, as staged then
+        # what omp would read at start: its private agent dir's models.yml, as staged then (the
+        # run removes its directory when it ends)
         proc.models_yml = open(models).read() if models and os.path.exists(models) else None  # noqa: SIM115
+        mcp = os.path.join(agent_dir, "mcp.json") if agent_dir else None
+        proc.mcp_json = open(mcp).read() if mcp and os.path.exists(mcp) else None  # noqa: SIM115
+        proc.agent_dir_mode = (oct(os.stat(agent_dir).st_mode & 0o777)
+                               if agent_dir and os.path.isdir(agent_dir) else None)
+        proc.session_dir = argv[argv.index("--session-dir") + 1] if "--session-dir" in argv else None
         self.spawned.append(proc)
         return proc
 

@@ -651,7 +651,7 @@ GITHUB_SERVER_URL=https://ghe.example.com
 | Variable | Default | Purpose |
 |---|---|---|
 | `SYMPHONY_MERGER_REPO` | empty (then `kubernetes.default_repo`) | The repository (`owner/name`) of this merger Deployment. |
-| `SYMPHONY_MERGER_WORKDIR` | `/var/lib/symphony/merger` | The mirror, the worktrees and the merger's engine sessions. |
+| `SYMPHONY_MERGER_WORKDIR` | `/var/lib/symphony/merger` | The mirror, the worktrees and the merger's engine sessions (`sessions/`, one directory per agent run, removed when the run ends and swept on start; [merger.md](merger.md#state-and-leases)). |
 | `SYMPHONY_MERGER_REVIEWERS` | `2` | The number of review workers. |
 | `SYMPHONY_OMP_BIN` | `omp` | The engine binary of the merger. |
 | `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL` | the merger's built-in identity | The git identity of rebased commits. |

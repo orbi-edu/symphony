@@ -128,7 +128,7 @@ Until setup is complete, nothing crash-loops:
 | `api.yaml` | `symphony-api` Deployment and Service (8080), and the ConfigMap `symphony-api-config` (`SYMPHONY_PUBLIC_URL`) |
 | `gateway.yaml` | `symphony-gateway` Deployment and Service (8090) |
 | `daemon.yaml` | `symphony-daemon` Deployment |
-| `merger.yaml` | `symphony-merger` Deployment (label `merger: default`) and PVC (20Gi) |
+| `merger.yaml` | `symphony-merger` Deployment (label `merger: default`) and PVC (40Gi) |
 | `nightly-sweep.yaml` | CronJob `symphony-nightly-sweep` |
 | `networkpolicy.yaml` | NetworkPolicies ([security.md](security.md#network-policy)) |
 

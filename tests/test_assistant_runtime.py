@@ -87,6 +87,7 @@ def test_one_process_serves_the_thread_and_streams_text(runner):
     assert len(spawn.spawned) == 1 and proc.prompted == 2
     agent.close("completed")
     assert store.meta(agent.sid)["state"] == "ended"
+    assert not os.path.exists(os.path.dirname(agent_dir))  # the session dir goes with the process
 
 
 def test_the_planner_proposes_once_per_turn(runner):
