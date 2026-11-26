@@ -49,7 +49,7 @@ const SCENES = {
   // 1. Two ways to run
   s1(sec) {
     card(sec, { x: 100, y: 230, w: 820, h: 430, in: "s1.1+0.3" },
-      '<h3 style="font-size:40px">Kubernetes</h3><p>A cluster runs the API, the daemon, the mergers and a pod for each ticket.</p>', { borderColor: "#2f74c0" });
+      '<h3 style="font-size:40px">Kubernetes</h3><p>A cluster runs the API, the daemon, the merger and a pod for each ticket.</p>', { borderColor: "#2f74c0" });
     D.abs(sec, "div", { x: 130, y: 420, in: "s1.2" }, { html: '<span class="chip blue">k3s on one VM</span> <span style="font-size:28px;color:var(--muted)">&nbsp;production</span>' });
     D.abs(sec, "div", { x: 130, y: 490, in: "s1.2+1.4" }, { html: '<span class="chip blue">kind</span> <span style="font-size:28px;color:var(--muted)">&nbsp;evaluation, end-to-end tests</span>' });
     D.abs(sec, "div", { x: 130, y: 570, in: "s1.3" }, { html: '<span class="chip green">a pod per ticket</span> <span class="chip green">NetworkPolicy</span>' });
@@ -205,7 +205,7 @@ const SCENES = {
       '<h3 style="color:var(--green)">Verified and saved</h3><p>What the API found: the repositories of the App installation.</p><p style="margin-top:14px">And the Deployments it restarted to apply the value.</p>', { borderColor: "var(--green)" });
   },
 
-  // 6. The seven steps
+  // 6. The eight steps
   s6(sec) {
     const row = (parent, y, ref, name, required, sub) => D.abs(parent, "div", { x: 100, y, w: 860, h: 118, in: ref }, {
       class: `node ${required ? "trusted" : ""}`, style: { padding: "14px 24px" },
@@ -222,15 +222,16 @@ const SCENES = {
     row(A.el, 250, "s6.3", "Tracker", true, "Linear key + team, or GitHub board + status field");
     row(A.el, 380, "s6.4", "GitHub App", true, "Mints a token, lists repos, reports missing permissions");
     row(A.el, 510, "s6.5", "Repositories", true, "The App is installed on the default repository");
-    D.abs(A.el, "span", { x: 560, y: 518, in: "s6.6", kind: "pop" }, { class: "chip amber", text: "+ a running merger each", style: { fontSize: "26px" } });
+    D.abs(A.el, "span", { x: 560, y: 518, in: "s6.6", kind: "pop" }, { class: "chip amber", text: "+ served by the merger", style: { fontSize: "26px" } });
     row(A.el, 640, "s6.7", "Models", true, "Each role has a stored key or a host credential");
     panelCard(A.el, "s6.1", "s6.3",
       '<h3>Verify, then store</h3><p>The value goes to the API.</p><p style="margin-top:14px">The API calls the real service: Linear, GitHub, Slack or Discord.</p><p style="margin-top:14px"><span class="tick">✓</span> it works: the API stores it</p><p style="margin-top:8px"><span class="cross">✗</span> it fails: nothing is stored</p><p style="margin-top:14px;color:var(--muted)">Only an admin can save. Any token can read the checklist.</p>');
     panelShot(A.el, "setup-tracker", "s6.3", "s6.4", 560, [{ x: 2040, y: 490, w: 800, h: 140, in: "s6.3+0.6" }]);
-    panelShot(A.el, "setup-github-app", "s6.4", "s6.5", 880, [{ x: 2040, y: 1020, w: 800, h: 150, in: "s6.4+0.6" }]);
+    panelShot(A.el, "setup-github-app", "s6.4", "s6.5", 880, [{ x: 2040, y: 990, w: 800, h: 96, in: "s6.4+0.6" }]);
     panelCard(A.el, "s6.5", "s6.6",
       '<h3>Repositories</h3><p class="mono" style="color:var(--muted)">default_repo: acme/app</p><p style="margin-top:12px">Not installed: <span class="mono" style="color:var(--red)">repo_not_installed</span></p><p style="margin-top:12px">Without a default, each ticket names its repository with a <span class="mono">repo:</span> label.</p><p style="margin-top:12px;color:var(--amber)">Kubernetes: a repository without a beating merger gives <span class="mono">merger_missing</span>.</p>');
-    panelShot(A.el, "setup-ready", "s6.6", "s6.7", 880, [{ x: 2040, y: 828, w: 800, h: 60, in: "s6.6+0.6" }]);
+    panelCard(A.el, "s6.6", "s6.7",
+      '<h3>One merger</h3><p>One merger Deployment serves every repository: each one with a <span class="mono">.symphony/merger.md</span> policy, and the default one.</p><p class="mono" style="margin-top:14px;color:var(--green)">mergers: ["acme/app"]</p><p class="mono" style="margin-top:8px;color:var(--muted)">without_merger: []</p><p style="margin-top:14px;color:var(--amber)">The step counts a merger only while it beats.</p>');
     panelCard(A.el, "s6.7", null,
       '<h3>Models</h3><p>Each role of the team configuration needs a credential:</p><p style="margin-top:12px"><span class="chip green">stored</span> a key saved through the API, in <span class="mono">symphony-providers</span></p><p style="margin-top:12px"><span class="chip blue">host</span> a key in the Secret <span class="mono">model-provider</span></p><p style="margin-top:12px"><span class="chip red">none</span> <span class="mono">model_credential_missing</span></p>');
 
@@ -242,9 +243,12 @@ const SCENES = {
     panelCard(O.el, "s6.8", "s6.9", '<h3>Optional</h3><p>A step that is not set up shows <span class="mono">skipped</span> or <span class="mono">to do</span>.</p><p style="margin-top:14px">It does not block setup.</p>');
     panelCard(O.el, "s6.9", "s6.10",
       '<h3>Test message</h3><p class="mono" style="color:var(--amber)">Symphony is connected: this is the setup test message.</p><p style="margin-top:14px">A bot token and a channel, or a webhook URL.</p><p style="margin-top:14px">If the message fails, nothing is stored: <span class="mono">notification_unverified</span>.</p>');
-    panelShot(O.el, "setup-assistant", "s6.10", "s6.11", 900, [{ x: 2040, y: 838, w: 800, h: 80, in: "s6.10+0.6" }]);
-    panelShot(O.el, "setup-webhooks", "s6.11", null, 880, [{ x: 2040, y: 806, w: 800, h: 84, in: "s6.11+0.6" }]);
-    D.abs(O.el, "div", { x: 100, y: 660, w: 860, h: 110, in: "s6.12", kind: "fade" }, {
+    panelShot(O.el, "setup-assistant", "s6.10", "s6.11", 900, [{ x: 2040, y: 880, w: 800, h: 92, in: "s6.10+0.6" }]);
+    panelShot(O.el, "setup-webhooks", "s6.11", "s6.12", 880, [{ x: 2040, y: 806, w: 800, h: 84, in: "s6.11+0.6" }]);
+    row(O.el, 640, "s6.12", "Skills", false, "Each skill source resolves");
+    panelCard(O.el, "s6.12", null,
+      '<h3>Skills</h3><p>A source is a folder of skills in a repository the App reaches.</p><p class="mono" style="margin-top:14px;font-size:25px;color:var(--muted)">symphony setup skills --repo acme/agent-skills</p><p style="margin-top:14px">Its skills reach the agents\' workspaces.</p><p style="margin-top:14px">A source that fails: <span class="mono" style="color:var(--red)">skill_source_failed</span></p>');
+    D.abs(O.el, "div", { x: 100, y: 775, w: 860, h: 100, in: "s6.13", kind: "fade" }, {
       class: "node good center", html: '<div style="font-size:30px"><span class="mono">complete</span> = every required step is <span class="mono" style="color:var(--green)">done</span></div>',
     });
   },
@@ -285,8 +289,8 @@ const SCENES = {
     const api = D.box(A.el, { x: 100, y: 220, w: 400, h: 130, cls: "trusted", in: "s8.1", title: "Setup API", sub: "verifies, then stores" });
     const secret = D.box(A.el, { x: 620, y: 220, w: 400, h: 130, cls: "store", in: "s8.1+0.6", title: "Secret", sub: "merge patch" });
     D.wire(A.el, A.sv, api, secret, { in: "s8.1+0.6" });
-    const names = ["symphony-daemon", "symphony-merger*", "symphony-assistant", "symphony-api"];
-    const subs = ["first", "each merger", "Slack, Discord", "itself, last"];
+    const names = ["symphony-daemon", "symphony-merger", "symphony-assistant", "symphony-api"];
+    const subs = ["first", "every repository", "Slack, Discord", "itself, last"];
     const chain = names.map((n, i) => D.box(A.el, { x: 100 + i * 435, y: 440, w: 390, h: 130, cls: i === 3 ? "trusted" : i === 1 ? "merger" : "", in: t("s8.2", i * 0.7), kick: String(i + 1), title: `<span class="mono" style="font-size:28px">${n}</span>`, sub: subs[i] }));
     D.wire(A.el, A.sv, secret, chain[0], { from: "b", to: "t", in: "s8.1+1.6", label: "restart", lo: [130, 0] });
     chain.slice(0, -1).forEach((b, i) => D.wire(A.el, A.sv, b, chain[i + 1], { in: t("s8.2", 0.7 * (i + 1)), color: "#5b6b82" }));

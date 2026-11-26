@@ -9,185 +9,225 @@ s1.2
 Each lease gets a fresh simulator. Seiji deletes it at release.
 
 s1.3
-00:00:09.018 --> 00:00:16.522
+00:00:09.018 --> 00:00:16.520
 Seiji records each run: a video, the app log, a screenshot of each step, and a manifest with SHA-256s.
 
 s1.4
-00:00:16.522 --> 00:00:18.842
+00:00:16.520 --> 00:00:18.844
 A ticket for a mobile app needs that proof.
 
 s1.5
-00:00:18.842 --> 00:00:23.270
+00:00:18.844 --> 00:00:23.273
 The agent runs the app on a real simulator. The reviewers see what happened.
 
 s2.1
-00:00:23.620 --> 00:00:27.168
+00:00:23.623 --> 00:00:27.171
 An admin adds Seiji with one command and the seiji preset.
 
 s2.2
-00:00:27.168 --> 00:00:32.905
+00:00:27.171 --> 00:00:32.904
 The token goes in on standard input, as an Authorization header. Symphony never shows it again.
 
 s2.3
-00:00:32.905 --> 00:00:40.214
+00:00:32.904 --> 00:00:40.213
 The preset fills the HTTP API root, a 65-minute timeout, two agent variables, and a cleanup rule.
 
 s2.4
-00:00:40.214 --> 00:00:44.605
+00:00:40.213 --> 00:00:44.603
 Symphony stores a plain definition. Explicit flags win over the preset.
 
 s2.5
-00:00:44.605 --> 00:00:47.775
+00:00:44.603 --> 00:00:47.773
 Tern's Admin, MCP screen has the same preset.
 
 s2.6
-00:00:47.775 --> 00:00:53.277
+00:00:47.773 --> 00:00:53.275
 Test lists Seiji's 23 tools and the protocol, 2025-11-25.
 
 s2.7
-00:00:53.277 --> 00:00:57.115
+00:00:53.275 --> 00:00:57.113
 It also reads Seiji's /v1/me, and shows the user and the quota.
 
 s3.1
-00:00:57.465 --> 00:00:59.948
+00:00:57.463 --> 00:00:59.946
 Symphony keeps the Seiji token in a Secret.
 
 s3.2
-00:00:59.948 --> 00:01:04.506
+00:00:59.946 --> 00:01:04.504
 The agent gets SEIJI_TOKEN. That is its own session token, not Seiji's.
 
 s3.3
-00:01:04.506 --> 00:01:07.581
+00:01:04.504 --> 00:01:07.579
 SEIJI_URL points at the gateway, not at Seiji.
 
 s3.4
-00:01:07.581 --> 00:01:11.920
+00:01:07.579 --> 00:01:11.918
 The gateway checks the session token. Then it sends the stored token to Seiji.
 
 s3.5
-00:01:11.920 --> 00:01:18.573
+00:01:11.918 --> 00:01:18.571
 It does this for MCP calls and for the HTTP API: uploads, evidence files, and /v1/me.
 
 s3.6
-00:01:18.573 --> 00:01:22.368
+00:01:18.571 --> 00:01:22.366
 It rewrites Seiji's links to the gateway, so the agent can follow them.
 
 s3.7
-00:01:22.368 --> 00:01:26.410
+00:01:22.366 --> 00:01:26.407
 Viewer pages take no token, so the gateway does not proxy them.
 
 s4.1
-00:01:26.760 --> 00:01:30.826
+00:01:26.757 --> 00:01:30.824
 The ticket ENG-163 is a crash on the sign-in screen.
 
 s4.2
-00:01:30.826 --> 00:01:34.181
+00:01:30.824 --> 00:01:34.179
 The agent fixes it, then acquires an iPhone simulator.
 
 s4.3
-00:01:34.181 --> 00:01:38.738
+00:01:34.179 --> 00:01:38.735
 It uploads the build through SEIJI_URL. The upload streams through the gateway.
 
 s4.4
-00:01:38.738 --> 00:01:42.646
+00:01:38.735 --> 00:01:42.644
 It runs the sign-in flow with run_actions. Seiji records the run.
 
 s4.5
-00:01:42.646 --> 00:01:47.907
+00:01:42.644 --> 00:01:47.905
 export_evidence returns a Markdown report. The agent puts it in the pull request body.
 
 s4.6
-00:01:47.907 --> 00:01:52.568
+00:01:47.905 --> 00:01:52.566
 Reviewers cannot open Seiji's links, so the agent attaches the files to the ticket.
 
 s4.7
-00:01:52.568 --> 00:01:57.278
+00:01:52.566 --> 00:01:57.276
 Linear takes evidence.zip. A GitHub issue takes report.md.
 
 s5.1
-00:01:57.628 --> 00:01:59.658
+00:01:57.626 --> 00:01:59.655
 A lease costs budget until it ends.
 
 s5.2
-00:01:59.658 --> 00:02:03.183
+00:01:59.655 --> 00:02:03.181
 The gateway records each lease that acquire_device returns.
 
 s5.3
-00:02:03.183 --> 00:02:06.864
+00:02:03.181 --> 00:02:06.862
 When the attempt ends, Symphony releases every lease that is still held.
 
 s5.4
-00:02:06.864 --> 00:02:12.227
+00:02:06.862 --> 00:02:12.225
 If the runner crashes, a sweep every 60 seconds releases the leases of expired sessions.
 
 s5.5
-00:02:12.227 --> 00:02:15.186
+00:02:12.225 --> 00:02:15.183
 It keeps trying for 24 hours, then it gives up.
 
 s5.6
-00:02:15.186 --> 00:02:20.238
+00:02:15.183 --> 00:02:20.236
 Without this, a device waits for Seiji's idle reaper, 15 minutes by default.
 
 s6.1
-00:02:20.588 --> 00:02:23.399
+00:02:20.586 --> 00:02:23.397
 A session that holds a device shows a Device row.
 
 s6.2
-00:02:23.399 --> 00:02:26.042
+00:02:23.397 --> 00:02:26.040
 Press W to watch the device, view only.
 
 s6.3
-00:02:26.042 --> 00:02:29.005
+00:02:26.040 --> 00:02:29.003
 Shift W gives you control, after a confirmation.
 
 s6.4
-00:02:29.005 --> 00:02:32.736
+00:02:29.003 --> 00:02:32.736
 Your taps reach the device at once, and other people may be watching.
 
 s6.5
-00:02:32.736 --> 00:02:38.939
+00:02:32.736 --> 00:02:38.940
 Each press gets a fresh link from symphony mcp viewer. The link opens once, within 60 seconds.
 
 s6.6
-00:02:38.939 --> 00:02:41.834
+00:02:38.940 --> 00:02:41.835
 Only a lease that a live session holds can be watched.
 
 s6.7
-00:02:41.834 --> 00:02:47.462
+00:02:41.835 --> 00:02:47.462
 Seiji's own Tern plugin can run next to Symphony's. They share no id, key or command.
 
 s7.1
-00:02:47.812 --> 00:02:52.313
-Mocked scenario 13 passed every check in 55.9 seconds.
+00:02:47.812 --> 00:02:51.795
+When CI uploads a preview build of a pull request, the merger finds it.
 
 s7.2
-00:02:52.313 --> 00:02:56.486
-The cleanup released the one held lease 0.02 seconds after the attempt.
+00:02:51.795 --> 00:02:57.189
+It posts Open in simulator in Slack. A reviewer clicks it, and gets a viewer link privately.
 
 s7.3
-00:02:56.486 --> 00:03:00.387
-The mock saw only the stored token. The session token never reached it.
+00:02:57.189 --> 00:03:01.837
+The merger also keeps one Preview comment on the pull request, with a link per build.
 
 s7.4
-00:03:00.387 --> 00:03:06.090
-A test with the real Seiji ran through the gateway. Real omp listed the 23 tools.
+00:03:01.837 --> 00:03:06.501
+A link has no expiry. It opens that build while GitHub keeps the artifact.
 
 s7.5
-00:03:06.090 --> 00:03:11.061
-Real Seiji refused the session token with 401, and accepted the stored token.
+00:03:06.501 --> 00:03:12.756
+Behind Cloudflare Access, any mapped person may open it. Without Access, only signed public links work.
 
 s7.6
-00:03:11.061 --> 00:03:15.488
-No real device was booted yet. That needs a Mac with Xcode simulators.
+00:03:12.756 --> 00:03:15.960
+The page shows the progress, then a Seiji control viewer.
 
 s7.7
-00:03:15.488 --> 00:03:19.867
-All agents share one Seiji user, with its budget and its concurrency limit.
+00:03:15.960 --> 00:03:19.390
+Each build gets its own device, at most two per pull request.
 
 s7.8
-00:03:19.867 --> 00:03:24.701
-On Kubernetes, Seiji needs a public TLS name in listen.allowedHosts.
+00:03:19.390 --> 00:03:24.514
+A device goes back after 55 minutes, or when the pull request is merged or closed.
 
 s7.9
-00:03:24.701 --> 00:03:27.534
+00:03:24.514 --> 00:03:27.875
+If Seiji ended the lease first, the link starts the build again.
+
+s7.10
+00:03:27.875 --> 00:03:33.103
+In chat, share_device posts a Control the device button. Only the asker gets the link.
+
+s8.1
+00:03:33.453 --> 00:03:37.955
+Mocked scenario 13 passed every check in 55.9 seconds.
+
+s8.2
+00:03:37.955 --> 00:03:42.128
+The cleanup released the one held lease 0.02 seconds after the attempt.
+
+s8.3
+00:03:42.128 --> 00:03:46.029
+The mock saw only the stored token. The session token never reached it.
+
+s8.4
+00:03:46.029 --> 00:03:51.731
+A test with the real Seiji ran through the gateway. Real omp listed the 23 tools.
+
+s8.5
+00:03:51.731 --> 00:03:56.702
+Real Seiji refused the session token with 401, and accepted the stored token.
+
+s8.6
+00:03:56.702 --> 00:04:01.129
+No real device was booted yet. That needs a Mac with Xcode simulators.
+
+s8.7
+00:04:01.129 --> 00:04:05.509
+All agents share one Seiji user, with its budget and its concurrency limit.
+
+s8.8
+00:04:05.509 --> 00:04:10.344
+On Kubernetes, Seiji needs a public TLS name in listen.allowedHosts.
+
+s8.9
+00:04:10.344 --> 00:04:13.176
 The Seiji guide in the docs has every step.

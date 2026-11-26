@@ -14,9 +14,9 @@
     {
       "id": "s2",
       "kicker": "The default suite",
-      "title": "1,353 unit and integration tests",
+      "title": "2,184 unit and integration tests",
       "cues": [
-        { "text": "The default suite has 1,353 tests.", "say": "The default suite has one thousand, three hundred fifty-three tests." },
+        { "text": "The default suite has 2,184 tests.", "say": "The default suite has two thousand, one hundred eighty-four tests." },
         { "text": "It needs a real Redis, but no network and no model call.", "say": "It needs a real Red-iss, but no network and no model call." },
         { "text": "It covers every API route, the daemon, the runner, the trackers and the merger." }
       ]
@@ -101,7 +101,7 @@
       "kicker": "Tern",
       "title": "Headless plugin tests",
       "cues": [
-        { "text": "Tern's 37 tests run a real Tern server, headless, with the plugin as a fixture.", "say": "Tern's thirty-seven tests run a real Tern server, headless, with the plugin as a fixture." },
+        { "text": "Tern's 46 tests run a real Tern server, headless, with the plugin as a fixture.", "say": "Tern's forty-six tests run a real Tern server, headless, with the plugin as a fixture." },
         { "text": "One suite uses a fake API. The other uses Redis, the real API and the real CLI.", "say": "One suite uses a fake API. The other uses Red-iss, the real API and the real C L I." },
         { "text": "A test fails if Tern logs a plugin error." },
         { "text": "The same harness renders the screenshots in the docs." }

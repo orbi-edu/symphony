@@ -30,10 +30,10 @@ const SCENES = {
   // 1. Layers
   s1(sec) {
     const layers = [
-      ["s1.1+1.6", "Default suite", "1,353 tests · no network · no model call", "trusted"],
+      ["s1.1+1.6", "Default suite", "2,184 tests · no network · no model call", "trusted"],
       ["s1.1+2.8", "Mocked end to end", "vendor mocks · real agents · scenarios 1–12", "merger"],
       ["s1.1+4.3", "Real infrastructure", "a kind cluster · a real GitHub repository", "good"],
-      ["s1.1+5.6", "Tern, headless", "37 plugin tests", "people"],
+      ["s1.1+5.6", "Tern, headless", "46 plugin tests", "people"],
     ];
     layers.forEach(([ref, title, sub, cls], i) => D.box(sec, { x: 100 + i * 60, y: 230 + i * 160, w: 1600 - i * 120, h: 130, cls, in: ref,
       title: `<span style="font-size:34px">${title}</span> <span style="font-size:28px;color:var(--muted);font-weight:500">&nbsp;${sub}</span>` }));
@@ -41,15 +41,15 @@ const SCENES = {
 
   // 2. The default suite
   s2(sec) {
-    tile(sec, 100, 220, 560, "s2.1", "1,353", "tests collected", "var(--blue)", 274);
+    tile(sec, 100, 220, 560, "s2.1", "2,184", "tests collected", "var(--blue)", 274);
     D.term(sec, { x: 720, y: 220, w: 1100, in: "s2.1+0.3" }, "Terminal", [
       { cmd: "uv sync --extra dev", in: "s2.1+0.5" },
       { cmd: "uv run pytest", in: "s2.1+1.2" },
       { cmd: "uv run pytest --collect-only -q -o addopts=\"\" | tail -1", in: "s2.1+1.8" },
-      { c: "1353 tests collected", in: "s2.1+2.6" },
+      { c: "2184 tests collected", in: "s2.1+2.6" },
     ]);
     D.abs(sec, "div", { x: 100, y: 520, w: 1720, in: "s2.2" }, { html: '<div class="chips"><span class="chip">Python 3.12</span><span class="chip">uv</span><span class="chip">git</span><span class="chip blue">redis-server: a real, disposable Redis</span><span class="chip green">no network</span><span class="chip green">no model call</span></div>' });
-    const areas = ["every /v1 route", "daemon", "runner", "trackers", "Slack and Discord", "merger", "deploy/ against the code", "the mocks: 117 tests"];
+    const areas = ["every /v1 route", "daemon", "runner", "trackers", "Slack and Discord", "merger", "deploy/ against the code", "the mocks: 137 tests"];
     areas.forEach((a, i) => D.abs(sec, "div", { x: 100 + (i % 4) * 432, y: 640 + Math.floor(i / 4) * 110, w: 410, h: 90, in: t("s2.3", 0.2 + i * 0.3) }, {
       class: "node center", html: `<div style="font-size:28px">${a}</div>`, style: { padding: "0 12px" },
     }));
@@ -216,7 +216,7 @@ const SCENES = {
       shots: [{ src: SHOT("dashboard"), in: "s9.1" }],
       cam: [["s9.1", 1440, 1060, 0.597]],
     });
-    card(sec, { x: 100, y: 720, w: 560, h: 140, in: "s9.2" }, '<p class="mono" style="font-size:26px">test_tern_plugin.py · 23</p><p>a fake API and a test CLI</p>');
+    card(sec, { x: 100, y: 720, w: 560, h: 140, in: "s9.2" }, '<p class="mono" style="font-size:26px">test_tern_plugin.py · 32</p><p>a fake API and a test CLI</p>');
     card(sec, { x: 690, y: 720, w: 560, h: 140, in: "s9.2+2.2" }, '<p class="mono" style="font-size:26px">test_tern_real_stack.py · 14</p><p>Redis, the real API and CLI</p>');
     chip(sec, 1290, 730, "s9.3", "plugin error → test fails", "red");
     chip(sec, 1290, 800, "s9.4", "scenarios.py → docs/tern/*.png", "green");

@@ -34,7 +34,7 @@
       "cues": [
         { "text": "Until setup is complete, the other components wait." },
         { "text": "The daemon keeps its heartbeat, and logs daemon setup incomplete once a minute at most." },
-        { "text": "Each merger idles, and logs merger not configured with what it lacks." },
+        { "text": "The merger idles, and logs merger not configured with what it lacks." },
         { "text": "The assistant writes an idle heartbeat." },
         { "text": "Health checks stay green, so Kubernetes does not restart them." },
         { "text": "Jobs end with a setup incomplete event." }
@@ -69,20 +69,21 @@
     },
     {
       "id": "s6",
-      "kicker": "Seven steps",
+      "kicker": "Eight steps",
       "title": "Each one checks the real service",
       "cues": [
-        { "text": "Setup has seven steps. The API checks each value against the real service before it saves it." },
+        { "text": "Setup has eight steps. The API checks each value against the real service before it saves it." },
         { "text": "Four steps are required." },
         { "text": "Tracker: the Linear key and team, or the GitHub board and its status field." },
         { "text": "GitHub App: it mints a token, lists the repositories, and reports missing permissions." },
         { "text": "Repositories: the App must reach the default repository." },
-        { "text": "On Kubernetes, each repository also needs a running merger." },
+        { "text": "On Kubernetes, a running merger must also serve each repository. One merger serves them all." },
         { "text": "Models: each role needs a stored key or a host credential." },
-        { "text": "Three steps are optional." },
+        { "text": "Four steps are optional." },
         { "text": "Notifications send a test message first." },
         { "text": "The assistant checks the Slack tokens, and the Discord message content intent." },
         { "text": "Webhooks wait for one signed delivery from each source." },
+        { "text": "Skills: the API fetches each skill source, and reports one that fails." },
         { "text": "Setup is complete when every required step is done." }
       ]
     },
@@ -105,7 +106,7 @@
       "title": "Restarts and the public URL",
       "cues": [
         { "text": "On Kubernetes, a saved credential reaches the components through a restart." },
-        { "text": "The order is the daemon, each merger, the assistant, and the API last." },
+        { "text": "The order is the daemon, the merger, the assistant, and the API last." },
         { "text": "In local mode, a change applies at once." },
         { "text": "SYMPHONY_PUBLIC_URL is the address where people and vendors reach the API.", "say": "Symphony public URL is the address where people and vendors reach the API." },
         { "text": "Setup uses it for the webhook URLs. Without it, they use the address of the request." }

@@ -1,5 +1,7 @@
-// "Symphony and Seiji": seven scenes. Every claim comes from docs/seiji.md, docs/mcp.md, docs/tern.md,
-// docs/mocked-certification.md (scenario 13), tests/test_seiji_real.py and Seiji's README.
+// "Symphony and Seiji": eight scenes. Every claim comes from docs/seiji.md, docs/mcp.md, docs/tern.md,
+// docs/assistant.md (PR previews, share_device), src/symphony/previews.py, preview_links.py,
+// api/previews.py, merger/comments.py, docs/mocked-certification.md (scenario 13),
+// tests/test_seiji_real.py and Seiji's README.
 // Time references point at narration cues (see ../lib/engine.js `at`).
 
 const SHOT = (name) => `../../tern/${name}-dark.png`;
@@ -183,27 +185,75 @@ const SCENES = {
     }));
   },
 
-  // 7. Proof and limits
+  // 7. PR previews
   s7(sec) {
-    const m = card(sec, { x: 100, y: 205, w: 560, h: 590, in: "s7.1" }, "<h3>Mocked scenario 13</h3>");
+    const BTN = (text) => `<span style="display:inline-block;margin-top:16px;padding:10px 24px;border-radius:10px;background:#2f74c0;color:#fff;font-weight:650;font-size:28px">${text}</span>`;
+    const A = D.layer(sec, { in: "s7", out: "s7.4" });
+    const ci = D.box(A.el, { x: 100, y: 205, w: 560, h: 130, cls: "ext", in: "s7.1", kick: "CI workflow run", title: '<span class="mono" style="font-size:28px">ios-simulator-preview</span>' });
+    const mg = D.box(A.el, { x: 760, y: 205, w: 480, h: 130, cls: "merger", in: "s7.1+0.6", kick: "merger", title: "finds it for the head" });
+    D.wire(A.el, A.sv, ci, mg, { in: "s7.1+0.6", straight: true });
+    card(A.el, { x: 100, y: 400, w: 820, h: 340, in: "s7.2" },
+      '<h3>Slack · symphony-merger</h3><p>#42 Sign-in crash with an empty password: an iOS build of this head is ready to try in a simulator</p>' + BTN("Open in simulator"));
+    chip(A.el, 130, 670, "s7.2+2.4", "a reviewer · the viewer link, privately", "blue");
+    const pc = card(A.el, { x: 1000, y: 400, w: 820, h: 340, in: "s7.3" }, '<h3>acme/mobile #42 · <span style="color:var(--muted)">symphony-merger</span></h3>');
+    rows(pc, [
+      ["s7.3+0.3", "<b>Preview</b> · builds of this PR to try on a simulator in Seiji"],
+      ["s7.3+1.0", '• <span class="mono">3f9c2a7b1e04</span> (newest): <span style="color:var(--blue)">Open in Seiji</span>'],
+      ["s7.3+1.4", '• <span class="mono">a81d0e55c2b9</span>: <span style="color:var(--blue)">Open in Seiji</span>'],
+    ], { fontSize: "27px" });
+    chip(A.el, 1000, 770, "s7.3+2.0", "one comment, edited in place · the last 5 builds", "");
+
+    const B = D.layer(sec, { in: "s7.4", out: "s7.7" });
+    const ln = card(B.el, { x: 100, y: 205, w: 1720, h: 180, in: "s7.4" }, "<h3>The link on the PR</h3>");
+    rows(ln, [["s7.4+0.3", '<span class="mono" style="font-size:25px;color:var(--amber)">https://symphony.example.com/v1/previews/open?repo=acme/mobile&amp;pr=42&amp;sha=3f9c2a7b1e04</span>']], { marginTop: "6px" });
+    chip(B.el, 100, 405, "s7.4+1.8", "no expiry · while GitHub keeps the artifact", "green");
+    card(B.el, { x: 100, y: 470, w: 840, h: 190, in: "s7.5" },
+      '<h3>Cloudflare Access</h3><p><span class="mono">api.access</span>: any person whose Access e-mail is in <span class="mono">notify.users</span></p>', { borderColor: "var(--green)" });
+    card(B.el, { x: 980, y: 470, w: 840, h: 190, in: "s7.5+2.6" },
+      '<h3>Without Access</h3><p><span class="mono">previews.public_links: true</span> and a signed link (<span class="mono">sig</span>, HMAC-SHA256)</p>', { borderColor: "var(--amber)" });
+    const steps = ["Getting ready…", "Downloading build…", "Installing…", "Launching…", "control viewer"];
+    const pb = steps.map((s, i) => D.box(B.el, { x: 100 + i * 349, y: 700, w: 324, h: 110, cls: i === 4 ? "good center" : "center", in: t("s7.6", 0.2 + i * 0.45), title: `<span style="font-size:27px">${s}</span>` }));
+    pb.slice(1).forEach((b, i) => D.wire(B.el, B.sv, pb[i], b, { in: t("s7.6", 0.2 + (i + 1) * 0.45), straight: true }));
+
+    const C = D.layer(sec, { in: "s7.7" });
+    const dv = card(C.el, { x: 100, y: 205, w: 820, h: 400, in: "s7.7" }, "<h3>One device per build</h3>");
+    rows(dv, [
+      ["s7.7+0.3", '<span class="mono" style="font-size:25px">acme/mobile #42 3f9c2a7b1e04</span> → iphone-16'],
+      ["s7.7+0.8", '<span class="mono" style="font-size:25px">acme/mobile #42 a81d0e55c2b9</span> → iphone-16'],
+      ["s7.7+1.6", '<span style="color:var(--amber)">At most 2 per PR: a third build releases the oldest.</span>'],
+    ]);
+    const bk = card(C.el, { x: 1000, y: 205, w: 820, h: 400, in: "s7.8" }, "<h3>Back to Seiji</h3>");
+    rows(bk, [
+      ["s7.8+0.3", "after 55 minutes"],
+      ["s7.8+1.6", "when the PR is merged or closed"],
+      ["s7.9", '<span style="color:var(--green)">Seiji ended the lease first: the link starts the build again</span>'],
+    ]);
+    card(C.el, { x: 100, y: 640, w: 1720, h: 240, in: "s7.10" },
+      '<h3>In chat · <span class="mono">share_device</span></h3><p>The assistant shares the device it holds.</p>' + BTN("Control the device"));
+    chip(C.el, 1000, 790, "s7.10+2.2", "only the asker · a one-time link", "blue");
+  },
+
+  // 8. Proof and limits
+  s8(sec) {
+    const m = card(sec, { x: 100, y: 205, w: 560, h: 590, in: "s8.1" }, "<h3>Mocked scenario 13</h3>");
     rows(m, [
-      ["s7.1+0.3", '<span class="big" style="color:var(--green);font-size:56px">55.9 s</span> every check passed'],
-      ["s7.2", '<span class="mono" style="font-size:24px">mcp_cleanup held=1 released=1</span><br>0.02 s after the attempt'],
-      ["s7.3", "13 requests at the mock, all with the stored token. No other bearer."],
+      ["s8.1+0.3", '<span class="big" style="color:var(--green);font-size:56px">55.9 s</span> every check passed'],
+      ["s8.2", '<span class="mono" style="font-size:24px">mcp_cleanup held=1 released=1</span><br>0.02 s after the attempt'],
+      ["s8.3", "13 requests at the mock, all with the stored token. No other bearer."],
     ]);
-    const r = card(sec, { x: 690, y: 205, w: 560, h: 590, in: "s7.4" }, "<h3>Real Seiji (opt-in test)</h3>");
+    const r = card(sec, { x: 690, y: 205, w: 560, h: 590, in: "s8.4" }, "<h3>Real Seiji (opt-in test)</h3>");
     rows(r, [
-      ["s7.4+0.3", "Through the gateway: protocol <span class=\"mono\">2025-11-25</span>, 23 tools"],
-      ["s7.4+1.3", "omp 18.20.2 lists the 23 <span class=\"mono\">mcp__seiji_</span> tools"],
-      ["s7.4+2.3", '<span class="mono">budget_status</span>, <span class="mono">/v1/me</span>, an upload'],
-      ["s7.5", 'Direct at Seiji: <span class="chip red">mcp_… → 401</span> <span class="chip green">sj_… → 200</span>'],
+      ["s8.4+0.3", "Through the gateway: protocol <span class=\"mono\">2025-11-25</span>, 23 tools"],
+      ["s8.4+1.3", "omp 18.20.2 lists the 23 <span class=\"mono\">mcp__seiji_</span> tools"],
+      ["s8.4+2.3", '<span class="mono">budget_status</span>, <span class="mono">/v1/me</span>, an upload'],
+      ["s8.5", 'Direct at Seiji: <span class="chip red">mcp_… → 401</span> <span class="chip green">sj_… → 200</span>'],
     ]);
-    const l = card(sec, { x: 1280, y: 205, w: 540, h: 590, in: "s7.6" }, "<h3 style=\"color:var(--amber)\">Limits</h3>", { borderColor: "var(--amber)" });
+    const l = card(sec, { x: 1280, y: 205, w: 540, h: 590, in: "s8.6" }, "<h3 style=\"color:var(--amber)\">Limits</h3>", { borderColor: "var(--amber)" });
     rows(l, [
-      ["s7.6+0.2", "No real device booted yet: the test Mac has no simulator runtime"],
-      ["s7.7", "One Seiji user for all agents: one budget, one <span class=\"mono\">maxConcurrent</span>"],
-      ["s7.8", "Kubernetes: a public TLS name in <span class=\"mono\">listen.allowedHosts</span>"],
+      ["s8.6+0.2", "No real device booted yet: the test Mac has no simulator runtime"],
+      ["s8.7", "One Seiji user for all agents: one budget, one <span class=\"mono\">maxConcurrent</span>"],
+      ["s8.8", "Kubernetes: a public TLS name in <span class=\"mono\">listen.allowedHosts</span>"],
     ]);
-    D.callout(sec, { x: 100, y: 815, in: "s7.9", style: { fontSize: "32px" } }, 'Guide: <span class="mono">docs/seiji.md</span>');
+    D.callout(sec, { x: 100, y: 815, in: "s8.9", style: { fontSize: "32px" } }, 'Guide: <span class="mono">docs/seiji.md</span>');
   },
 };
