@@ -2,7 +2,7 @@ schema = 1
 id = "symphony"
 name = "Symphony"
 # Equals `version` in pyproject.toml: a release sets both (CONTRIBUTING.md, tests/test_selfupdate.py).
-version = "0.2.29"
+version = "0.2.30"
 description = "Dashboard, live agent sessions, merger and team administration for Symphony, inside Tern."
 icon = "broadcast"
 host = "host.luau"

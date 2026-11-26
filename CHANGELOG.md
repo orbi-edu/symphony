@@ -7,6 +7,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.30] - 2026-11-26
+
 ### Fixed
 
 - PR previews no longer fill Seiji's build quota (`maxBuildsPerUser`, 10 by default). Every
