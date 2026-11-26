@@ -7,6 +7,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.27] - 2026-11-26
+
 ### Fixed
 
 - Tern sign-in works with a CLI installed by `uv tool install` (or pipx, or Homebrew) in a
