@@ -145,6 +145,28 @@ def test_uploads_me_and_viewer(mock):
     assert relative.json()["url"].startswith("/view/open/") and relative.headers["cache-control"] == "no-store"
 
 
+def test_builds_are_limited_deleted_and_expired(mock):
+    upload = {**AUTH, "X-Filename": "a.zip"}
+    assert httpx.post(f"{mock}/_control/config", json={"max_builds": 1}).json()["max_builds"] == 1
+    app_id = httpx.post(f"{mock}/v1/apps", content=b"zip", headers=upload).json()["app_id"]
+    full = httpx.post(f"{mock}/v1/apps", content=b"zip", headers=upload)
+    assert full.status_code == 429 and full.json() == {
+        "error": "you already keep 1 builds, the limit is 1; they expire 72h after upload"}
+    assert httpx.delete(f"{mock}/v1/apps/{app_id}").status_code == 401
+    deleted = httpx.delete(f"{mock}/v1/apps/{app_id}", headers=AUTH)
+    assert deleted.status_code == 204 and deleted.content == b""
+    again = httpx.delete(f"{mock}/v1/apps/{app_id}", headers=AUTH)
+    assert again.status_code == 404 and again.json() == {"error": f'no uploaded app "{app_id}"'}
+    app_id = httpx.post(f"{mock}/v1/apps", content=b"zip", headers=upload).json()["app_id"]
+    httpx.post(f"{mock}/_control/expire_apps")
+    assert httpx.get(f"{mock}/_control/state").json()["apps"] == []
+    lease = json.loads(tool(mock, "acquire_device", {"platform": "ios"})["result"]["content"][0]["text"])["lease_id"]
+    gone = tool(mock, "install_app", {"lease_id": lease, "app_id": app_id})["result"]
+    assert gone["isError"] and gone["content"][0]["text"] == f'no uploaded app "{app_id}"'
+    httpx.post(f"{mock}/_control/reset")
+    assert httpx.get(f"{mock}/_control/state").json()["max_builds"] == seiji.MAX_BUILDS
+
+
 def test_control_records_header_names_and_foreign_bearers_by_hash(mock):
     post(mock, INIT)
     post(mock, INIT, {"Authorization": "Bearer mcp_agent_token"})

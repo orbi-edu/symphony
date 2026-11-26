@@ -7,6 +7,19 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.30] - 2026-11-26
+
+### Fixed
+
+- PR previews no longer fill Seiji's build quota (`maxBuildsPerUser`, 10 by default). Every
+  click, link open or restart uploaded the build again, until uploads were refused with
+  HTTP 429. A sha's upload is now kept in Redis for 60 hours (under Seiji's default 72-hour
+  retention) and reused; when Seiji no longer has it, the start uploads it once more.
+  Symphony deletes an upload (`DELETE /v1/apps/{app_id}`) when its PR is merged or closed or
+  its head moves past it and no live device runs it; a Seiji without the route answers 404,
+  which is ignored. A refused upload now shows Seiji's reason, and a full quota says that
+  builds are reused and expire ([seiji.md](docs/seiji.md#pr-previews)).
+
 ## [0.2.29] - 2026-11-26
 
 ### Added

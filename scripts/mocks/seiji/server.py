@@ -22,16 +22,21 @@ Tools: `budget_status`, `list_device_models`, `acquire_device`, `release_device`
 text block of pretty-printed JSON (Markdown for `export_evidence`). Every absolute link is
 under the configured publicUrl.
 
-HTTP API: `POST /v1/apps` (raw body, `X-Filename`, read in chunks), `GET /v1/me`,
+HTTP API: `POST /v1/apps` (raw body, `X-Filename`, read in chunks), `DELETE /v1/apps/{id}`
+(`204`, or `404` `no uploaded app "<id>"`), `GET /v1/me`,
 `GET /v1/runs/{id}/evidence.zip|report.md|files/{path}`, `POST /v1/leases/{id}/viewer`,
 `GET /v1/leases/{id}/screenshot.jpg`, `GET /healthz`. Error bodies are `{"error": "<text>"}`.
+An upload past `max_builds` kept builds is `429` with Seiji's text.
 
 Control (`/_control/*`, JSON, no auth):
 - `GET /_control/state`: `requests` (method, path, JSON-RPC method, tool, `auth`
   `valid|missing|other`, lowercase header names, never values), `other_bearers` (SHA-256 of
   every other bearer presented), `leases`, `apps` (with the SHA-256 of each upload), `runs`,
   `viewers` (each viewer link asked for) and `receiving` (bytes of the upload in progress).
-- `POST /_control/config` `{"public_url": str|null, "acquire_error": str|null}`.
+- `POST /_control/config` `{"public_url": str|null, "acquire_error": str|null,
+  "max_builds": int}`.
+- `POST /_control/expire_apps`: forget every uploaded build, as Seiji's reaper does
+  `appRetentionHours` after an upload.
 - `POST /_control/reset`: forget everything; back to the start configuration.
 """
 
@@ -168,6 +173,7 @@ class SeijiMock:
         with self.lock:
             self.public_url = self.start_public_url
             self.acquire_error: str | None = None
+            self.max_builds = MAX_BUILDS
             self.requests: list[dict] = []
             self.other_bearers: list[str] = []
             self.leases: dict[str, dict] = {}
@@ -185,7 +191,7 @@ class SeijiMock:
                 "runs": [{k: run[k] for k in ("run_id", "lease_id", "name", "status")}
                          for run in self.runs.values()],
                 "viewers": list(self.viewers), "receiving": self.receiving,
-                "public_url": self.public_url,
+                "public_url": self.public_url, "max_builds": self.max_builds,
             }
 
     def base(self) -> str:
@@ -292,7 +298,7 @@ class SeijiMock:
         if not app_id and not url:
             raise ToolError("pass app_id or url")
         if app_id and app_id not in self.apps:
-            raise ToolError(f'no build "{app_id}" for you')
+            raise ToolError(f'no uploaded app "{app_id}"')
         return _text(f"installed on {lease['lease_id']}")
 
     def _tool_launch_app(self, args: dict) -> dict:
@@ -552,6 +558,12 @@ def make_handler(mock: SeijiMock) -> type[BaseHTTPRequestHandler]:
             parts = path.strip("/").split("/")
             if parts == ["v1", "apps"] and self.command == "POST":
                 return self._upload()
+            if parts[:2] == ["v1", "apps"] and len(parts) == 3 and self.command == "DELETE":
+                self._body()
+                with mock.lock:
+                    if mock.apps.pop(parts[2], None) is None:
+                        return self._error(404, f'no uploaded app "{parts[2]}"')
+                return self._reply(204)
             if parts == ["v1", "me"] and self.command in ("GET", "HEAD"):
                 self._body()
                 return self._reply(200, {"user": USER, "quota": QUOTA})
@@ -569,10 +581,10 @@ def make_handler(mock: SeijiMock) -> type[BaseHTTPRequestHandler]:
                 self._body()
                 return self._error(400, "X-Filename header is required (e.g. MyApp.zip or app-debug.apk)")
             with mock.lock:
-                count = len(mock.apps)
-            if count >= MAX_BUILDS:
+                count, limit = len(mock.apps), mock.max_builds
+            if count >= limit:
                 self._body()
-                return self._error(429, f"you already keep {count} builds, the limit is {MAX_BUILDS}; "
+                return self._error(429, f"you already keep {count} builds, the limit is {limit}; "
                                         "they expire 72h after upload")
             digest, size = hashlib.sha256(), 0
             with mock.lock:
@@ -663,6 +675,10 @@ def make_handler(mock: SeijiMock) -> type[BaseHTTPRequestHandler]:
             if self.command == "POST" and name == "reset":
                 mock.reset()
                 return self._reply(200, {"ok": True})
+            if self.command == "POST" and name == "expire_apps":
+                with mock.lock:
+                    mock.apps.clear()
+                return self._reply(200, {"ok": True})
             if self.command == "POST" and name == "config":
                 data = json.loads(raw or b"{}")
                 with mock.lock:
@@ -670,7 +686,10 @@ def make_handler(mock: SeijiMock) -> type[BaseHTTPRequestHandler]:
                         mock.public_url = data["public_url"]
                     if "acquire_error" in data:
                         mock.acquire_error = data["acquire_error"]
-                return self._reply(200, {"public_url": mock.public_url, "acquire_error": mock.acquire_error})
+                    if "max_builds" in data:
+                        mock.max_builds = int(data["max_builds"])
+                return self._reply(200, {"public_url": mock.public_url, "acquire_error": mock.acquire_error,
+                                         "max_builds": mock.max_builds})
             return self._reply(404, {"error": "not served by the Seiji mock"})
 
     return Handler

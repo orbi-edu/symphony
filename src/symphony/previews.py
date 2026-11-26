@@ -12,6 +12,11 @@ Two entry points share one start path (`PreviewManager._launch`):
 The start downloads the ``ios-simulator-preview`` artifact of the sha, uploads the app to
 Seiji, acquires a device, installs and launches the app, and records the lease.
 
+Seiji keeps a limited number of uploaded builds per user, each for a limited time, so the
+`app_id` of a sha's upload is kept in Redis and reused by every later start of that sha
+(`_APP_TTL_S`). A build goes from Seiji (`DELETE /v1/apps/{id}`) once no preview needs it:
+its PR closed or merged, or the PR head moved past it (`sweep_apps`).
+
 One device per (repo, pr, sha), at most `MAX_LIVE_PER_PR` per PR: a third build releases the
 oldest. A live device is reused with a fresh viewer link. The records live in Redis, so the
 assistant and the API share them, and the sweep of either process (one at a time) releases
@@ -31,6 +36,7 @@ import zipfile
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 import structlog
@@ -56,6 +62,14 @@ _KEY_TTL_S = 60 * 60
 # A start in progress (download, upload, boot, install, launch) and a failed start.
 _STARTING_TTL_S = 15 * 60
 _FAILED_TTL_S = 10 * 60
+# Seiji keeps an uploaded build `appRetentionHours` (72 h by default; neither `/v1/me` nor
+# `budget_status` says) and at most `maxBuildsPerUser` (10 by default) per user. A start
+# reuses the build of its sha for 60 h after the upload, a margin under the default; a
+# shorter retention shows at install (`no uploaded app`), and the start uploads it again.
+_APP_TTL_S = 60 * 60 * 60
+# How often the sweep looks for kept builds whose PR closed or moved on: a GitHub read or
+# two per PR, so less often than the devices.
+APP_SWEEP_INTERVAL_S = 10 * 60
 _ACTION_RE = re.compile(
     r"^preview:(?P<owner>[A-Za-z0-9_.-]+)/(?P<name>[A-Za-z0-9_.-]+)"
     r":(?P<pr>\d+):(?P<sha12>[0-9a-f]{12})$"
@@ -287,8 +301,41 @@ def _upload_app(
         timeout=httpx.Timeout(10, read=120),
     )
     if resp.status_code != 200:
-        raise PreviewError(f"the build upload was refused (HTTP {resp.status_code})")
+        raise PreviewError(_upload_refused(resp))
     return resp.json()["app_id"]
+
+
+def _upload_refused(resp: httpx.Response) -> str:
+    """Why Seiji refused an upload: the `error` text of its JSON body (at most 200
+    characters), never a header. A 429 (the user keeps as many builds as Seiji allows) says
+    first that builds are reused and expire."""
+    try:
+        body = resp.json()
+        text = " ".join(str(body.get("error") or "").split()) if isinstance(body, dict) else ""
+    except ValueError:
+        text = ""
+    if len(text) > 200:
+        text = text[:199] + "\u2026"
+    cause = f": {text}" if text else f" (HTTP {resp.status_code})"
+    if resp.status_code == 429:
+        return ("the device lab keeps as many builds as it allows; previews reuse each build, "
+                f"and the device lab frees builds as they expire. The build upload was refused{cause}")
+    return f"the build upload was refused{cause}"
+
+
+def _delete_app(
+    http: httpx.Client,
+    definition: Mapping[str, Any],
+    stored: Mapping[str, str],
+    app_id: str,
+) -> None:
+    """``DELETE {http_base}/v1/apps/{app_id}``: free the build's place before Seiji expires
+    it. A 404 (already gone, or a Seiji without the route) or a 405 is fine; another
+    answer is logged, and Seiji's expiry is the backstop."""
+    resp = http.delete(f"{definition['http_base']}/v1/apps/{quote(app_id, safe='')}",
+                       headers=dict(stored), timeout=30)
+    if resp.status_code not in (200, 204, 404, 405):
+        _log.warning("preview_build_delete_failed", status=resp.status_code)
 
 
 def _rpc_tool_call(
@@ -370,6 +417,22 @@ def _tool_text(result: dict) -> str:
         if isinstance(c, dict) and c.get("type") == "text":
             return c.get("text", "")
     return ""
+
+
+_APP_FIELDS = {"app_id": str, "server": str, "repo": str, "pr": int, "sha12": str,
+               "bundle_id": str}
+
+
+def _app_entry(raw: bytes | str | None) -> dict | None:
+    """A kept upload from its Redis value, or None when it is absent or malformed."""
+    try:
+        entry = json.loads(raw) if raw else None
+    except ValueError:
+        return None
+    if not isinstance(entry, dict) or not all(
+            isinstance(entry.get(name), kind) for name, kind in _APP_FIELDS.items()):
+        return None
+    return entry
 
 
 # ---------------------------------------------------------------------------
@@ -518,23 +581,78 @@ class PreviewManager:
             _log.info("preview_releasing", pr=pr, reason="cap")
             self._release(oldest, name)
 
-    def _launch(self, http: httpx.Client, token: str, repo: str, pr: int, head_sha: str,
-                artifact: Mapping[str, Any], origin: str) -> _LivePreview:
-        """Download, upload, acquire, install, launch, record: the one start path of a button
-        click and of a link. The caller holds the start claim of the key. A device acquired
-        but not recorded goes back at once."""
-        key = self._key(repo, pr, head_sha[:12])
-        self._step(key, "downloading")
+    # -- builds: one upload per (server, repo, sha), reused while Seiji keeps it ----------
+
+    def _app_key(self, server: str, repo: str, sha12: str) -> str:
+        return self._prefix() + f"app:{server}:{repo.lower()}:{sha12}"
+
+    def _cached_app(self, server: str, repo: str, sha12: str) -> dict | None:
+        """The kept upload of a sha: `{app_id, server, repo, pr, sha12, bundle_id}`."""
+        return _app_entry(self.client.get(self._app_key(server, repo, sha12)))
+
+    def _apps(self) -> list[dict]:
+        """Every kept upload of the namespace."""
+        entries = (_app_entry(self.client.get(key))
+                   for key in self.client.scan_iter(match=self._prefix() + "app:*", count=200))
+        return [entry for entry in entries if entry is not None]
+
+    def _upload_build(self, http: httpx.Client, token: str, artifact: Mapping[str, Any],
+                      definition: Mapping[str, Any], stored: Mapping[str, str], repo: str,
+                      pr: int, head_sha: str) -> dict:
+        """Download the artifact, upload its app to Seiji, and keep the upload for the sha."""
+        self._step(self._key(repo, pr, head_sha[:12]), "downloading")
         app_zip, meta = _extract_preview(
             _download_artifact_zip(http, token, artifact["archive_download_url"]))
         if meta.get("head_sha") != head_sha:
             raise PreviewError("the preview build is not of this commit")
-        bundle_id = meta.get("bundle_id", "")
+        entry = {"app_id": _upload_app(http, definition, stored, app_zip),
+                 "server": self.server_name, "repo": repo, "pr": pr, "sha12": head_sha[:12],
+                 "bundle_id": meta.get("bundle_id") or ""}
+        # The TTL runs from the upload, as Seiji's retention does: a reuse never extends it.
+        self.client.set(self._app_key(self.server_name, repo, head_sha[:12]),
+                        json.dumps(entry, separators=(",", ":")), ex=_APP_TTL_S)
+        return entry
+
+    def _drop_app(self, server: str, repo: str, sha12: str) -> bool:
+        """Delete the kept upload of a sha from Seiji and forget it, unless a live preview
+        runs it or a start of it is in progress. True when it was dropped."""
+        entry = self._cached_app(server, repo, sha12)
+        if entry is None:
+            return False
+        if self.client.exists(self._starting_key(self._key(entry["repo"], entry["pr"], sha12))):
+            return False
+        if any(p.server == server and p.repo.lower() == repo.lower()
+               and p.head_sha.startswith(sha12) for p in self.live()):
+            return False
+        self.client.delete(self._app_key(server, repo, sha12))
+        definition = self.repository.get(server)
+        if definition is None:
+            return True
+        try:
+            with self.http() as http:
+                _delete_app(http, definition, self.repository.headers(server), entry["app_id"])
+        except Exception as exc:  # noqa: BLE001 — Seiji expires the build anyway
+            _log.warning("preview_build_delete_failed", error=type(exc).__name__)
+        return True
+
+    def _drop_pr_apps(self, repo: str, pr: int) -> int:
+        """Drop every kept upload of a PR (`_drop_app`). Returns how many."""
+        return sum(self._drop_app(e["server"], e["repo"], e["sha12"]) for e in self._apps()
+                   if e["repo"].lower() == repo.lower() and e["pr"] == pr)
+
+    def _launch(self, http: httpx.Client, token: str, repo: str, pr: int, head_sha: str,
+                artifact: Mapping[str, Any], origin: str) -> _LivePreview:
+        """Upload (or reuse), acquire, install, launch, record: the one start path of a button
+        click and of a link. The caller holds the start claim of the key, so two starts of a
+        sha never both upload it. A kept upload Seiji no longer has (`no uploaded app`) is
+        uploaded once more. A device acquired but not recorded goes back at once."""
+        key = self._key(repo, pr, head_sha[:12])
         definition = self.repository.get(self.server_name)
         if definition is None:
             raise PreviewError("no device lab is configured")
         stored = self.repository.headers(self.server_name)
-        app_id = _upload_app(http, definition, stored, app_zip)
+        build = self._cached_app(self.server_name, repo, head_sha[:12]) or self._upload_build(
+            http, token, artifact, definition, stored, repo, pr, head_sha)
         self._step(key, "installing")
         self._make_room(repo, pr)
         lease = json.loads(_tool_text(_rpc_tool_call(
@@ -543,9 +661,21 @@ class PreviewManager:
         if not lease_id:
             raise PreviewError("the device lab gave no device")
         try:
-            _rpc_tool_call(http, definition, stored, "install_app",
-                           {"lease_id": lease_id, "app_id": app_id})
+            try:
+                _rpc_tool_call(http, definition, stored, "install_app",
+                               {"lease_id": lease_id, "app_id": build["app_id"]})
+            except PreviewError as exc:
+                if "no uploaded app" not in str(exc):
+                    raise
+                _log.info("preview_build_gone", pr=pr)
+                self.client.delete(self._app_key(self.server_name, repo, head_sha[:12]))
+                build = self._upload_build(http, token, artifact, definition, stored, repo, pr,
+                                           head_sha)
+                self._step(key, "installing")
+                _rpc_tool_call(http, definition, stored, "install_app",
+                               {"lease_id": lease_id, "app_id": build["app_id"]})
             self._step(key, "launching")
+            bundle_id = build["bundle_id"]
             launch = {"lease_id": lease_id, **({"bundle_id": bundle_id} if bundle_id else {})}
             _rpc_tool_call(http, definition, stored, "launch_app", launch)
             return self._record(repo, pr, head_sha, lease_id, bundle_id, origin)
@@ -778,14 +908,15 @@ class PreviewManager:
         self._forget(preview, name)
 
     def release_pr(self, repo: str, pr: int) -> int:
-        """Release every live device of a PR now (the merger closed it: its ticket was
-        canceled). Returns how many."""
+        """Release every live device of a PR now and delete its kept uploads (the merger
+        closed it: its ticket was canceled). Returns how many devices."""
         released = 0
         for name, preview in self._load().items():
             if preview.repo.lower() == repo.lower() and preview.pr == pr:
                 _log.info("preview_releasing", pr=pr, reason="abandoned")
                 self._release(preview, name)
                 released += 1
+        self._drop_pr_apps(repo, pr)
         return released
 
     # -- background sweep -------------------------------------------------------
@@ -808,8 +939,10 @@ class PreviewManager:
         self._thread = None
 
     def sweep(self) -> int:
-        """Check all live previews and release stale ones.  Returns count released."""
+        """Check all live previews and release stale ones.  Returns count released. The
+        uploads of a closed or merged PR go too, and the build a new head replaced."""
         released = 0
+        closed: set[tuple[str, int]] = set()
         for name, preview in self._load().items():
             reason = self._release_reason(preview)
             if reason is None:
@@ -817,7 +950,35 @@ class PreviewManager:
             _log.info("preview_releasing", pr=preview.pr, reason=reason)
             self._release(preview, name)
             released += 1
+            if reason in ("closed", "merged"):
+                closed.add((preview.repo, preview.pr))
+            elif reason == "new_head":
+                self._drop_app(preview.server, preview.repo, preview.head_sha[:12])
+        for repo, pr in closed:
+            self._drop_pr_apps(repo, pr)
         return released
+
+    def sweep_apps(self) -> int:
+        """Delete the kept uploads that no device runs whose PR closed or merged, or whose PR
+        head moved past them (`_drop_app`). Returns how many."""
+        by_pr: dict[tuple[str, int], list[dict]] = {}
+        for entry in self._apps():
+            by_pr.setdefault((entry["repo"].lower(), entry["pr"]), []).append(entry)
+        dropped = 0
+        for entries in by_pr.values():
+            repo, pr = entries[0]["repo"], entries[0]["pr"]
+            try:
+                with self.http() as http:
+                    token = self.github_token(repo)()
+                    state = _pr_state(http, token, repo, pr)
+                    head = _pr_head_sha(http, token, repo, pr) if state == "open" else None
+            except Exception:  # noqa: BLE001 — GitHub down: the next round, or Seiji's expiry
+                continue
+            for entry in entries:
+                if state in ("closed", "merged") or (
+                        head is not None and not head.startswith(entry["sha12"])):
+                    dropped += self._drop_app(entry["server"], entry["repo"], entry["sha12"])
+        return dropped
 
     def _release_reason(self, preview: _LivePreview) -> str | None:
         """Why the device should go back now, or None to keep it. A link's device keeps its
@@ -850,6 +1011,8 @@ class PreviewManager:
             try:
                 if self.client.set(lock, "1", nx=True, ex=CHECK_INTERVAL_S - 5):
                     self.sweep()
+                if self.client.set(lock + ":apps", "1", nx=True, ex=APP_SWEEP_INTERVAL_S):
+                    self.sweep_apps()
             except Exception as exc:  # noqa: BLE001
                 _log.warning("preview_sweep_error", error=type(exc).__name__)
 
