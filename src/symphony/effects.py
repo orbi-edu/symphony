@@ -29,8 +29,8 @@ _LOGGED_ERROR = re.compile(r"\berror='((?:[^'\\]|\\.)*)'")
 
 
 # The stop script's own exit codes, and the ones `PodSandbox.exec_script` adds around it:
-# -1 for an exec that failed to open or passed its wall deadline, 124 for `timeout`'s TERM,
-# 137 for its `-k` KILL.
+# -1 for an exec that failed to open, passed its wall deadline or raised mid-stream, 124 for
+# `timeout`'s TERM, 137 for its `-k` KILL.
 _STOP_CAUSES = {
     -1: "exec failed or interrupted", 3: "unreadable", 4: "survivors", 124: "timeout", 137: "timeout",
 }
@@ -40,8 +40,8 @@ _STOP_DETAIL_CHARS = 200
 def _generation_stop_script(issue_id: str, seq: int) -> str:
     # Workspaces are Linux containers. Environment markers are set by run_issue for
     # the engine and inherited by its children; a delayed request cannot match a new seq.
-    # A failure prints one line with its cause: pids and process states only, never
-    # environment content (it holds credentials).
+    # A failure prints one line with its cause: pids and counts only, never environment
+    # content (it holds credentials). No process state or pid list: triage hashes the text.
     return (
         f"wanted_issue={shlex.quote('SYMPHONY_ISSUE_ID=' + issue_id)}\n"
         f"wanted_seq={shlex.quote('SYMPHONY_DISPATCH_SEQ=' + str(seq))}\n"
@@ -73,7 +73,7 @@ generation_pids() {
                 Z*|X*) continue ;;
             esac
             # An unreadable live process is not proof.
-            line="unreadable pid=${dir#/proc/} state=${state%% *}"
+            line="unreadable pid=${dir#/proc/}"
             uid=$(sed -n 's/^Uid:[[:space:]]*\([0-9]*\).*/\1/p' "$dir/status" 2>/dev/null)
             if [ "$uid" = "$me" ]; then
                 printf '%s\n' "$line" >&3
@@ -98,7 +98,7 @@ for round in 1 2 3 4 5; do
     sleep 1
 done
 pids=$(generation_pids) || exit 3
-[ -z "$pids" ] || { printf 'survivors pids=%s\n' "$(echo $pids)"; exit 4; }
+[ -z "$pids" ] || { set -- $pids; printf 'survivors count=%s\n' "$#"; exit 4; }
 """
     )
 

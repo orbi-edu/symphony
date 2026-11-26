@@ -400,7 +400,7 @@ def test_unreadable_live_generation_cannot_confirm_termination():
         with pytest.raises(RuntimeError, match="termination could not be confirmed") as raised:
             kill_agent_generation(LocalSandbox(), issue_id, 1)
         # Another non-dumpable process of this user (ssh-agent, say) may be named first.
-        assert re.search(r": unreadable pid=\d+ state=\S", str(raised.value))
+        assert re.search(r": unreadable pid=\d+$", str(raised.value))
         assert secret not in str(raised.value)
         assert process.poll() is None
     finally:
@@ -421,7 +421,7 @@ def test_failed_exec_names_the_cause_of_an_unconfirmed_stop():
 @pytest.mark.parametrize(
     ("code", "output", "cause"),
     [
-        (4, "login banner\nsurvivors pids=744 745\n", "survivors pids=744 745"),
+        (4, "login banner\nsurvivors count=2\n", "survivors count=2"),
         (124, "", "timeout"),
         (137, "", "timeout"),
         (2, "boom\n", "exit 2: boom"),
