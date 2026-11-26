@@ -64,6 +64,17 @@ def note(text: str) -> dict:
     return text_chunk(text, message_id=f"symphony-{uuid.uuid4().hex}")
 
 
+def remote_note(meta: dict) -> str:
+    """The first line of a chat: where the session runs. Tern shows the chat tab's local
+    directory as the workdir, and the agent cannot name its own over ACP, so the chat says it."""
+    parts = [f"pod `{meta['pod']}`" if _str(meta, "pod") else None,
+             f"`{meta['repo']}`" if _str(meta, "repo") else None,
+             f"branch `{meta['branch']}`" if _str(meta, "branch") else None]
+    where = " · ".join(p for p in parts if p)
+    return ("_Runs in the cluster" + (f": {where}" if where else "") + ". Nothing runs on this "
+            "machine: this chat shows the session and sends your messages._")
+
+
 # -- tools -------------------------------------------------------------------
 
 def tool_kind(name: str) -> str:

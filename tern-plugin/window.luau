@@ -69,11 +69,41 @@ local setup_after_signin = false
 
 local SAFE_ID = "^[%w%._:@/%-]+$"
 
--- Opens a shell tab and types `command` into it. A `launch.command` tab blocks the window hook
--- past its 50 ms budget while the program spawns; a shell tab opens in a few ms and the shell
--- reads the queued line once it is up (and stays when the program exits).
-local function new_tab(cx: any, command: string, name: string)
-	local pane = cx.layout:new_tab(nil)
+-- One path component: letters, digits, `.`, `_` and `-`, never `.` or `..`.
+local function path_part(s: string): string
+	local out = string.sub((string.gsub(s, "[^%w%._%-]", "-")), 1, 80)
+	if out == "" or out == "." or out == ".." then
+		return "session"
+	end
+	return out
+end
+
+-- The chat tab's directory: empty, local, and named after the remote session
+-- (`~/.cache/symphony/remote/<repo>/<ticket>`). Tern shows the tab's directory as the chat's
+-- workdir, and the agent runs in the cluster, so the path says where it runs instead of naming
+-- one of this machine's projects. nil (the default tab directory) when it cannot be made.
+local function chat_dir(sid: string, label: string?, repo: string?): string?
+	local base = tern.getenv("XDG_CACHE_HOME")
+	if not base or base == "" then
+		local home = tern.getenv("HOME")
+		if not home or home == "" then
+			return nil
+		end
+		base = home .. "/.cache"
+	end
+	local name = if repo and repo ~= "" then string.match(repo, "([^/]+)$") or repo else "assistant"
+	local dir = base .. "/symphony/remote/" .. path_part(name) .. "/" .. path_part(label or sid)
+	local ok = pcall(function()
+		tern.fs.mkdir(dir)
+	end)
+	return if ok then dir else nil
+end
+
+-- Opens a shell tab (in `cwd` when given) and types `command` into it. A `launch.command` tab
+-- blocks the window hook past its 50 ms budget while the program spawns; a shell tab opens in a
+-- few ms and the shell reads the queued line once it is up (and stays when the program exits).
+local function new_tab(cx: any, command: string, name: string, cwd: string?)
+	local pane = cx.layout:new_tab(if cwd then { cwd = cwd } else nil)
 	if not pane then
 		cx:toast("error", "Could not open a new tab")
 		return
@@ -127,7 +157,7 @@ local function has_agent(cx: any): boolean
 end
 
 -- The live session as a native Tern chat (the `symphony` ACP agent from `symphony tern install`).
-local function open_chat(cx: any, sid: string, label: string?)
+local function open_chat(cx: any, sid: string, label: string?, repo: string?)
 	if not string.match(sid, SAFE_ID) then
 		cx:toast("error", "Invalid session", sid)
 		return
@@ -137,7 +167,8 @@ local function open_chat(cx: any, sid: string, label: string?)
 		open_signin(cx)
 		return
 	end
-	new_tab(cx, "tern acp symphony --resume " .. fmt.shq(sid), (label or sid) .. " · chat")
+	new_tab(cx, "tern acp symphony --resume " .. fmt.shq(sid), (label or sid) .. " · chat",
+		chat_dir(sid, label, if type(repo) == "string" then repo else nil))
 end
 
 local function open_takeover(cx: any, ticket: string)
@@ -494,7 +525,7 @@ local function handle(cx: any, req: any, pane: number)
 	elseif kind == "token_new" then
 		token_new(cx, pane)
 	elseif kind == "chat" and type(req.sid) == "string" then
-		open_chat(cx, req.sid, req.label)
+		open_chat(cx, req.sid, req.label, req.repo)
 	elseif kind == "watch" and type(req.url) == "string" and string.match(req.url, "^https?://[^%s]+$") then
 		-- A device's viewer in Tern's browser beside the panel. A plugin's `cx:open` skips the link
 		-- routes, so the Seiji plugin, when installed too, does not open it a second time.
@@ -632,6 +663,7 @@ tern.command({
 					icon = fmt.STATE_ICON[s.state or ""] or "activity",
 					sid = s.sid,
 					ident = s.identifier,
+					repo = s.repo,
 				})
 			end
 			if #items == 0 then
@@ -641,7 +673,7 @@ tern.command({
 			cx2:pick({ items = items, placeholder = "Chat with which agent?", icon = "message", action = "open chat" })
 				:next(function(item, _e, cx3)
 					if item and cx3 then
-						open_chat(cx3, item.sid, item.ident)
+						open_chat(cx3, item.sid, item.ident, item.repo)
 					end
 				end)
 		end)

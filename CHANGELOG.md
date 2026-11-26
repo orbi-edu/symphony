@@ -7,6 +7,19 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.25] - 2026-11-26
+
+### Changed
+
+- A session's chat in Tern says where the agent runs. Its first line names the pod, the
+  repository and the branch, and says nothing runs on this machine. The chat tab opens in an
+  empty directory named after the session (`~/.cache/symphony/remote/<repository>/<ticket>`),
+  so the workdir Tern shows is no longer one of your projects.
+
+### Fixed
+
+- The Tern test harness starts on Tern releases without `ctl status-bar`.
+
 ## [0.2.24] - 2026-11-25
 
 ### Added

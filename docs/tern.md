@@ -127,7 +127,12 @@ Costs are local estimates from the engine's price table, not a bill.
 
 All sessions, filtered by **Active**, **Needs input**, **Ended** or **All** (`[` and `]`).
 `enter` opens the conversation as a native Tern chat (`tern acp symphony --resume <session>`):
-history, live events and your messages in one place.
+history, live events and your messages in one place. The agent keeps running in the cluster: the
+chat only shows the session and sends your messages, and its first line says where it runs (pod,
+repository, branch). Tern shows the chat tab's local directory as the chat's workdir, and an ACP
+agent cannot name its own, so the tab opens in an empty directory named after the session,
+`~/.cache/symphony/remote/<repository>/<ticket>` (`$XDG_CACHE_HOME` when set; `assistant`
+for assistant threads), instead of one of your projects.
 
 In the chat, `/status` shows the session's state, turn, tokens and PR, `/interrupt` stops the
 current turn, and `/pause` and `/resume` pause and resume Symphony. A reason may follow the
