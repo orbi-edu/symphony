@@ -234,9 +234,9 @@ REGISTRY=registry.example.com/symphony VERSION=0.1.0 PLATFORM=linux/amd64,linux/
 
 ## 4. Run the first-run setup
 
-Setup has seven steps. Four are required. The API verifies each value against the real service before it saves it. A value that fails is not saved. Only an admin can save a step. Any token can read the checklist (`GET /v1/setup`, or `symphony setup --status`).
+Setup has eight steps. Four are required. The API verifies each value against the real service before it saves it. A value that fails is not saved. Only an admin can save a step. Any token can read the checklist (`GET /v1/setup`, or `symphony setup --status`).
 
-The API lists the steps in this order: tracker, GitHub App, repositories, models, notifications, assistant, webhooks. The wizard does the GitHub App first, because the GitHub tracker and the repository check use it.
+The API lists the steps in this order: tracker, GitHub App, repositories, models, notifications, assistant, webhooks, skills. The wizard does the GitHub App first, because the GitHub tracker and the repository check use it.
 
 ```mermaid
 flowchart TD
@@ -246,7 +246,8 @@ flowchart TD
     D --> E[Notifications<br/>optional]
     E --> H[Assistant<br/>optional]
     H --> F[Webhooks<br/>optional, recommended]
-    F --> G([Symphony is ready])
+    F --> S[Skills<br/>optional]
+    S --> G([Symphony is ready])
 ```
 
 | Step | What you give | What the API verifies | Where it is saved |
@@ -258,6 +259,7 @@ flowchart TD
 | Notifications (`notifications`) | Slack and Discord, each a bot token and channel or a webhook URL (step 7) | A test message reaches each new channel | Secrets `symphony-slack` and `symphony-discord` |
 | Assistant (`assistant`, optional) | The Slack app-level token and the channels, the Discord channels, the repositories it reads (step 7) | Slack: `apps.connections.open` with the app token and `auth.test` with the bot token. Discord: the bot has the Message Content Intent | Secret `symphony-slack` (`SLACK_APP_TOKEN`), and the `assistant` section of the published WORKFLOW |
 | Webhooks (`webhooks`) | Nothing. The API makes the secrets (step 9) | A signed delivery arrived from each source in use | Secrets `linear-api-key` (`LINEAR_WEBHOOK_SECRET`) and `symphony-api` (`GITHUB_WEBHOOK_SECRET`) |
+| Skills (`skills`, optional) | A skill source: the repository, and if you want the path, the ref, the roles and the target repositories ([skills.md](skills.md)) | The save checks only the entry's form. The checklist then resolves each source to a commit with the App token: `done` when a source has skills, `error` with the first source that fails | `skills.sources` in the published WORKFLOW |
 
 Setup is complete when every required step is `done`. The repositories step is `done` only when each repository has a merger that runs. The single merger Deployment serves all repositories automatically (step 11).
 

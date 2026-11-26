@@ -397,7 +397,7 @@ The chat assistant on Slack and Discord ([assistant.md](assistant.md)). It is of
 | `assistant.ticket_state` | string | `"Backlog"` | The state of tickets created with **Create**. |
 | `assistant.ticket_labels` | list of strings | `[]` | Extra labels on created tickets. **Create and start** also adds `tracker.required_labels`. |
 | `assistant.soul.repo` | `owner/name` | the first `assistant.repositories` entry, else `kubernetes.default_repo` | The repository of the soul file ([assistant.md](assistant.md#soul)). It is mirrored read-only. |
-| `assistant.soul.path` | relative path | `".symphony/assistant.md"` | The soul file. It is read from `origin/main` at each new session, at most 8 KiB. Missing: the built-in text. |
+| `assistant.soul.path` | relative path | `".symphony/assistant.md"` | The soul file. It is read from the repository's default branch at each new session, at most 8 KiB. Missing: the built-in text. |
 | `assistant.memory.enabled` | bool | `true` | Per-person memory for people mapped in `notify.users` ([assistant.md](assistant.md#memory)). |
 | `assistant.memory.ttl_days` | int, above 0 | `90` | Days a person's memory lives. Each write and each session that reads it renews it. |
 | `assistant.sandbox.enabled` | bool | `false` | Turns the sandbox on. When on, mapped users get a `sandbox_run` tool that runs commands in an isolated pod ([assistant.md](assistant.md#sandbox)). |
@@ -658,9 +658,10 @@ GITHUB_SERVER_URL=https://ghe.example.com
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `SYMPHONY_MERGER_REPO` | empty (then `kubernetes.default_repo`) | The repository (`owner/name`) of this merger Deployment. |
-| `SYMPHONY_MERGER_WORKDIR` | `/var/lib/symphony/merger` | The mirror, the worktrees and the merger's engine sessions (`sessions/`, one directory per agent run, removed when the run ends and swept on start; [merger.md](merger.md#state-and-leases)). |
-| `SYMPHONY_MERGER_REVIEWERS` | `2` | The number of review workers. |
+| `SYMPHONY_MERGER_REPO` | empty | Repositories (`owner/name`, comma-separated) this merger serves besides `kubernetes.default_repo` and the repositories discovery finds with a `.symphony/merger.md` policy ([merger.md](merger.md)). |
+| `SYMPHONY_MERGER_WORKDIR` | `/var/lib/symphony/merger` | The mirror, the worktrees and the merger's engine sessions (`sessions/`, one directory per agent run, removed when the run ends and swept on start; [merger.md](merger.md#state-and-leases)). A repository other than the default one keeps its mirror under `repos/<owner>__<name>/`. |
+| `SYMPHONY_MERGER_REVIEWERS` | `2` | The number of review workers per repository. |
+| `SYMPHONY_MERGER_CONCURRENCY` | `8` | The agent review steps that run at once across every repository. |
 | `SYMPHONY_OMP_BIN` | `omp` | The engine binary of the merger. |
 | `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL` | the merger's built-in identity | The git identity of rebased commits. |
 

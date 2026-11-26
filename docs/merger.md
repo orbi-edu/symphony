@@ -1,7 +1,8 @@
 # Merger
 
 The merger reviews and merges pull requests. AI agents do all reviews. No human approval and no
-external review service is necessary. The merger runs as the `symphony-merger` Deployment
+external review service is necessary, unless a repository turns on the
+[human approval gate](#t9-human-approval-gate). The merger runs as the `symphony-merger` Deployment
 (`python -m symphony.entry.merger`). The code is in `src/symphony/merger/`.
 
 [Watch the 5-minute merger deep dive](media/symphony-merger.mp4) ([captions](media/symphony-merger.vtt)).

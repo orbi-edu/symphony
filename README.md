@@ -10,23 +10,24 @@ Symphony runs coding agents on tickets from Linear or from a GitHub Projects boa
 
 - A ticket with the `symphony` label is a work order. A `repo:owner/name` label names its repository (with GitHub, the default is the issue's own repository). The ticket state shows the progress.
 - Each ticket gets its own workspace pod. The workspace gets the model credential of its agent role, a short-lived GitHub token for the ticket's repositories, and a telemetry token for one dispatch. The Linear API key, the GitHub App private key, Slack and Discord tokens, and Symphony API tokens never enter a workspace.
-- Two independent models review each pull request. A finding blocks only when both models agree. A deterministic train merges the exact head that CI tested. No human approval is necessary.
+- Two independent models review each pull request. A finding blocks only when both models agree. A deterministic train merges the exact head that CI tested. No human approval is necessary, unless a repository turns on the approval gate.
 - A person can follow any agent live, send it a message during a turn, interrupt it, or take over the ticket.
 
 ## Capabilities
 
 | Area | Features |
 |---|---|
-| Orchestration | Dispatch by webhook in under 3 s, safety poll, concurrency limits, retries with backoff, stall detection, anti-runaway cooldown, fencing against duplicate work |
+| Orchestration | Dispatch by webhook in under 3 s, safety poll, concurrency limits, retries with backoff and a retry budget, stall detection, anti-runaway cooldown, fencing against duplicate work, intake verdicts, failure triage |
 | Workspaces | One pod and one session volume for each ticket, images for `node`, `dotnet9`, `dotnet10` and `polyglot`, optional Docker (privileged, Sysbox or Kata) |
+| Repositories | Discovery of every repository the GitHub App reaches (runtime, monorepo components, default branch), provisioning of labels and a merger policy, configuration from Tern |
 | Trackers | Linear, or issues on a GitHub Projects (v2) board with the `Status` field as the state. A memory tracker for tests and local mode. |
-| Tickets | Multi-repository tickets, planning tickets with sub-issues and a blocking order, read-only investigations, questions to people that never block a run |
-| Merger | Parallel review lanes, oracle on a different model, one rejection rule, AI arbiter, delta re-review, merge train with batches and bisection, AI conflict resolution, main-branch watch |
+| Tickets | Multi-repository tickets, planning tickets with sub-issues and a blocking order, read-only investigations, questions to people that never block a run and outlive it, agents that wait for a person instead of looping, a session trace on each ticket, canceled tickets that close their pull requests |
+| Merger | One merger for every repository, Symphony-labeled PRs only by default, parallel review lanes, oracle on a different model, one rejection rule, AI arbiter, delta re-review, optional human approval gate, polish rounds, merge train with batches and bisection, AI conflict resolution, main-branch watch, simulator previews on Seiji |
 | Live operation | Native chat in Tern (ACP), steer, follow-up, interrupt and answer in under 300 ms, holds and local takeover with `omp --resume` |
-| Administration | API tokens with `viewer`, `operator` and `admin` roles, models for each agent role, provider API keys, MCP servers for each agent role (credentials stay in the gateway), audited commands, team `omp` settings |
-| Assistant | A Slack and Discord bot that answers questions, researches and plans tickets with read-only agents. A mapped person confirms each proposal |
+| Administration | API tokens with `viewer`, `operator` and `admin` roles, models for each agent role, provider API keys, MCP servers for each agent role (credentials stay in the gateway), skill sources for each agent role, audited commands, team `omp` settings |
+| Assistant | A Slack and Discord bot that answers questions, researches and plans tickets with read-only agents, with an optional sandbox to run commands and share files. A mapped person confirms each proposal |
 | Learning | Retrospective of each finished ticket and a learnings pull request for `AGENTS.md` and skills, with a human gate |
-| Observability | Token and cost ledger, OpenTelemetry rollup posted to the ticket, provider rate limits, Slack and Discord notifications |
+| Observability | Token and cost ledger, OpenTelemetry rollup posted to the ticket, telemetry history with charts in Tern, provider rate limits, Slack and Discord notifications and direct messages |
 
 ## How it works
 

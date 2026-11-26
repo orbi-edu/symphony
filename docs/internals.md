@@ -1029,13 +1029,18 @@ replies in its threads. Anyone there may ask.
 - **Runtime (`runtime.py`):** `omp --mode rpc` with `--tools read,grep,glob,web_search`, the
   role's host tools and its MCP servers (section 18). The agent dir is private, with the
   role's `models.yml`. The working dir holds a worktree of each `assistant.repositories`
-  repository at `origin/main` (unset: the default repository, the merger repositories and
-  those of tracked tickets), fetched at most every 5 minutes with a `ghapp.READ_ONLY` token.
-  The agent's environment has no chat, tracker or GitHub App credential.
+  repository at its default branch (`origin/HEAD`, or `kubernetes.base_branches`; unset: the
+  default repository, the merger repositories and those of tracked tickets), fetched at most
+  every 5 minutes with a `ghapp.READ_ONLY` token. Any other repository the App reaches is
+  checked out on demand by `open_repository` and kept while it is used. The agent's
+  environment has no chat, tracker or GitHub App credential.
 - **Host tools (`tools.py`):** `symphony_status` (the `LiveReader` overview, tickets and
-  recent failures), `tracker_search` (`TrackerAdapter.search`, section 16) and, for the
-  planner, `propose_tickets` (terminal; at most 15 tickets, titles up to 120 characters,
-  bodies up to 20,000).
+  recent failures), `tracker_search` (`TrackerAdapter.search`, section 16), `open_repository`
+  and, for the assistant and the planner, `propose_tickets` (terminal; at most 15 tickets,
+  titles up to 120 characters, bodies up to 20,000, `attachments` from the sandbox). The
+  assistant also gets `offer_plan` (a "Plan this" button). With `assistant.sandbox`, the roles
+  also get `sandbox_run` and `share_file` (`sandbox.py`, `share.py`), which only people mapped
+  in `notify.users` can use, checked at each call ([assistant.md](assistant.md#sandbox)).
 - **Confirmation (`confirm.py`):** a proposal is stored at `sym:<ns>:assistant:proposal:<id>`
   (7 days) and shown with "Create", "Create and start" and "Dismiss" (button ids
   `proposal:<id>:create|start|dismiss`). Only a person mapped in `notify.users` may click;
@@ -1049,7 +1054,7 @@ replies in its threads. Anyone there may ask.
   `assistant.tickets_created`, with the person's GitHub login and the identifiers.
 - **Soul (`soul.py`):** `assistant.soul: {repo, path}` (default `.symphony/assistant.md` in the
   first `assistant.repositories` entry, else `default_repo`; the soul repository is mirrored
-  too). Each new session reads the file from the mirror at the `origin/main` of its last
+  too). Each new session reads the file from the mirror at the default branch of its last
   refresh, at most 8 KiB. Front matter `name`, `language`, `tone`; the body follows the
   built-in instructions and a closing line says those rules win. A missing file means the
   built-in text. The active version is `{repo, path, sha}` (the blob sha; `sha: null` when
