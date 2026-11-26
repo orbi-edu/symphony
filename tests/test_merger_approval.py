@@ -210,6 +210,44 @@ def test_multiple_reviewers_all_must_approve(env_approval):
     assert "waiting for human approval" in result
 
 
+def test_a_parked_review_says_whether_it_waits_for_ci_or_an_approval(env_approval):
+    """A clean review parked on CI, whose CI then passes without an approval, waits for the
+    approval and says so (record, `GET /v1/merger`, CLI); CI running again on the head puts it
+    back to CI. The row carries the PR's title, not the report's heading, and so does the
+    train record once a person approves."""
+    from symphony.cli import render
+    from symphony.merger.review import ReviewWorker
+
+    env, worker = env_approval, ReviewWorker(env_approval.m, "1")
+    head = env.world.commit("eng-7", {"src/a.py": "A = 1\n"}, "feat: a")
+    env.gh.open_pr(7, "eng-7", "ENG-7 change", author="dev7")
+    env.gh.check_runs(head)  # CI started, still running
+    assert worker.step() == "#7 waiting"
+
+    def parked() -> tuple:
+        rec, [row] = env.m.store.parked(7), env.m.store.snapshot()["parked"]
+        return rec["waiting"], rec["pr_title"], rec["title"], row["waiting"], row["title"]
+
+    assert parked() == ("ci", "ENG-7 change", cm.WAITING_TITLE, "ci", "ENG-7 change")
+    env.gh.tick()  # CI passes; nobody approved
+    assert worker.step() is None
+    assert parked() == ("approval", "ENG-7 change", cm.WAITING_TITLE, "approval", "ENG-7 change")
+    out = render.merger_repo(env.m.store.snapshot())
+    assert "  #7 ENG-7 change · clean review, waiting for approval · since " in out
+
+    writes = []
+    real_park = env.m.store.park
+    env.m.store.park = lambda rec: writes.append(rec) or real_park(rec)
+    assert worker.step() is None and writes == []  # unchanged: no write
+    env.gh.runs[head].update(status="in_progress", conclusion="")  # CI runs again on the head
+    assert worker.step() is None and parked()[0] == "ci" and len(writes) == 1
+
+    env.gh.tick()
+    env.gh.pr_reviews[7] = [{"user": "reviewer1", "state": "APPROVED", "submitted_at": "2026-11-01T12:00:00Z"}]
+    worker.step()
+    assert env.m.store.parked(7) is None and env.m.store.rec(7)["title"] == "ENG-7 change"
+
+
 def test_is_approved_with_no_reviews(env):
     """No reviews means not approved."""
     env.gh.open_pr(7, "eng-7", "ENG-7 test")

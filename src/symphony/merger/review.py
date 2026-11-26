@@ -360,8 +360,11 @@ def ci_now(m: Merger, policy: Policy, n: int, head_sha: str, branch: str, revive
 
 
 def parked_of(m: Merger, run: Run) -> dict:
+    """A parked review's record. `title` is its report's heading (the caller sets it); the PR's
+    own title is `pr_title`. A clean review says what it waits for: `waiting` is `ci` or
+    `approval` (the policy's `require_approval`, once CI passed)."""
     return {"pr": run.pr, "branch": run.branch, "author": run.author, "author_type": run.author_type,
-            "title": run.title,
+            "pr_title": run.title,
             "issue": run.issue, "head_sha": run.head_sha, "ready_at": run.ready_at,
             "started_at": run.started_at, "parked_at": m.clock(), "findings": run.findings,
             "rounds": prior_rounds(m, run.pr)}
@@ -383,13 +386,14 @@ def hand_off_text(head_sha: str) -> str:
 def hand_off(m: Merger, policy: Policy, run, report: str, edit: str | None = None) -> None:
     """A positive review to the train: the record first (publishing, with the rendered report),
     then the publication, then the record is marked reviewed. A crash leaves a publishing
-    record that `reconcile` finishes."""
+    record that `reconcile` finishes. `run` is a `Run` or a parked record."""
     n = run["pr"] if isinstance(run, dict) else run.pr
     get = (lambda k: run[k]) if isinstance(run, dict) else (lambda k: getattr(run, k))
     rec = {
         "pr": n, "branch": get("branch"), "author": get("author"),
         "author_type": run.get("author_type") if isinstance(run, dict) else run.author_type,
-        "title": get("title"),
+        # A parked record's `title` is its report's heading, not the PR's.
+        "title": run.get("pr_title", "") if isinstance(run, dict) else run.title,
         "issue": get("issue"), "head_sha": get("head_sha"), "reviewed_at": m.clock(),
         "ready_at": get("ready_at"), "started_at": get("started_at"), "policy": cm.VERSION,
         "state": "publishing", "publication": {"report": report, "done": [], **({"edit": edit} if edit else {})},
@@ -482,6 +486,8 @@ def settle_parked(m: Merger, policy: Policy, owner: str) -> None:
             elif rec["kind"] == "clean" and ci["draft"]:
                 unpark(m, rec, "its author put it back to draft")
             elif ci["state"] == "pending":
+                if rec["kind"] == "clean" and rec.get("waiting", "ci") != "ci":
+                    m.store.park({**rec, "waiting": "ci"})  # CI runs again on this head
                 continue
             elif rec["kind"] == "report":
                 if rec.get("comment"):
@@ -493,6 +499,8 @@ def settle_parked(m: Merger, policy: Policy, owner: str) -> None:
                 from .approval import check_approval
 
                 if not check_approval(m, policy, rec):
+                    if rec.get("waiting") != "approval":
+                        m.store.park({**rec, "waiting": "approval"})
                     continue  # still parked, waiting for approval
                 report = cm.compose(cm.REVIEWED_TITLE, rec["head_sha"], hand_off_text(rec["head_sha"]),
                                     cm.ci_line("passed", rec["head_sha"]), rec["body"], False)
@@ -520,7 +528,7 @@ def ci_sent_back(m: Merger, rec: dict, failed: list[str]) -> None:
                                                      cm.ci_line("failed", rec["head_sha"], failed), rec["body"], drafted))
     m.store.unpark(n)
     m.count("back_to_author", n, rec["head_sha"])
-    cm.say(m, "back_to_author", n, rec.get("title", ""), rec["author"], rec.get("comment") or m.pr_url(n),
+    cm.say(m, "back_to_author", n, rec.get("pr_title", ""), rec["author"], rec.get("comment") or m.pr_url(n),
            "CI failed", is_bot=cm.is_bot_author(rec), ticket=rec.get("issue"))
     m.move_ticket(rec.get("issue"), "rework", f"The merger sent the PR back: {outcome}\n\n{rec.get('comment') or m.pr_url(n)}")
 
@@ -743,6 +751,7 @@ def _outcome(m: Merger, policy: Policy, team: dict, run: Run, result: dict, delt
         _finish(m, n)
         comment = cm.post_waiting(m, run, result, outcome)
         m.store.park({**parked_of(m, run), "kind": "clean", "title": cm.WAITING_TITLE, "outcome": outcome,
+                      "waiting": "ci",
                       "body": cm.scrubbed_body(m, run, result), "drafted": False, "comment": comment})
         return "waiting", run.head_sha, run.ready_at, ""
 
@@ -757,6 +766,7 @@ def _outcome(m: Merger, policy: Policy, team: dict, run: Run, result: dict, delt
         _finish(m, n)
         comment = cm.post_waiting(m, run, result, outcome)
         m.store.park({**parked_of(m, run), "kind": "clean", "title": cm.WAITING_TITLE, "outcome": outcome,
+                      "waiting": "approval",
                       "body": cm.scrubbed_body(m, run, result), "drafted": False, "comment": comment})
         return "waiting", run.head_sha, run.ready_at, ""
 

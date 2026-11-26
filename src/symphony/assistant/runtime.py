@@ -217,10 +217,11 @@ class OmpAgent(_Run):
     """One chat thread's omp process. `ask` runs one turn; `close` ends the session."""
 
     def __init__(self, runner: AssistRunner, spec: AgentSpec,
-                 on_intent: Callable[[str, str], None], token: str | None) -> None:
+                 on_intent: Callable[[str, str], None], token: str | None, session_dir: str) -> None:
         super().__init__(runner, spec)
         self.on_intent = on_intent
         self.token = token
+        self.session_dir = session_dir
         self.on_text: Callable[[str], None] | None = None
         self.busy = False
         self._blocks: dict[int, str] = {}
@@ -341,6 +342,8 @@ class OmpAgent(_Run):
         finally:
             self.r.sessions.close(self.sid, outcome)
             self.r.revoke(self.token)
+            # Nothing reads the session dir after the process: the transcript is in the store.
+            shutil.rmtree(self.session_dir, ignore_errors=True)
 
     @property
     def alive(self) -> bool:
@@ -438,9 +441,10 @@ class AssistRunner(AgentRunner):
         except Exception as exc:
             self.sessions.close(sid, "failed")
             self.revoke(token)
+            shutil.rmtree(session_dir, ignore_errors=True)
             raise AgentFailed(f"{sid}: the agent did not start: "
                               f"{getattr(exc, 'code', None) or type(exc).__name__}") from None
-        agent = OmpAgent(self, spec, on_intent, token)
+        agent = OmpAgent(self, spec, on_intent, token, session_dir)
         agent.proc = proc
         try:
             agent.command("set_event_filter", {"events": None, "messageUpdates": "delta"})

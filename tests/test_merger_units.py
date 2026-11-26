@@ -464,7 +464,8 @@ def test_a_role_with_a_managed_builtin_key_runs_omp_with_it_and_rotation_applies
     first = agents.spawned[-1]
     assert first.env["SYMPHONY_PROVIDER_API_KEY"] == "sk-ant-first"
     agent_dir = first.env["PI_CODING_AGENT_DIR"]
-    assert agent_dir.startswith(str(tmp_path)) and oct(os.stat(agent_dir).st_mode & 0o777) == "0o700"
+    assert agent_dir.startswith(str(tmp_path)) and first.agent_dir_mode == "0o700"
+    assert not os.path.exists(first.session_dir)  # removed when the run ended
     assert json.loads(first.models_yml) == {"providers": {"anthropic": {"apiKey": "SYMPHONY_PROVIDER_API_KEY"}}}
     assert "sk-ant-first" not in first.models_yml and "sk-ant-first" not in " ".join(first.argv)
     assert not any("sk-ant-first" in str(v) for k in redis_client.keys("*") if redis_client.type(k) == "string"
@@ -504,6 +505,92 @@ def test_a_provider_store_outage_fails_the_run_without_spawning_omp(redis_client
         runner.run(_role_spec("merger:7:reviewer:1", "anthropic", "claude-opus-5-5"))
     assert agents.spawned == []
     assert SessionStore(redis_client, NS).meta("merger:7:reviewer:1")["state"] == "ended"
+
+
+# -- the runs' directories: removed when the run ends, swept on start ------------------------------
+class _StageDown:
+    def stage(self, *_):
+        raise RuntimeError("the MCP store is down")
+
+    def end(self, _token):
+        pass
+
+
+class _Broken:
+    """An omp whose pipe breaks with an error `drive` does not handle."""
+
+    def write_line(self, _line):
+        raise RuntimeError("pipe broke")
+
+    def close(self):
+        pass
+
+
+def _writing(spawn):
+    """omp writes its session files into `--session-dir` before anything else."""
+    def run(argv, cwd, env, stderr_path):
+        session_dir = argv[argv.index("--session-dir") + 1]
+        os.makedirs(session_dir, exist_ok=True)
+        with open(os.path.join(session_dir, "session.jsonl"), "w") as fh:
+            fh.write("{}\n")
+        return spawn(argv, cwd, env, stderr_path)
+    return run
+
+
+def test_a_completed_run_leaves_no_directory(redis_client, tmp_path):
+    """The staged models.yml and skills and omp's own files go with the run, after the last
+    transcript sync (the transcript is in the session store)."""
+    agents = ScriptedAgents()
+    agents.scripts["reviewer"] = lambda r, p, c: [("submit_review", {"strengths": [], "verified": "v"})]
+    runtime = SimpleNamespace(models_config={"providers": {}}, environment={})
+    runner = ag.AgentRunner(SessionStore(redis_client, NS), session_root=str(tmp_path),
+                            spawn=_writing(agents.spawn), silence_s=5, command_timeout_s=5,
+                            providers=lambda p, m: runtime,
+                            skill_stager=lambda agent_dir, role, meta: os.makedirs(f"{agent_dir}/skills/x"))
+    assert runner.run(_spec()).status == "completed"
+    proc = agents.spawned[-1]
+    assert proc.session_dir == str(tmp_path / "merger_7_reviewer_1") and proc.models_yml is not None
+    assert os.listdir(tmp_path) == []
+    assert SessionStore(redis_client, NS).transcript("merger:7:reviewer:1")
+
+
+def test_a_run_that_fails_before_omp_starts_leaves_no_directory(redis_client, tmp_path):
+    agents = ScriptedAgents()
+    runner = ag.AgentRunner(SessionStore(redis_client, NS), session_root=str(tmp_path), spawn=agents.spawn,
+                            mcp=_StageDown())
+    with pytest.raises(ag.AgentFailed, match="MCP servers could not be staged"):
+        runner.run(_spec())
+    assert agents.spawned == [] and os.listdir(tmp_path) == []
+
+    def no_omp(*_):
+        raise FileNotFoundError("omp")
+
+    runner = ag.AgentRunner(SessionStore(redis_client, NS), session_root=str(tmp_path), spawn=no_omp)
+    with pytest.raises(ag.AgentFailed, match="omp did not start"):
+        runner.run(_spec("merger:7:reviewer:2"))
+    assert os.listdir(tmp_path) == []
+
+
+def test_a_run_whose_drive_raises_leaves_no_directory(redis_client, tmp_path):
+    runner = ag.AgentRunner(SessionStore(redis_client, NS), session_root=str(tmp_path),
+                            spawn=_writing(lambda *_: _Broken()))
+    with pytest.raises(RuntimeError, match="pipe broke"):
+        runner.run(_spec())
+    assert os.listdir(tmp_path) == []
+    assert SessionStore(redis_client, NS).meta("merger:7:reviewer:1")["state"] == "ended"
+
+
+def test_the_start_sweep_removes_old_leftovers_only(tmp_path):
+    hours_ago = time.time() - 2 * 3600
+    for name in ("merger_acme_app_7_reviewer_1", "merger_acme_app_8_oracle_1", "merger_acme_app_9_review_1",
+                 "notes"):
+        os.makedirs(tmp_path / name / "agent")
+    for name in ("merger_acme_app_7_reviewer_1", "merger_acme_app_9_review_1", "notes"):
+        os.utime(tmp_path / name, (hours_ago, hours_ago))
+    with ag.owned_run_dir(str(tmp_path / "merger_acme_app_9_review_1")):  # a run still going
+        assert ag.sweep_session_root(str(tmp_path)) == ["merger_acme_app_7_reviewer_1"]
+    assert sorted(os.listdir(tmp_path)) == ["merger_acme_app_8_oracle_1", "notes"]
+    assert ag.sweep_session_root(str(tmp_path / "missing")) == []
 
 
 def test_validate_covers_the_schema_subset():

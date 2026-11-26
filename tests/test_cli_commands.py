@@ -246,8 +246,10 @@ def test_merger_text_uses_labels():
         "reviewing": [{"pr": 7, "phase": "verify", "worker": "w1", "started_at": 1,
                        "head_sha": "abc", "sessions": []},
                       {"pr": 8, "phase": "brand_new", "worker": "", "started_at": 1}],
-        "parked": [{"pr": 5, "kind": "clean", "parked_at": 1, "comment": "Merger comment"},
-                   {"pr": 6, "kind": "report", "parked_at": 1, "comment": ""}],
+        "parked": [{"pr": 5, "kind": "clean", "parked_at": 1, "comment": "https://github.com/acme/app/pull/5#issuecomment-1"},
+                   {"pr": 6, "kind": "report", "parked_at": 1, "comment": "", "title": "Drop the cache"},
+                   {"pr": 10, "kind": "clean", "waiting": "approval", "parked_at": 1, "title": "Add the export"},
+                   {"pr": 11, "kind": "clean", "waiting": "ci", "parked_at": 1, "title": "Fix the login"}],
         "train": {"lease": {"owner": "merger-0", "expires_in_ms": 9500}, "records": [
             {"pr": 3, "state": "finalizing", "branch": "sym/eng-3", "author": "alice", "reviewed_at": 1},
             {"pr": 4, "state": "train", "conflict": True, "branch": "sym/eng-4"}]},
@@ -256,8 +258,11 @@ def test_merger_text_uses_labels():
     })
     assert "  #7 · verifying findings · worker w1 · since " in out
     assert "  #8 · brand_new · since " in out  # unknown phase: the raw code
-    assert "  #5 · clean review, waiting for CI · since " in out and "Merger comment" not in out
-    assert "  #6 · will not merge, report published" in out
+    # An older record (no PR title, no `waiting`): `PR #n`, never the report comment's URL.
+    assert "  PR #5 · clean review, waiting for CI · since " in out and "issuecomment" not in out
+    assert "  #6 Drop the cache · will not merge, report published" in out
+    assert "  #10 Add the export · clean review, waiting for approval · since " in out
+    assert "  #11 Fix the login · clean review, waiting for CI · since " in out
     assert "Train: lease held by merger-0 · renews in 9s" in out
     assert "  #3 · finishing the merge · sym/eng-3 · alice · reviewed " in out
     assert "  #4 · conflict · sym/eng-4" in out

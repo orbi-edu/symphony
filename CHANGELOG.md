@@ -7,6 +7,37 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.26] - 2026-11-26
+
+### Changed
+
+- The merger's PVC in `deploy/merger.yaml` is 40Gi (was 20Gi). Applying it grows a bound
+  claim when its StorageClass allows volume expansion (EBS gp3 grows online, with no restart).
+
+### Fixed
+
+- The merger no longer fills its disk. Each agent run left its directory behind
+  (`sessions/<sid>`: omp's session files and the agent dir with the staged `models.yml`, MCP
+  config and skills), and tool-check probes are runs too, until `git fetch` failed with "No
+  space left on device" and reviews stopped. A run now removes its directory when it ends,
+  however it ends (a failure before omp starts, an error while it runs). On start, each
+  repository's merger removes the leftover `merger_*` directories older than one hour that no
+  run of the process owns (`merger_sessions_swept`), before its first fetch. The assistant
+  removes a chat session's directory when the session ends.
+- A parked clean review whose CI passed, under `require_approval: true`, says "waiting for
+  approval" instead of "waiting for CI", in `GET /v1/merger` (`parked[].waiting`: `ci` or
+  `approval`), the Tern Merger panel and `symphony merger status`. Parked rows show the pull
+  request's title (`parked[].title`) instead of the URL of the report comment; a record parked
+  before this release shows `PR #n` until it settles. A review handed to the train from
+  parking keeps the pull request's title, not the report's heading.
+- The merger's abandon check no longer asks Linear about a ticket every 30 s for a pull
+  request whose branch only looks like it names one (`alice/widget-5-app-data` read as
+  `WIDGET-5`), and no longer logs `merger_abandon_check_failed` for it. Linear answers an
+  unknown identifier with an "Entity not found" error, not `issue: null`; the single-ticket
+  reads now take that as no ticket, and the answer is cached for a minute like any other. On a
+  Linear board scoped to a team (`team_key`, no `project_slug`), only that team's key names a
+  ticket in a branch, title or body.
+
 ## [0.2.25] - 2026-11-26
 
 ### Changed

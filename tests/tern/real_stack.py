@@ -140,8 +140,8 @@ def seed(client: redis.Redis) -> dict:
 
 def seed_merger(client: redis.Redis, namespace: str) -> None:
     """Two repositories' mergers mid-pass, written through `MergerStore` with its real states:
-    reviews in each phase, a clean review parked on CI, train records in every `REC_STATES`
-    value, and each merger registered with a live heartbeat."""
+    reviews in each phase, a clean review parked until a person approves it, train records in
+    every `REC_STATES` value, and each merger registered with a live heartbeat."""
     now = now_ms()
     web = MergerStore(client, namespace, "acme/web")
     gateway = MergerStore(client, namespace, "acme/gateway")
@@ -152,8 +152,9 @@ def seed_merger(client: redis.Redis, namespace: str) -> None:
     gateway.add_session(812, "merger:acme:gateway:812:oracle:1")
     web.set_reviewing(815, head_sha="a91c33e012", worker="merger-0", phase="review", started_at=now - 70_000)
     web.add_session(815, "merger:acme:web:815:review:1")
-    web.park({"pr": 818, "head_sha": "77d0e1f3aa", "kind": "clean", "parked_at": now - 420_000,
-              "comment": "CI is red in e2e/checkout.spec.ts"})
+    web.park({"pr": 818, "head_sha": "77d0e1f3aa", "kind": "clean", "waiting": "approval",
+              "pr_title": "Show the delivery date at checkout", "title": "**Waiting for CI**",
+              "parked_at": now - 420_000, "comment": "https://github.com/acme/web/pull/818#issuecomment-1"})
     for merger, pr, rec_state, branch, author, ago_ms in (
         (web, 402, "finalizing", "symphony/eng-129-stripe-v14", "symphony", 900_000),
         (gateway, 806, "train", "fix/login-redirect", "bob", 1_300_000),

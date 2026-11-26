@@ -686,11 +686,25 @@ V.TRAIN_STATE = {
 }
 V.IN_TRAIN = { train = true, resolve = true, finalizing = true }
 
--- Parked reviews (`park(kind=…)` in merger/review.py).
+-- Parked reviews (`park(kind=…)` in merger/review.py); a clean one says what it waits for
+-- (`waiting`: `ci`, or `approval` once CI passed under `require_approval`).
 V.PARKED = {
 	clean = { "clean review", "waiting for CI", "warning" },
 	report = { "will not merge", "report published", "error" },
 }
+V.PARKED_WAITING = {
+	ci = "waiting for CI",
+	approval = "waiting for approval",
+}
+
+-- A parked row's word: {detail, value, tone}.
+function V.parked_word(p: any): { string }
+	local word = V.PARKED[p.kind or ""] or { p.kind or "—", "parked", "warning" }
+	if p.kind == "clean" then
+		return { word[1], V.PARKED_WAITING[p.waiting or "ci"] or tostring(p.waiting), word[3] }
+	end
+	return word
+end
 
 -- `GET /v1/merger` lists one merger per repository (`{repos: [{repo, alive, …snapshot}]}`).
 function V.merger_repos(state: any): { any }
@@ -718,13 +732,17 @@ function V.merger_actionables(state: any): { any }
 			})
 		end
 		for _, p in r.parked or {} do
-			local word = V.PARKED[p.kind or ""] or { p.kind or "—", "parked", "warning" }
+			local word = V.parked_word(p)
+			-- The PR's title; an older record has none: `PR #n`, never the report comment's URL.
+			local label = if type(p.title) == "string" and p.title ~= ""
+				then { ui.span("#" .. tostring(p.pr), "strong"), ui.span("  " .. fmt.cut(p.title, 70)) }
+				else { ui.span("PR #" .. tostring(p.pr), "strong") }
 			table.insert(out, {
 				id = "p" .. tostring(p.pr) .. "@" .. repo,
 				pr = p.pr,
 				repo = repo,
 				where = "parked",
-				label = { ui.span("#" .. tostring(p.pr), "strong"), ui.span("  " .. fmt.cut(p.comment or p.kind, 70)) },
+				label = label,
 				detail = { ui.span("  " .. repo .. " · " .. word[1], "muted") },
 				value = { ui.span(word[2], word[3]), ui.span(" · since " .. fmt.ago(p.parked_at), "muted") },
 				icon = "timer",

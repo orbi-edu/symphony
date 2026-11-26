@@ -4,6 +4,7 @@ back their preview devices. A Done ticket never does any of it."""
 
 from __future__ import annotations
 
+import json
 import os
 from types import SimpleNamespace
 
@@ -206,3 +207,63 @@ def test_ticket_states_are_read_once_a_minute(env):
     for _ in range(3):
         ticket_state(env.m, "ENG-7")
     assert calls == ["ENG-7"]
+
+
+def _linear(answers: list, **scope):
+    """A Linear tracker whose API answers every `issue(id:)` the way Linear does for an
+    identifier it does not know: an `INPUT_ERROR` "Entity not found", not `issue: null`."""
+    import httpx
+
+    from symphony.trackers.linear import LinearTracker
+
+    def handler(request):
+        answers.append(json.loads(request.content)["variables"])
+        return httpx.Response(200, json={"data": None, "errors": [{
+            "message": "Entity not found: Issue", "path": ["issue"],
+            "extensions": {"type": "invalid input", "code": "INPUT_ERROR", "statusCode": 400,
+                           "userError": True, "userPresentableMessage": "Could not find referenced Issue."}}]})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler), timeout=5.0)
+    return LinearTracker(api_key="lin_test", active_states=["Todo"], terminal_states=["Done", "Canceled"],
+                         client=client, **{"project_slug": "", **scope})
+
+
+@pytest.mark.parametrize("scope, asked", [
+    ({"project_slug": "web"}, [{"id": "WIDGET-5"}]),  # a project board: any key may be a ticket
+    ({"team_key": "ENG"}, []),  # a team's board: `widget-5` is no ENG ticket, nothing to ask
+])
+def test_a_branch_naming_a_key_linear_does_not_know_is_no_ticket(env, scope, asked):
+    """Regression: a person's branch `bob/widget-5-app-data` read as the ticket WIDGET-5, which
+    Linear answers with an error, not `issue: null`; the check raised, cached nothing, and
+    logged `merger_abandon_check_failed` every pass. It is no ticket: no log, nothing closed,
+    and Linear is asked at most once a minute."""
+    from structlog.testing import capture_logs
+
+    answers: list = []
+    env.m.tracker = _linear(answers, **scope)
+    env.world.commit("bob/widget-5-app-data", {"src/w.py": "W = 5\n"}, "feat: widget")
+    env.gh.open_pr(8, "bob/widget-5-app-data", "Store the app data", author="bob")
+    prs = [env.gh.pr(8)]
+    with capture_logs() as logs:
+        assert check_abandoned(env.m, prs) == []
+        assert check_abandoned(env.m, prs) == []
+    assert logs == [] and env.gh.prs[8]["state"] == "open" and env.gh.comments[8] == []
+    assert answers == asked
+    env.m.clock.ms += 60_001  # a minute later: asked again, still no ticket
+    assert check_abandoned(env.m, prs) == [] and answers == asked * 2
+
+
+def test_other_linear_errors_still_fail_the_lookup():
+    import httpx
+
+    from symphony.trackers.base import TrackerUnavailable
+    from symphony.trackers.linear import LinearTracker
+
+    def handler(request):
+        return httpx.Response(200, json={"data": None, "errors": [{
+            "message": "Argument Validation Error", "extensions": {"code": "INPUT_ERROR"}}]})
+
+    tracker = LinearTracker(api_key="k", project_slug="web", active_states=["Todo"], terminal_states=["Done"],
+                            client=httpx.Client(transport=httpx.MockTransport(handler)))
+    with pytest.raises(TrackerUnavailable, match="Argument Validation Error"):
+        tracker.state_of("ENG-1")

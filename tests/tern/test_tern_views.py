@@ -277,6 +277,32 @@ def test_dashboard_trends_without_data(render):
     assert child(page(out["loading"]), "trends")["k"] == "shimmer"
 
 
+def test_merger_parked_rows_say_what_they_wait_for_and_name_the_pr(render, redis_client):
+    """The rows come from the real `MergerStore.snapshot` (what `GET /v1/merger` serves). A
+    clean review whose CI passed waits for an approval and says so; the row names the PR by
+    its title, and an older record with no PR title by `PR #n`, never by the report's URL."""
+    from symphony.merger.store import MergerStore
+
+    store = MergerStore(redis_client, "tern-views", "acme/web")
+    url = "https://github.com/acme/web/pull/{}#issuecomment-1"
+    for pr, extra in ((818, {"waiting": "approval", "pr_title": "Show the delivery date"}),
+                      (819, {"waiting": "ci", "pr_title": "Fix the login redirect"}),
+                      (820, {})):  # parked before the PR title and `waiting` were recorded
+        store.park({"pr": pr, "head_sha": "a" * 40, "kind": "clean", "title": "**Waiting for CI**",
+                    "parked_at": 1_700_000_000_000 + pr, "comment": url.format(pr), **extra})
+    snap = store.snapshot()
+    assert [(p["pr"], p.get("title"), p["waiting"]) for p in snap["parked"]] == [
+        (818, "Show the delivery date", "approval"), (819, "Fix the login redirect", "ci"), (820, None, "ci")]
+    out = render({"m": {"view": "merger", "data": base_data(merger={"repos": [snap]})}})["m"]
+    rows = {"".join(s["t"] for s in it["p"]["label"]): "".join(s["t"] for s in it["p"]["value"])
+            for it in walk(out["main"]) if it.get("k") == "item"}
+    assert rows.keys() == {"#818  Show the delivery date", "#819  Fix the login redirect", "PR #820"}
+    assert rows["#818  Show the delivery date"].startswith("waiting for approval · since ")
+    assert rows["#819  Fix the login redirect"].startswith("waiting for CI · since ")
+    assert rows["PR #820"].startswith("waiting for CI · since ")
+    assert "issuecomment" not in json.dumps(out)
+
+
 def test_the_views_render_the_real_history_document(render, redis_client):
     """The documents `rollups.history` builds (the API's), not the fixture's: live bumps of a
     few sessions, a dispatch, a merged PR and an answered question."""
