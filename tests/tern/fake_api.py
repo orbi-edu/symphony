@@ -1025,7 +1025,7 @@ def make_handler(fake: Fake):
                 time.sleep(1.5)
                 st["repositories"], st["missing"] = list(INSTALLED_REPOS), []
                 return self._send(200, {"repositories": INSTALLED_REPOS, "missing_permissions": [],
-                                        "restarted": ["symphony-daemon", "symphony-merger-acme-web"]})
+                                        "restarted": ["symphony-daemon", "symphony-merger"]})
             if method == "PUT" and path == "/v1/setup/repositories":
                 repo = body.get("default_repo")
                 if repo is not None and repo not in INSTALLED_REPOS:
@@ -1072,7 +1072,7 @@ def make_handler(fake: Fake):
                     "linear": {"url": base + "/v1/webhooks/linear", "secret": hashlib.sha256(b"linear").hexdigest()},
                     "github": {"url": base + "/v1/webhooks/github", "secret": hashlib.sha256(b"github").hexdigest(),
                                "events": list(GITHUB_EVENTS)},
-                    "restarted": ["symphony-daemon", "symphony-merger-acme-web", "symphony-api"],
+                    "restarted": ["symphony-daemon", "symphony-merger", "symphony-api"],
                 })
             if method == "PUT" and path == "/v1/setup/assistant":
                 return self._assistant(body, st)

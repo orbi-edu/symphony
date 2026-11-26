@@ -2,7 +2,9 @@
 
 The `symphony` plugin brings Symphony into Tern. It shows what the agents are doing, opens a live
 chat with each session, and covers the merger and team administration (models, providers, tokens,
-MCP servers and skill sources). It is built and tested for Tern 0.8.3. The source is in
+MCP servers and skill sources). It is built and tested for Tern 0.8.3; `plugin.toml` declares no
+minimum Tern version. The screenshots on this page come from Tern 0.9.35, except **Offline** and
+the live chat on the real stack, which are from 0.8.3. The source is in
 [`tern-plugin/`](../tern-plugin).
 
 ## Install and sign in

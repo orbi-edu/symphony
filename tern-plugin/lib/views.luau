@@ -706,7 +706,7 @@ function V.parked_word(p: any): { string }
 	return word
 end
 
--- `GET /v1/merger` lists one merger per repository (`{repos: [{repo, alive, …snapshot}]}`).
+-- `GET /v1/merger` lists each repository the merger serves (`{repos: [{repo, alive, …snapshot}]}`).
 function V.merger_repos(state: any): { any }
 	local m = state.data.merger
 	return (type(m) == "table" and type(m.repos) == "table") and m.repos or {}
@@ -839,7 +839,7 @@ local function merger(state: any): Node
 			{ "In the train", n_span(n_train, "accent") },
 			{ "Queued", n_span(n_queue) },
 		}),
-		ui.section({ ui.span("Mergers", "strong"), ui.span("  one per repository", "muted") }, {
+		ui.section({ ui.span("Mergers", "strong"), ui.span("  one merger, a train per repository", "muted") }, {
 			h.data_table({
 				key = "t",
 				cols = {
