@@ -7,6 +7,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.26] - 2026-11-26
+
 ### Changed
 
 - The merger's PVC in `deploy/merger.yaml` is 40Gi (was 20Gi). Applying it grows a bound
