@@ -7,6 +7,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.28] - 2026-11-26
+
 ### Added
 
 - Inline review comments. After a review round posts its report, the merger submits one
