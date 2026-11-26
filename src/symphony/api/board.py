@@ -3,7 +3,7 @@
 Response shapes (timestamps: `*_at`/`*At` are ISO-8601 UTC strings ending in `Z`, except the
 token and session documents, which keep Redis epoch milliseconds):
 
-- `GET /v1/overview` (ETag, 304) → `{daemon:{alive, paused, heartbeat_at}, counts:{running,
+- `GET /v1/overview` (ETag, 304) → `{version, daemon:{alive, paused, heartbeat_at}, counts:{running,
   waiting_input, queued, retrying, in_review, merging, held, blocked_on_person}, tokens_today,
   cost_today,
   merger:{reviewing, train, parked} (summed over every repository's merger), config_generation,
@@ -12,6 +12,8 @@ token and session documents, which keep Redis epoch milliseconds):
   ("usage_limit"|"retry")}], held:[{issue_id, identifier|null, by, reason, at}]}`;
   `rate_limits` holds only observations from the last hour; held tickets are counted only
   under `held` (also those Symphony never tracked).
+  `version` is the Symphony release the API runs: the CLI and the Tern plugin update themselves
+  to it (docs/cli.md).
 - `GET /v1/issues` → `{items:[{issue_id, identifier, title, repo, status, phase ("held" when a
   person holds it), held:{by, reason, at}|null, blocked:{needs, reason, at}|null,
   tracker_state, attempt, seq, session_id, session_state, input_request, model, tokens, cost,
@@ -78,7 +80,7 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from .. import wake
+from .. import __version__, wake
 from ..admin_auth import Caller
 from ..admin_commands import CommandError, public_command
 from .auth import Authenticator
@@ -129,7 +131,7 @@ def build_router(control: Control, auth: Authenticator) -> APIRouter:
 
     @router.get("/overview")
     def overview(request: Request, _: Caller = viewer):
-        return json_with_etag(request, control.overview())
+        return json_with_etag(request, {"version": __version__, **control.overview()})
 
     @router.get("/issues")
     def issues(_: Caller = viewer):

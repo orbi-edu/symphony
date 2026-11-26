@@ -3,7 +3,8 @@
 
 It implements the subset of the real CLI's surface the plugin calls (ClientCli contract): `token
 print --json`, `login --url U --token - --json`, `api METHOD PATH [--header K:V]... [--data -|JSON]`,
-`say`, `answer`, `interrupt`, `tern install --json`, `omp sync --json`, `takeover`, `mcp viewer`, `admin mcp
+`say`, `answer`, `interrupt`, `tern install [--no-plugin|--plugin-only] --json`, `version --json`, `update --json`,
+`omp sync --json`, `takeover`, `mcp viewer`, `admin mcp
 list|set|remove|headers|test` and `setup` (`--status`, `tracker`, `github-app`, `repositories`,
 `notifications slack|discord|test`, `webhooks`, `assistant`; secrets on stdin as the real CLI reads them). The
 credential lives in `$SYMPHONY_STUB_HOME/creds.json` instead of the keychain, and every
@@ -14,12 +15,25 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
 
 HOME = os.environ.get("SYMPHONY_STUB_HOME", "/tmp/symphony-stub")
 CREDS = os.path.join(HOME, "creds.json")
+# The plugin's version; the stub CLI is that version until `update` moves it to the server's.
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tern-plugin", "plugin.toml"),
+          encoding="utf-8") as _fh:
+    PLUGIN_VERSION = re.search(r'^version = "([^"]+)"', _fh.read(), re.M).group(1)
+
+
+def cli_version() -> str:
+    try:
+        with open(os.path.join(HOME, "cli_version"), encoding="utf-8") as fh:
+            return fh.read().strip()
+    except FileNotFoundError:
+        return PLUGIN_VERSION
 
 
 def out(doc) -> None:
@@ -279,11 +293,25 @@ def main(argv: list[str]) -> None:
     elif args[:1] == ["interrupt"]:
         reason = flag(args, "--reason", "interrupted from Tern")
         out(api("POST", f"/v1/sessions/{args[1]}/interrupt", {"reason": reason}))
+    elif cmd == ["tern", "install"] and "--plugin-only" in args:
+        out({"plugin": {"source": "tern-plugin", "version": cli_version(), "status": "installed", "result": {}}})
     elif cmd == ["tern", "install"]:
         # Same shape as `symphony.cli.local.tern_install`.
         out({"settings": "~/Library/Application Support/Tern/settings.json", "agent": "added",
              "mcp": "added", "command": ["/usr/local/bin/symphony", "acp"],
              "plugin": None if "--no-plugin" in args else {"source": "tern-plugin", "result": {}}})
+    elif args[:1] == ["version"]:
+        # Same shape as `symphony.cli.selfupdate.report`: a `uv tool` install of this checkout's version.
+        out({"cli": cli_version(), "plugin_installed": PLUGIN_VERSION, "server": None, "install": "tool",
+             "source": None, "command": None, "server_error": None})
+    elif args[:1] == ["update"]:
+        # Same shape as `symphony.cli.selfupdate.update`: the CLI moves to the server's version; the
+        # plugin is left to the panel (`tern install --plugin-only`).
+        old, target = cli_version(), api("GET", "/v1/overview")["version"]
+        with open(os.path.join(HOME, "cli_version"), "w", encoding="utf-8") as fh:
+            fh.write(target)
+        out({"cli": old, "server": target, "install": "tool", "source": None, "status": "updated",
+             "command": f"uv tool install --force git+https://example.com/symphony@v{target}", "plugin": None})
     elif cmd == ["omp", "sync"]:
         cfg = api("GET", "/v1/admin/config")
         # Same shape as `symphony.cli.local.omp_sync`, with an omp older than the team's.

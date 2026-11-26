@@ -5,6 +5,7 @@
 !README.md
 !WORKFLOW.md
 !src/
+!tern-plugin/
 !docker/install-omp.sh
 !docker/install-omp-catalog.sh
 **/__pycache__

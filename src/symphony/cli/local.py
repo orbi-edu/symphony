@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import time
+import tomllib
 from pathlib import Path
 
 from ruamel.yaml import YAML
@@ -20,6 +21,9 @@ OMP_PROFILE = "symphony"
 TERN_AGENT_ID = "symphony"
 MCP_NAME = "symphony"
 REPO_ROOT = Path(__file__).resolve().parents[3]
+# The plugin the wheel carries (pyproject.toml `force-include`): every install has the plugin of
+# its own version.
+PACKAGED_PLUGIN = Path(__file__).resolve().parents[1] / "tern_plugin"
 
 
 class LocalError(Exception):
@@ -150,7 +154,7 @@ def _upsert(items: list, key: str, value: str, entry: dict) -> str:
     return "added"
 
 
-def tern_install(cred: creds.Credential, *, plugin_dir: str | None, install_plugin: bool) -> dict:
+def tern_install(cred: creds.Credential, *, plugin_dir: str | None, with_plugin: bool) -> dict:
     path = tern_settings_path()
     try:
         doc = json.loads(path.read_text()) if path.exists() and path.read_text().strip() else {}
@@ -181,25 +185,63 @@ def tern_install(cred: creds.Credential, *, plugin_dir: str | None, install_plug
     os.chmod(path, 0o600)
     result = {"settings": str(path), "agent": agent, "mcp": server,
               "command": [command, *args], "plugin": None}
-    if install_plugin:
-        result["plugin"] = _install_plugin(Path(plugin_dir) if plugin_dir else None)
+    if with_plugin:
+        result["plugin"] = install_tern_plugin(Path(plugin_dir) if plugin_dir else None)
     return result
 
 
-def _install_plugin(source: Path | None) -> dict:
+def plugin_source() -> Path | None:
+    """The plugin of this CLI: a source checkout's `<repo>/tern-plugin` (the one being edited),
+    else the copy in the package."""
+    for source in (REPO_ROOT / "tern-plugin", PACKAGED_PLUGIN):
+        if (source / "plugin.toml").is_file():
+            return source
+    return None
+
+
+def plugin_version(source: Path) -> str | None:
+    try:
+        return tomllib.loads((source / "plugin.toml").read_text()).get("version")
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+
+
+def tern_plugin_version() -> str | None:
+    """The version of the Symphony plugin Tern has (`tern plugin list --json`), or None when
+    Tern or the plugin is missing."""
+    tern = shutil.which("tern")
+    if not tern:
+        return None
+    try:
+        out = subprocess.run([tern, "plugin", "list", "--json"], capture_output=True, text=True,
+                             timeout=30)
+        doc = json.loads(out.stdout)
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return None
+    plugins = doc.get("plugins") if isinstance(doc, dict) else None
+    for plugin in plugins if isinstance(plugins, list) else []:
+        if isinstance(plugin, dict) and plugin.get("id") == "symphony":
+            return plugin.get("version")
+    return None
+
+
+def install_tern_plugin(source: Path | None) -> dict:
+    """`tern plugin install SOURCE --force`. Without `source`, the plugin of this CLI
+    (`plugin_source`), and nothing happens when Tern already has that version: a reinstall
+    reloads the plugin, the panel that may be running this command included."""
+    explicit = source is not None
+    source = source or plugin_source()
     if source is None:
-        # Only a source checkout (`uv tool install --editable .`) has the plugin next to the CLI;
-        # a regular install has only the Python package.
-        source = REPO_ROOT / "tern-plugin"
-        if not (source / "plugin.toml").is_file():
-            raise LocalError("This symphony install has no Tern plugin source (it is not a source "
-                             "checkout). Use --plugin DIR, or --no-plugin if the plugin is already "
-                             "installed in Tern.")
+        raise LocalError("This symphony install has no Tern plugin. Use --plugin DIR, or "
+                         "--no-plugin if the plugin is already installed in Tern.")
     if not (source / "plugin.toml").is_file():
         raise LocalError(f"The Tern plugin was not found in {source}. Use --plugin DIR.")
     tern = shutil.which("tern")
     if not tern:
         raise LocalError("The `tern` command is not on PATH. Install Tern or use --no-plugin.")
+    version = plugin_version(source)
+    if not explicit and version is not None and tern_plugin_version() == version:
+        return {"source": str(source), "version": version, "status": "unchanged", "result": {}}
     out = subprocess.run([tern, "plugin", "install", str(source), "--force", "--json"],
                          capture_output=True, text=True, timeout=60)
     if out.returncode != 0:
@@ -208,7 +250,7 @@ def _install_plugin(source: Path | None) -> dict:
         detail = json.loads(out.stdout) if out.stdout.strip() else {}
     except ValueError:
         detail = {"output": out.stdout.strip()}
-    return {"source": str(source), "result": detail}
+    return {"source": str(source), "version": version, "status": "installed", "result": detail}
 
 
 # -- takeover ----------------------------------------------------------------

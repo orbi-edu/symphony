@@ -701,7 +701,11 @@ You can also make tokens in Tern: **Symphony: Admin › Tokens › Create token*
 
 ## 16. Connect Tern (each person)
 
-1. Install the CLI from a clone of this repository:
+1. Install the CLI of the release your server runs. Replace `<owner>` with the GitHub owner of this repository and `<version>` with that release (`symphony version` shows the server's after the login):
+   ```sh
+   uv tool install git+https://github.com/<owner>/symphony@v<version>
+   ```
+   This install updates itself to the server's version ([cli.md](cli.md#symphony-update-and-symphony-version)). To work on Symphony itself, install it from a clone instead; a clone is never updated for you, `symphony update` prints the command:
    ```sh
    git clone <repository URL> symphony
    cd symphony
@@ -718,9 +722,9 @@ You can also make tokens in Tern: **Symphony: Admin › Tokens › Create token*
    The command adds these entries to Tern's `settings.json`, and keeps the other settings:
    - the ACP agent `symphony` (`symphony acp`), so live sessions open as a native chat;
    - the MCP server `symphony` at `<url>/mcp`, with your token as a literal `Authorization: Bearer` header;
-   - the Tern plugin from `tern-plugin/` (through `tern plugin install`).
+   - the Tern plugin of the same version as the CLI (through `tern plugin install`): the copy the CLI carries, or `tern-plugin/` of the clone. Nothing is installed when Tern already has that version.
 
-   The command sets the mode of `settings.json` to `0600`, because the file now holds your token. Use `--plugin DIR` for another plugin directory. Use `--no-plugin` to skip the plugin.
+   The command sets the mode of `settings.json` to `0600`, because the file now holds your token. Use `--plugin DIR` for another plugin directory. Use `--no-plugin` to skip the plugin. The Symphony panel then keeps the plugin and the CLI at the server's version ([tern.md](tern.md#updates)).
 4. Optional: apply the team's `omp` settings and the developer model to your own `omp`, in a separate profile `symphony`. In Tern, **Symphony: Admin › Team omp › Apply to my omp** does the same.
    ```sh
    symphony omp sync

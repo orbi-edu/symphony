@@ -664,17 +664,18 @@ def test_tern_install_creates_settings_from_scratch(home, keychain, fake_api, ca
     assert [a["id"] for a in doc["agents"]["custom"]] == ["symphony"]
 
 
-def test_tern_install_without_a_plugin_source_names_the_options(home, keychain, fake_api, capsys,
-                                                                 tmp_path, monkeypatch):
-    # A regular (non-editable) install: no tern-plugin/ next to the package.
+def test_tern_install_without_a_plugin_names_the_options(home, keychain, fake_api, capsys,
+                                                         tmp_path, monkeypatch):
+    # No checkout next to the package, and a package without its plugin.
     from symphony.cli import local
     monkeypatch.setattr(local, "REPO_ROOT", tmp_path / "site-packages")
+    monkeypatch.setattr(local, "PACKAGED_PLUGIN", tmp_path / "site-packages" / "symphony" / "tern_plugin")
     login(capsys, fake_api)
     code, out, _ = run(capsys, "tern", "install", "--json")
     assert code == 1
     error = json.loads(out)["error"]
     assert error["code"] == "local_error"
-    assert "no Tern plugin source" in error["message"]
+    assert "has no Tern plugin" in error["message"]
     assert "--plugin DIR" in error["message"] and "--no-plugin" in error["message"]
     assert "site-packages" not in error["message"]
 

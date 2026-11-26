@@ -43,13 +43,16 @@ def tern_binary() -> str | None:
 
 class Harness:
     def __init__(
-        self, *, state: str = "team", logged_in: bool = True, role: str = "admin", size: str = "1440 960"
+        self, *, state: str = "team", logged_in: bool = True, role: str = "admin", size: str = "1440 960",
+        server_version: str | None = None,
     ) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="symtern-", dir="/tmp"))
         self.state = state
         self.logged_in = logged_in
         self.role = role
         self.size = size
+        # The `version` the fake API's overview reports (default: this checkout's, as the stub CLI's).
+        self.server_version = server_version
         self.sock = self.tmp / "ctl.sock"
         self.out = self.tmp / "out"
         self.stub_home = self.tmp / "stub"
@@ -119,9 +122,10 @@ class Harness:
     def start_backend(self, env: dict) -> None:
         """The fake API and the stub CLI; `env` is what `tern serve` (and so the plugin) gets."""
         ready = self.tmp / "api.url"
+        extra = ["--server-version", self.server_version] if self.server_version else []
         self.api = subprocess.Popen(
             [str(REPO / ".venv" / "bin" / "python"), str(HERE / "fake_api.py"), "--port", "0", "--log", str(self.writes),
-             "--ready", str(ready), "--state", self.state, "--redis-url", self.start_redis()],
+             "--ready", str(ready), "--state", self.state, "--redis-url", self.start_redis(), *extra],
             stdout=(self.tmp / "api.log").open("w"), stderr=subprocess.STDOUT,
         )
         deadline = time.monotonic() + 10

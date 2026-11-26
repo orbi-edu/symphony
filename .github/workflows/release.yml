@@ -13,14 +13,16 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
-      - name: check the tag against pyproject.toml
+      - name: check the tag against pyproject.toml and the Tern plugin
         run: |
           version="${GITHUB_REF_NAME#v}"
-          project=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
-          if [ "$version" != "$project" ]; then
-            echo "tag $GITHUB_REF_NAME does not match pyproject.toml version $project" >&2
-            exit 1
-          fi
+          for file in pyproject.toml tern-plugin/plugin.toml; do
+            found=$(python3 -c 'import sys, tomllib; d = tomllib.load(open(sys.argv[1], "rb")); print(d.get("project", d)["version"])' "$file")
+            if [ "$version" != "$found" ]; then
+              echo "tag $GITHUB_REF_NAME does not match $file version $found" >&2
+              exit 1
+            fi
+          done
       - name: release notes
         run: .github/scripts/release_notes.sh "${GITHUB_REF_NAME#v}" > "$RUNNER_TEMP/notes.md"
       - name: create the release

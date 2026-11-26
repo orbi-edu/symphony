@@ -329,7 +329,9 @@ If a consumer does not report the new generation (`symphony admin config observe
 | The plugin shows **Sign in** or **disconnected** | Run `symphony whoami`. If it fails, run `symphony login` again. The plugin reads the token from `symphony token print`. |
 | `symphony tern install` says that `settings.json` is not valid JSON | Fix the file. The command changes nothing until the file is valid. |
 | `The tern command is not on PATH` | Install Tern, or use `--no-plugin`. |
-| `This symphony install has no Tern plugin source` or `The Tern plugin was not found in ...` | If the plugin is already in Tern, use `--no-plugin`. Otherwise use `--plugin <clone>/tern-plugin`, or install the CLI from a clone with `uv tool install --editable .`. |
+| `This symphony install has no Tern plugin` or `The Tern plugin was not found in ...` | Every install carries its plugin, so this CLI's package lacks it (an install from a build without `tern-plugin/`). Reinstall the CLI with `uv tool install --force git+https://github.com/<owner>/symphony@v<version>`, use `--plugin <clone>/tern-plugin`, or `--no-plugin` when the plugin is already in Tern. |
+| `symphony update` says `This … install does not update itself` | The CLI runs from a clone (`editable`) or was not installed with `uv tool`. Run the command it prints. A clone is never changed for you. |
+| `symphony update` fails with `update_failed` | The old CLI still works. Read the `uv` error it prints (or `~/.cache/symphony/update.log` for the automatic update): often the tag `v<version>` is missing from the repository the CLI was installed from, or there is no network. |
 | The plugin says Tern could not find the symphony CLI | Install the CLI with `uv tool install`, or set `SYMPHONY_BIN` to its full path and restart Tern. A running Tern does not see variables set after it started. |
 | The plugin says Tern could not run `SYMPHONY_BIN` | The path in `SYMPHONY_BIN` does not exist or is not executable. Fix it where Tern's daemon reads it, and restart Tern. |
 | `omp was not found` | Install `omp` through Tern, or set `SYMPHONY_OMP`. |

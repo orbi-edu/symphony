@@ -15,8 +15,9 @@ the live chat on the real stack, which are from 0.8.3. The source is in
    operator`). The token is masked. `symphony login` stores it in the keychain. Tern never stores
    it.
 3. On the same screen, **Install in Tern** runs `symphony tern install --no-plugin`. It adds the
-   "Symphony" ACP agent (live chat) and the Symphony MCP server for your omp. The plugin is
-   already installed, so the step does not install it again. Running it again changes nothing.
+   "Symphony" ACP agent (live chat) and the Symphony MCP server for your omp. It does not
+   install the plugin: that would reload the plugin that draws the screen. The panel brings the
+   plugin to the CLI's version by itself ([Updates](#updates)). Running it again changes nothing.
 
 | Sign in | Ready |
 |---|---|
@@ -30,6 +31,27 @@ When you are not signed in, the panel and the status line show the next step (**
 > for `symphony` in `$UV_TOOL_BIN_DIR`, `$XDG_BIN_HOME`, `~/.local/bin` (`uv tool install`,
 > pipx), `/opt/homebrew/bin` and `/usr/local/bin`, after Tern's own `PATH`. For a CLI elsewhere,
 > set `SYMPHONY_BIN` to its full path where Tern's daemon reads it, and restart Tern.
+
+## Updates
+
+The plugin, the CLI and the server have one version per release (`version` in `plugin.toml`
+equals the one in `pyproject.toml`), and the target is the version the server runs (`version` in
+`GET /v1/overview`). The panel compares its own version (from its `plugin.toml`) with the
+server's on each overview. When it is behind, it runs `symphony version --json` once per Tern
+session for the CLI's version and kind of install. Then:
+
+| Case | What the panel does |
+|---|---|
+| The CLI is older than the server (`uv tool` install) | Runs `symphony update --json` in the background and shows **Updating Symphony to 0.2.28…**, then **Updated Symphony to 0.2.28; reloading**. The new CLI installs its plugin, and Tern reloads the plugin |
+| The plugin is older than the CLI | Runs `symphony tern install --plugin-only --json`, which installs the plugin the CLI carries. Tern reloads the plugin after an install. If Tern already had that version, the panel asks you to reopen it |
+| The CLI runs from a clone, or another kind of install | A line in the panel's footer with the command to run (`git -C <clone> pull && uv tool install --editable <clone>`, or `symphony tern install --plugin-only`). No automatic action |
+
+After the reload the new plugin says **Symphony updated to 0.2.28**. Each target is tried once:
+the attempt is kept in the plugin's `tern.kv` for 6 hours, so a reload never starts the same
+update again. A failure shows its error once, and the old CLI and plugin keep working. A CLI
+without `symphony version` (older than this feature) or a server that does not report its
+version starts nothing. The CLI's own check after a command ([cli.md](cli.md#symphony-update-and-symphony-version))
+does not run for the commands the plugin starts: the plugin updates by itself.
 
 ## Commands and shortcuts
 
@@ -449,6 +471,7 @@ uv run pytest tests/tern/test_tern_real_stack.py  # the real stack: Redis, API, 
 uv run python tests/tern/scenarios.py             # regenerates the docs/tern screenshots (light and dark)
 uv run pytest tests/tern/test_tern_views.py       # the Telemetry and Dashboard charts' node shapes (needs luau)
 uv run pytest tests/tern/test_tern_signin.py      # Install in Tern finds the CLI off Tern's PATH (needs luau)
+uv run pytest tests/tern/test_tern_self_update.py # the self-update decisions and their commands (needs luau)
 ```
 
 The first three start `tern serve` with an isolated `TERN_CONFIG_DIR` and the plugin loaded as a fixture
@@ -478,5 +501,13 @@ runs `tern install --no-plugin --json`, that a CLI on Tern's PATH wins, that `SY
 wins over both, and that no CLI at all exits 127 (`cli_missing`). `tests/tern/cli_missing.luau`
 checks the error text for a CLI that does not start: the lookup's directories without
 `SYMPHONY_BIN`, and only the configured path with it.
+
+`test_tern_self_update.py` runs `lib/update.luau` with the same stub (`tests/tern/self_update.luau`),
+which keeps `plugin.toml` and `tern.kv` in memory and answers each CLI command the module starts as
+Tern would. It checks the version order, each decision (an older CLI, an older plugin, a clone, a
+target already tried, before and after a reload), that a failure is shown once and not retried, and
+that a CLI without `symphony version` starts nothing. In `test_tern_plugin.py`, the fake API can
+report a newer server (`Harness(server_version=…)`), and the test CLI then answers `version`,
+`update` and `tern install --plugin-only`.
 
 ![Live chat on the real stack](tern/real-chat-light.png)

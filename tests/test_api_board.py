@@ -15,7 +15,7 @@ from tests.api_support import (
     tokens_for,
 )
 
-from symphony import state, wake
+from symphony import __version__, state, wake
 from symphony.admin_workflow import WorkflowError
 
 
@@ -55,6 +55,7 @@ def test_overview_counts_tokens_and_etag(api, redis_client):
     assert body["tokens_today"] == 20 and body["cost_today"] == 0.75
     assert body["merger"] == {"reviewing": 1, "train": 0, "parked": 2}
     assert body["config_generation"] == 0
+    assert body["version"] == __version__
     etag = response.headers["ETag"]
     cached = client.get("/v1/overview", headers=headers | {"If-None-Match": etag})
     assert cached.status_code == 304

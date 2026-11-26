@@ -809,3 +809,37 @@ def test_repo_non_admin_cannot_save():
         assert "Save" not in h.text()
         assert "Cancel" not in h.text()
         no_errors(h)
+
+
+def wait_call(h: Harness, argv: list[str], timeout: float = 20) -> None:
+    """Waits for the plugin to run `symphony ARGV`, without asking Tern anything meanwhile: a
+    headless Tern answering `ctl` requests back to back can hold back the panel's poll timer."""
+    deadline = time.monotonic() + timeout
+    while argv not in h.calls():
+        assert time.monotonic() < deadline, f"no {argv}; calls: {h.calls()}"
+        time.sleep(0.2)
+
+
+def test_the_panel_updates_an_older_cli_then_its_own_plugin():
+    # The server runs a newer release than the CLI (a `uv tool` install) and this plugin.
+    with Harness(server_version="99.0.0") as h:
+        h.run("plugin.symphony.dashboard")
+        wait_call(h, ["update", "--json"])
+        wait_call(h, ["tern", "install", "--plugin-only", "--json"])
+        h.wait_text("Updated the Symphony plugin to 99.0.0; reloading", "sf-dock")
+        assert h.calls().index(["version", "--json"]) < h.calls().index(["update", "--json"])
+        time.sleep(4.5)  # two more overviews: each target is tried once
+        calls = h.calls()
+        assert calls.count(["update", "--json"]) == 1
+        assert calls.count(["tern", "install", "--plugin-only", "--json"]) == 1
+        no_errors(h)
+
+
+def test_a_plugin_as_new_as_the_server_starts_no_update():
+    with Harness() as h:
+        h.run("plugin.symphony.dashboard")
+        h.wait_text("Needs input")
+        time.sleep(4.5)
+        calls = h.calls()
+        assert not any(c[:1] in (["version"], ["update"]) or c[:2] == ["tern", "install"] for c in calls)
+        no_errors(h)
