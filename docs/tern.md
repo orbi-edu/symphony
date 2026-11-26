@@ -449,6 +449,8 @@ bucketed like the API.
 sign-in block's install step (`tests/tern/signin_install.luau`), then runs the recorded argv with
 launchd's PATH and a fake CLI in `~/.local/bin` or `$UV_TOOL_BIN_DIR`. It checks that the step
 runs `tern install --no-plugin --json`, that a CLI on Tern's PATH wins, that `SYMPHONY_BIN`
-wins over both, and that no CLI at all exits 127 (`cli_missing`).
+wins over both, and that no CLI at all exits 127 (`cli_missing`). `tests/tern/cli_missing.luau`
+checks the error text for a CLI that does not start: the lookup's directories without
+`SYMPHONY_BIN`, and only the configured path with it.
 
 ![Live chat on the real stack](tern/real-chat-light.png)

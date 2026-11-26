@@ -12,7 +12,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Tern sign-in works with a CLI installed by `uv tool install` (or pipx, or Homebrew) in a
   Tern started from the Dock. Without `SYMPHONY_BIN`, the plugin looks for `symphony` on the
   daemon's PATH, then in `$UV_TOOL_BIN_DIR`, `$XDG_BIN_HOME`, `~/.local/bin`,
-  `/opt/homebrew/bin` and `/usr/local/bin`. `SYMPHONY_BIN` still wins.
+  `/opt/homebrew/bin` and `/usr/local/bin`. `SYMPHONY_BIN` still wins. When the CLI does not
+  start, the error lists those directories, or names the `SYMPHONY_BIN` path when one is set.
 - **Install in Tern** runs `symphony tern install --no-plugin`: it adds the ACP agent and the
   MCP server and does not reinstall the plugin that draws the panel. Before, it failed on an
   install without a source checkout.

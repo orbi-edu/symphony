@@ -1,9 +1,10 @@
-"""The sign-in block's "Install in Tern" step, run outside Tern.
+"""The sign-in block's "Install in Tern" step and the missing-CLI error, run outside Tern.
 
 `signin_install.luau` presses Enter on the block's install step under the `luau` CLI, with the
 plugin's modules copied next to a stub of the `tern` global (`tern_stub.luau`) that records each
 spawn. The test then runs the recorded argv as Tern's daemon would, with the daemon's PATH, and a
-fake CLI where `uv tool install` puts the real one. Skipped when `luau` is not installed.
+fake CLI where `uv tool install` puts the real one. `cli_missing.luau` shows the error text for a
+CLI that cannot start. Skipped when `luau` is not installed.
 """
 
 from __future__ import annotations
@@ -15,8 +16,6 @@ from pathlib import Path
 
 import pytest
 
-HERE = Path(__file__).resolve().parent
-LIB = HERE.parent.parent / "tern-plugin" / "lib"
 # launchd's PATH: what a Tern started from the Dock gets, without the login shell's additions.
 DAEMON_PATH = "/usr/bin:/bin:/usr/sbin:/sbin"
 INSTALL = ["tern", "install", "--no-plugin", "--json"]
@@ -25,21 +24,22 @@ pytestmark = pytest.mark.skipif(shutil.which("luau") is None, reason="the luau C
 
 
 @pytest.fixture(scope="module")
-def runner(tmp_path_factory) -> Path:
-    root = tmp_path_factory.mktemp("signin")
-    (root / "lib").mkdir()
-    for src in LIB.glob("*.luau"):
-        first, _, rest = src.read_text().partition("\n")
-        (root / "lib" / src.name).write_text(f'{first}\nlocal tern = require("./tern_stub")\n{rest}')
-    shutil.copyfile(HERE / "tern_stub.luau", root / "lib" / "tern_stub.luau")
-    shutil.copyfile(HERE / "signin_install.luau", root / "signin_install.luau")
-    return root / "signin_install.luau"
+def runner(luau_plugin) -> Path:
+    return luau_plugin("signin", "signin_install.luau")
+
+
+@pytest.fixture(scope="module")
+def missing(luau_plugin) -> Path:
+    return luau_plugin("missing", "cli_missing.luau")
+
+
+def env_literal(getenv: dict[str, str]) -> str:
+    return "{" + ",".join(f"[{json.dumps(k)}]={json.dumps(v)}" for k, v in getenv.items()) + "}"
 
 
 def spawned_argv(runner: Path, getenv: dict[str, str]) -> list[str]:
     """The argv the block hands to `tern.process.run` when `tern.getenv` returns `getenv`."""
-    literal = "{" + ",".join(f"[{json.dumps(k)}]={json.dumps(v)}" for k, v in getenv.items()) + "}"
-    proc = subprocess.run(["luau", str(runner), "-a", literal], capture_output=True, text=True,
+    proc = subprocess.run(["luau", str(runner), "-a", env_literal(getenv)], capture_output=True, text=True,
                           timeout=60, check=False)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     return json.loads(proc.stdout)
@@ -120,3 +120,20 @@ def test_install_without_any_cli_exits_127(runner, tmp_path):
     home.mkdir()
     proc = daemon_run(spawned_argv(runner, {"HOME": str(home)}), HOME=str(home))
     assert proc.returncode == 127
+
+
+@pytest.mark.parametrize("how", ["exit127", "throws"])
+def test_missing_cli_error_names_what_tern_tried(missing, how):
+    def shown(getenv: dict[str, str]) -> str:
+        proc = subprocess.run(["luau", str(missing), "-a", env_literal(getenv), how], capture_output=True,
+                              text=True, timeout=60, check=False)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        return proc.stdout.strip()
+
+    # Without SYMPHONY_BIN: the directories the lookup searched, and how to name the CLI instead.
+    lookup = shown({"HOME": "/home/alice"})
+    assert "$UV_TOOL_BIN_DIR" in lookup and "~/.local/bin" in lookup and "set SYMPHONY_BIN" in lookup
+    # An explicit SYMPHONY_BIN skips the lookup: the error names that path, not the directories.
+    explicit = shown({"HOME": "/home/alice", "SYMPHONY_BIN": "/opt/acme/symphony"})
+    assert "/opt/acme/symphony" in explicit
+    assert "~/.local/bin" not in explicit and "set SYMPHONY_BIN" not in explicit

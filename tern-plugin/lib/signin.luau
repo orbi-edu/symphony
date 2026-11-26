@@ -229,7 +229,7 @@ M.def = {
 		end)
 		if not ok then
 			state.step = "form"
-			state.error = cli.MISSING.message
+			state.error = cli.missing().message
 		end
 		return state
 	end,

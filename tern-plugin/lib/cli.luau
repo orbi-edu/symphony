@@ -37,10 +37,22 @@ function M.argv(args: { string }): { string }
 	return argv
 end
 
-M.MISSING = {
-	code = "cli_missing",
-	message = "Tern could not find the symphony CLI on its PATH or in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin. Install the Symphony CLI, or set SYMPHONY_BIN to its full path and restart Tern.",
-}
+local LOOKUP_MISSING = "Tern could not find the symphony CLI on its PATH or in $UV_TOOL_BIN_DIR, $XDG_BIN_HOME, "
+	.. "~/.local/bin, /opt/homebrew/bin or /usr/local/bin. Install the Symphony CLI, or set SYMPHONY_BIN to its "
+	.. "full path and restart Tern."
+
+-- The `cli_missing` error. An explicit `SYMPHONY_BIN` skips the lookup, so its message names that
+-- path instead of the directories the lookup searches.
+function M.missing(): CliError
+	local b = explicit()
+	if b then
+		return {
+			code = "cli_missing",
+			message = "Tern could not run SYMPHONY_BIN (" .. b .. "). Fix the path and restart Tern.",
+		}
+	end
+	return { code = "cli_missing", message = LOOKUP_MISSING }
+end
 
 local function trim(s: string): string
 	return string.match(s, "^%s*(.-)%s*$") or ""
@@ -89,7 +101,7 @@ function M.run(
 		elseif type(data) == "table" and type(data.error) == "table" then
 			err = { code = tostring(data.error.code or "error"), message = tostring(data.error.message or "") }
 		elseif r.status == 127 then
-			err = M.MISSING
+			err = M.missing()
 		else
 			local text = trim(if r.stderr ~= "" then r.stderr else r.stdout)
 			err = { code = "cli_failed", message = if text ~= "" then text else "The CLI exited with status " .. r.status }
@@ -100,7 +112,7 @@ function M.run(
 	end)
 	if not ok then
 		tern.log.warn("symphony CLI spawn failed", spawn_err)
-		return false, M.MISSING
+		return false, M.missing()
 	end
 	return true, nil
 end
@@ -133,7 +145,7 @@ end
 -- field list of an `invalid_request`, which names fields, not prose.
 local KNOWN = {
 	not_logged_in = "You are not signed in to Symphony yet.",
-	cli_missing = M.MISSING.message,
+	cli_missing = LOOKUP_MISSING,
 	cli_failed = "The symphony CLI failed.",
 	timeout = "Symphony did not respond in time.",
 	unreachable = "Could not reach Symphony.",
@@ -198,6 +210,10 @@ function M.describe(err: CliError?): string
 	if err.code == "cli_failed" and err.message ~= "" then
 		-- The CLI's own failures are already English.
 		return "The symphony CLI failed: " .. err.message
+	end
+	if err.code == "cli_missing" and err.message ~= "" then
+		-- `M.missing` says whether the lookup or an explicit SYMPHONY_BIN failed.
+		return err.message
 	end
 	if err.code == "invalid_request" then
 		local fields = string.match(err.message or "", "^invalid request:%s*(.+)$")

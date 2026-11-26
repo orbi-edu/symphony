@@ -331,6 +331,7 @@ If a consumer does not report the new generation (`symphony admin config observe
 | `The tern command is not on PATH` | Install Tern, or use `--no-plugin`. |
 | `This symphony install has no Tern plugin source` or `The Tern plugin was not found in ...` | If the plugin is already in Tern, use `--no-plugin`. Otherwise use `--plugin <clone>/tern-plugin`, or install the CLI from a clone with `uv tool install --editable .`. |
 | The plugin says Tern could not find the symphony CLI | Install the CLI with `uv tool install`, or set `SYMPHONY_BIN` to its full path and restart Tern. A running Tern does not see variables set after it started. |
+| The plugin says Tern could not run `SYMPHONY_BIN` | The path in `SYMPHONY_BIN` does not exist or is not executable. Fix it where Tern's daemon reads it, and restart Tern. |
 | `omp was not found` | Install `omp` through Tern, or set `SYMPHONY_OMP`. |
 | The MCP server answers 401 after a token change | Run `symphony tern install` again. The MCP entry holds the token. |
 | A message in the chat has no effect | The token role must be `operator`. The session must be running or waiting. |
