@@ -243,7 +243,7 @@ local function model_provider(m: any): string
 	return if type(m) == "string" then string.match(m, "^([^/]+)/") or "—" else "—"
 end
 
--- The tracked issue behind a session, for `held` (internals §12).
+-- The tracked issue behind a session, for `held` (internals §12) and its assignee.
 function V.issue_of(state: any, s: any): any
 	local doc = state.data.issues
 	for _, it in (doc and doc.items) or {} do
@@ -252,6 +252,12 @@ function V.issue_of(state: any, s: any): any
 		end
 	end
 	return nil
+end
+
+-- A ticket's assignee (`GET /v1/issues` `assignee: {name, login?}`, null when none).
+function V.assignee_cell(it: any): Spans
+	local who = type(it) == "table" and type(it.assignee) == "table" and it.assignee.name or nil
+	return if type(who) == "string" then { ui.span(who) } else { ui.span("—", "dim") }
 end
 
 -- The devices a session holds through an MCP server with a lease cleanup (Seiji): session
@@ -323,6 +329,10 @@ local function session_detail(state: any, s: any): Node
 		{ "State", { ui.span(word, tone) } },
 		{ "Kind", fmt.KIND[s.kind or "implement"] or (s.kind or "—") },
 	}
+	local issue = if s.kind == nil or s.kind == "implement" or s.kind == "answer" then V.issue_of(state, s) else nil
+	if issue then
+		table.insert(facts, { "Assignee", V.assignee_cell(issue) })
+	end
 	if s.kind == "assist" then
 		local dm = type(s.identifier) == "string" and string.find(s.identifier, " DM$") ~= nil
 		table.insert(facts, { "Role", fmt.role_info(tostring(s.role or "assistant"))[1] })
@@ -610,6 +620,7 @@ local function tickets(state: any): Node
 				title = fmt.cut(it.title, 90),
 				phase = { ui.span(word, tone) },
 				tracker = { ui.span(it.tracker_state or "—", "muted") },
+				assignee = V.assignee_cell(it),
 				attempt = { ui.span(tostring(it.attempt or it.seq or "—"), "mono") },
 				cost = { ui.span(fmt.money(cost), "mono") },
 				pr = pr,
@@ -624,6 +635,7 @@ local function tickets(state: any): Node
 			{ id = "title", head = "Title", grow = 1, priority = 10 },
 			{ id = "phase", head = "In Symphony", priority = 7 },
 			{ id = "tracker", head = "On the board", priority = 5 },
+			{ id = "assignee", head = "Assignee", priority = 5 },
 			{ id = "attempt", head = "Attempt", align = "end", mono = true, priority = 3 },
 			{ id = "cost", head = "Cost", align = "end", mono = true, priority = 4 },
 			{ id = "pr", head = "PR", mono = true, priority = 6 },
@@ -706,6 +718,62 @@ function V.parked_word(p: any): { string }
 	return word
 end
 
+-- Reviewer states (`approval.reviewer_states` in merger/approval.py): {word, tone}.
+V.REVIEWER_STATE = {
+	approved = { "✓", "success" },
+	changes_requested = { "changes requested", "error" },
+	requested = { "requested", "pending" },
+	commented = { "commented", "muted" },
+}
+
+-- Span groups joined by a muted " · "; empty groups are left out.
+local function joined(groups: { Spans }): Spans
+	local out: Spans = {}
+	for _, g in groups do
+		if #g > 0 then
+			if #out > 0 then
+				table.insert(out, ui.span(" · ", "muted"))
+			end
+			for _, s in g do
+				table.insert(out, s)
+			end
+		end
+	end
+	return out
+end
+
+-- A merger row's people: its `author`, then its `reviewers` ("alice · bob ✓, carol requested").
+function V.merger_people(row: any): Spans
+	local names: Spans = {}
+	for _, r in (type(row.reviewers) == "table" and row.reviewers) or {} do
+		if type(r) == "table" and type(r.login) == "string" then
+			local word = V.REVIEWER_STATE[r.state or ""] or { tostring(r.state or "?"), "muted" }
+			if #names > 0 then
+				table.insert(names, ui.span(", ", "muted"))
+			end
+			table.insert(names, ui.span(r.login .. " "))
+			table.insert(names, ui.span(word[1], word[2]))
+		end
+	end
+	local author: Spans = if type(row.author) == "string" and row.author ~= "" then { ui.span(row.author) } else {}
+	return joined({ author, names })
+end
+
+-- Who a PR parked for an approval waits on (`waiting_on`; empty: anyone with write access).
+function V.waiting_on(p: any): Spans
+	if type(p.waiting_on) ~= "table" then
+		return {}
+	end
+	local who = if #p.waiting_on > 0 then table.concat(p.waiting_on, ", ") else "anyone with write access"
+	return { ui.span("waiting on " .. who, "warning") }
+end
+
+-- A table cell of `merger_people`, `—` without anyone.
+function V.merger_people_cell(row: any): Spans
+	local spans = V.merger_people(row)
+	return if #spans > 0 then spans else { ui.span("—", "dim") }
+end
+
 -- `GET /v1/merger` lists each repository the merger serves (`{repos: [{repo, alive, …snapshot}]}`).
 function V.merger_repos(state: any): { any }
 	local m = state.data.merger
@@ -725,7 +793,7 @@ function V.merger_actionables(state: any): { any }
 				repo = repo,
 				where = "queue",
 				label = { ui.span("#" .. tostring(q.pr), "strong"), ui.span("  " .. fmt.cut(q.title, 70)) },
-				detail = { ui.span("  " .. repo .. " · " .. (q.author or "?") .. " · " .. kind, "muted") },
+				detail = joined({ { ui.span("  " .. repo, "muted") }, V.merger_people(q), { ui.span(kind, "muted") } }),
 				value = { ui.span("queued", "pending"), ui.span(" · ready " .. fmt.ago(q.ready_at), "muted") },
 				icon = "clock",
 				tone = "pending",
@@ -743,7 +811,7 @@ function V.merger_actionables(state: any): { any }
 				repo = repo,
 				where = "parked",
 				label = label,
-				detail = { ui.span("  " .. repo .. " · " .. word[1], "muted") },
+				detail = joined({ { ui.span("  " .. repo .. " · " .. word[1], "muted") }, V.merger_people(p), V.waiting_on(p) }),
 				value = { ui.span(word[2], word[3]), ui.span(" · since " .. fmt.ago(p.parked_at), "muted") },
 				icon = "timer",
 				tone = "warning",
@@ -804,6 +872,7 @@ local function merger(state: any): Node
 					repo = { ui.span(repo, "muted") },
 					pr = pr_span(rv.pr),
 					phase = { ui.span(ph[1], ph[2]) },
+					people = V.merger_people_cell(rv),
 					worker = { ui.span(rv.worker or "—", "muted") },
 					sha = { ui.span(string.sub(rv.head_sha or "", 1, 8), "mono") },
 					agents = { ui.span(tostring(#(rv.sessions or {})), "mono") },
@@ -826,7 +895,7 @@ local function merger(state: any): Node
 					pr = pr_span(rec.pr),
 					state = { ui.span(sw[1], sw[2]) },
 					branch = { ui.span(rec.branch or "—", "mono") },
-					author = rec.author or "—",
+					people = V.merger_people_cell(rec),
 					at = { ui.span(fmt.ago(rec.reviewed_at), "muted") },
 				},
 			})
@@ -860,6 +929,7 @@ local function merger(state: any): Node
 					{ id = "repo", head = "Repository", mono = true, priority = 7 },
 					{ id = "pr", head = "PR", mono = true, priority = 9 },
 					{ id = "phase", head = "Stage", grow = 1, priority = 10 },
+					{ id = "people", head = "People", priority = 8 },
 					{ id = "worker", head = "Worker", mono = true, priority = 3 },
 					{ id = "sha", head = "Commit", mono = true, priority = 4 },
 					{ id = "agents", head = "Agents", align = "end", mono = true, priority = 5 },
@@ -878,7 +948,7 @@ local function merger(state: any): Node
 					-- The row's state ("finishing the merge") outlasts every secondary column.
 					{ id = "state", head = "State", priority = 9 },
 					{ id = "branch", head = "Branch", grow = 1, mono = true, truncate = "middle", priority = 10 },
-					{ id = "author", head = "Author", priority = 4 },
+					{ id = "people", head = "People", priority = 7 },
 					{ id = "at", head = "Reviewed", align = "end", mono = true, priority = 3 },
 				},
 				rows = train_rows,

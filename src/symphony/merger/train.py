@@ -203,10 +203,11 @@ class Train:
         rec.pop("pushing", None)
         if pr["base"] != self.m.main:
             return self.finish(rec, {"end": "gone", "text": f"#{n} was retargeted to {pr['base']}", "done": []})
-        # Re-check approval: a dismissed review after hand-off sends it back.
+        # Re-check approval: a dismissed review after hand-off sends it back. The record keeps
+        # the reviewers it read.
         from .approval import check_approval
 
-        if not check_approval(self.m, self.policy, rec):
+        if not check_approval(self.m, self.policy, rec, pr.get("requested_reviewers", [])):
             nxt = {**rec, "state": "reviewed"}
             for k in ("pushing", "pushed_at", "ci_since", "infra"):
                 nxt.pop(k, None)

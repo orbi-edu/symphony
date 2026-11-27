@@ -108,6 +108,12 @@ def registered_repos(client, namespace: str) -> list[str]:
     return sorted(client.smembers(f"sym:{namespace}:merger:repos"))
 
 
+def waiting_on(reviewers: list[dict]) -> list[str]:
+    """Who a PR waiting for an approval waits on: each reviewer still asked for a review or
+    whose latest decision requests changes. Empty: anyone with write access may approve."""
+    return [r["login"] for r in reviewers if r.get("state") in ("requested", "changes_requested")]
+
+
 class MergerStore:
     def __init__(self, client, namespace: str, repo: str, *, now_ms: Callable[[], int] = _now_ms) -> None:
         self.client = client
@@ -401,7 +407,9 @@ class MergerStore:
 
     # -- reads for the control API ----------------------------------------------------
     def snapshot(self) -> dict:
-        """One repository's entry of `GET /v1/merger`: what its merger is doing, from Redis only."""
+        """One repository's entry of `GET /v1/merger`: what its merger is doing, from Redis only.
+        Each PR row names its `author` and `reviewers` (`[{login, state}]`) as the merger last
+        recorded them, and a parked approval row the logins it is `waiting_on`."""
         ttl = self.client.pttl(self._k("lease:train"))
         owner = self.holder("train")
         records = sorted(self.recs().values(), key=lambda r: r.get("reviewed_at", 0))
@@ -417,6 +425,8 @@ class MergerStore:
                         "phase": r.get("phase", ""),
                         "started_at": r.get("started_at", 0),
                         "sessions": r.get("sessions", []),
+                        "author": r.get("author", ""),
+                        "reviewers": r.get("reviewers", []),
                     }
                     for r in self.reviewing().values()
                 ),
@@ -432,8 +442,12 @@ class MergerStore:
                         "kind": p["kind"],
                         "parked_at": p["parked_at"],
                         "comment": p.get("comment", ""),
+                        "author": p.get("author", ""),
+                        "reviewers": p.get("reviewers", []),
                         **({"title": p["pr_title"]} if p.get("pr_title") else {}),
                         **({"waiting": p.get("waiting", "ci")} if p["kind"] == "clean" else {}),
+                        **({"waiting_on": waiting_on(p.get("reviewers", []))}
+                           if p["kind"] == "clean" and p.get("waiting") == "approval" else {}),
                     }
                     for p in self.all_parked().values()
                 ),
@@ -443,12 +457,15 @@ class MergerStore:
                 "lease": {"owner": owner, "expires_in_ms": max(ttl, 0)} if owner else None,
                 "records": [
                     {
-                        k: r[k]
-                        for k in (
-                            "pr", "state", "head_sha", "branch", "author", "reviewed_at",
-                            "pushing", "conflict", "outcome", "title",
-                        )
-                        if k in r
+                        **{
+                            k: r[k]
+                            for k in (
+                                "pr", "state", "head_sha", "branch", "author", "reviewed_at",
+                                "pushing", "conflict", "outcome", "title",
+                            )
+                            if k in r
+                        },
+                        "reviewers": r.get("reviewers", []),
                     }
                     for r in records
                 ],

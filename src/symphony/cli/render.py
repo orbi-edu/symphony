@@ -404,20 +404,21 @@ _BLOCK_LABEL = {
 
 def issues_table(items: list[dict]) -> str:
     """`GET /v1/issues` items (`admin_read.issues`): `phase` is Symphony's view of the ticket,
-    `tracker_state` the state on the tracker (Linear or GitHub Projects), `reason` why it
-    cannot be dispatched (a code)."""
+    `tracker_state` the state on the tracker (Linear or GitHub Projects), `assignee` who the
+    ticket is assigned to, `reason` why it cannot be dispatched (a code)."""
     rows = [[
         str(i.get("identifier") or "—"),
         _clip(str(i.get("title") or ""), 48),
         _label(_PHASE_LABEL, i.get("phase") or i.get("status")),
         str(i.get("tracker_state") or "—"),
+        str((i.get("assignee") or {}).get("name") or "—"),
         held_text(i.get("held")),
         _label(_BLOCK_LABEL, i.get("reason")),
         ago(i.get("updated_at")),
         str(i.get("pr_url") or "—"),
     ] for i in items]
-    return table(["TICKET", "TITLE", "SYMPHONY", "TRACKER STATE", "HELD", "BLOCKED", "UPDATED",
-                  "PR"],
+    return table(["TICKET", "TITLE", "SYMPHONY", "TRACKER STATE", "ASSIGNEE", "HELD", "BLOCKED",
+                  "UPDATED", "PR"],
                  rows, empty="No tracked tickets.")
 
 
@@ -493,11 +494,27 @@ _TRAIN_STATE_LABEL = {"publishing": "publishing the review",
 _PARKED_LABEL = {"clean": "clean review", "report": "will not merge, report published"}
 _PARKED_WAITING_LABEL = {"ci": "waiting for CI", "approval": "waiting for approval"}
 _QUEUE_KIND_LABEL = {"bypass": "bypass", "rereview": "new review", "first": "first review"}
+_REVIEWER_STATE_LABEL = {"approved": "✓", "changes_requested": "changes requested",
+                         "requested": "requested", "commented": "commented"}
 
 
 def _pr_head(item: dict) -> str:
     title = item.get("title")
     return f"#{item.get('pr', '?')}" + (f" {_clip(str(title), 60)}" if title else "")
+
+
+def _people(item: dict) -> list[str]:
+    """A merger row's people: its author, then its reviewers (`bob ✓, carol requested`)."""
+    reviewers = ", ".join(f"{r.get('login', '?')} {_label(_REVIEWER_STATE_LABEL, r.get('state'))}"
+                          for r in item.get("reviewers") or [])
+    return [str(part) for part in (item.get("author"), reviewers) if part]
+
+
+def _waiting_on(item: dict) -> list[str]:
+    """Who a PR parked for an approval waits on (`waiting_on`; empty: anyone may approve)."""
+    if "waiting_on" not in item:
+        return []
+    return ["waiting on " + (", ".join(item["waiting_on"]) or "anyone with write access")]
 
 
 def merger(doc: dict) -> str:
@@ -514,7 +531,8 @@ def merger(doc: dict) -> str:
 
 
 def merger_repo(doc: dict) -> str:
-    """One repository's merger snapshot (`{reviewing, parked, train, batch, queue}`)."""
+    """One repository's merger snapshot (`{reviewing, parked, train, batch, queue}`). Each PR
+    names its author and reviewers; one parked for an approval, who it waits on."""
     def section(title: str, items, line) -> list[str]:
         items = items or []
         if not items:
@@ -522,16 +540,14 @@ def merger_repo(doc: dict) -> str:
         return [f"{title}:"] + [f"  {line(i)}" for i in items]
 
     def reviewing(r: dict) -> str:
-        parts = [_pr_head(r), _label(_MERGER_PHASE_LABEL, r.get("phase"))]
+        parts = [_pr_head(r), _label(_MERGER_PHASE_LABEL, r.get("phase")), *_people(r)]
         if r.get("worker"):
             parts.append(f"worker {r['worker']}")
         parts.append(f"since {ago(r.get('started_at'))}")
         return " · ".join(parts)
 
     def queued(q: dict) -> str:
-        parts = [_pr_head(q)]
-        if q.get("author"):
-            parts.append(str(q["author"]))
+        parts = [_pr_head(q), *_people(q)]
         if q.get("kind"):
             parts.append(_label(_QUEUE_KIND_LABEL, q["kind"]))
         if q.get("ready_at"):
@@ -544,14 +560,14 @@ def merger_repo(doc: dict) -> str:
         state = _label(_PARKED_LABEL, p.get("kind"))
         if p.get("kind") == "clean":
             state += ", " + _label(_PARKED_WAITING_LABEL, p.get("waiting") or "ci")
-        return " · ".join([head, state, f"since {ago(p.get('parked_at'))}"])
+        return " · ".join([head, state, *_people(p), *_waiting_on(p), f"since {ago(p.get('parked_at'))}"])
 
     def record(r: dict) -> str:
         state = "conflict" if r.get("conflict") else _label(_TRAIN_STATE_LABEL, r.get("state"))
         parts = [_pr_head(r), state]
-        for key in ("branch", "author"):
-            if r.get(key):
-                parts.append(str(r[key]))
+        if r.get("branch"):
+            parts.append(str(r["branch"]))
+        parts += _people(r)
         if r.get("reviewed_at"):
             parts.append(f"reviewed {ago(r['reviewed_at'])}")
         return " · ".join(parts)

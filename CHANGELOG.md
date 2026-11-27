@@ -7,6 +7,21 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Tickets and merger PRs name the people responsible. `GET /v1/issues` has each ticket's
+  `assignee` (`{name, login?}`, null when none), as the daemon claimed it: a person
+  `notify.users` maps goes by their GitHub login; the e-mail is never shown. Each PR row of
+  `GET /v1/merger` has its `author` and `reviewers` (`[{login, state}]`: requested, approved,
+  changes requested or commented; bots and the author's own replies left out), and a PR parked
+  for an approval has `waiting_on`. The merger records the reviewers when it already reads
+  GitHub (a review starts, the approval checks, the queue); a snapshot never calls GitHub.
+  Tern's Tickets view has an **Assignee** column and the session card shows it; Merger rows
+  say `alice · bob ✓, carol requested` and `waiting on bob` (or `waiting on anyone with write
+  access`). `symphony issues` and `symphony merger status` show the same
+  ([api.md](docs/api.md#issues), [merger.md](docs/merger.md#api-and-store),
+  [tern.md](docs/tern.md#merger)).
+
 ## [0.2.31] - 2026-11-26
 
 ### Fixed

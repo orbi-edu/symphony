@@ -151,8 +151,11 @@ def held_issues(kv: KV) -> dict[str, dict]:
     return out
 
 
-def claim_issue(kv: KV, issue_id: str, identifier: str, now_ms: int, assignee: str | None = None) -> bool:
-    """Initial put-if-absent claim — protects only the FIRST attempt (§3.7.1)."""
+def claim_issue(kv: KV, issue_id: str, identifier: str, now_ms: int, assignee: str | None = None,
+                assignee_email: str | None = None) -> bool:
+    """Initial put-if-absent claim — protects only the FIRST attempt (§3.7.1). `assignee` is
+    the tracker's name (or login) the reassignment check compares; `assignee_email` lets the
+    API name the person as `notify.users` maps them."""
     if kv.get(issue_key(issue_id)) is not None:
         return False
     generation_key = f"generation:{issue_id}"
@@ -166,6 +169,7 @@ def claim_issue(kv: KV, issue_id: str, identifier: str, now_ms: int, assignee: s
             "status": "claimed",
             "identifier": identifier,
             "assignee": assignee,
+            "assignee_email": assignee_email,
             "attempt": 1,
             "dispatch_seq": seq,
             "runs": 1,  # every spawn (fresh/retry/continuation) counts; drives the template `attempt`

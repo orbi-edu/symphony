@@ -244,27 +244,39 @@ def test_merger_text_uses_labels():
 
     out = render.merger_repo({
         "reviewing": [{"pr": 7, "phase": "verify", "worker": "w1", "started_at": 1,
-                       "head_sha": "abc", "sessions": []},
+                       "head_sha": "abc", "sessions": [], "author": "alice",
+                       "reviewers": [{"login": "bob", "state": "approved"},
+                                     {"login": "carol", "state": "requested"}]},
                       {"pr": 8, "phase": "brand_new", "worker": "", "started_at": 1}],
         "parked": [{"pr": 5, "kind": "clean", "parked_at": 1, "comment": "https://github.com/acme/app/pull/5#issuecomment-1"},
                    {"pr": 6, "kind": "report", "parked_at": 1, "comment": "", "title": "Drop the cache"},
-                   {"pr": 10, "kind": "clean", "waiting": "approval", "parked_at": 1, "title": "Add the export"},
+                   {"pr": 10, "kind": "clean", "waiting": "approval", "parked_at": 1, "title": "Add the export",
+                    "author": "alice", "reviewers": [{"login": "bob", "state": "requested"}],
+                    "waiting_on": ["bob"]},
+                   {"pr": 12, "kind": "clean", "waiting": "approval", "parked_at": 1, "title": "Add the import",
+                    "author": "alice", "reviewers": [], "waiting_on": []},
                    {"pr": 11, "kind": "clean", "waiting": "ci", "parked_at": 1, "title": "Fix the login"}],
         "train": {"lease": {"owner": "merger-0", "expires_in_ms": 9500}, "records": [
-            {"pr": 3, "state": "finalizing", "branch": "sym/eng-3", "author": "alice", "reviewed_at": 1},
+            {"pr": 3, "state": "finalizing", "branch": "sym/eng-3", "author": "alice", "reviewed_at": 1,
+             "reviewers": [{"login": "dave", "state": "changes_requested"},
+                           {"login": "erin", "state": "commented"}]},
             {"pr": 4, "state": "train", "conflict": True, "branch": "sym/eng-4"}]},
         "batch": {"members": [{"pr": 3, "merged": True}, {"pr": 4}]},
         "queue": [{"pr": 9, "title": "Fix", "author": "bob", "ready_at": 2, "kind": "rereview"}],
     })
-    assert "  #7 · verifying findings · worker w1 · since " in out
+    assert "  #7 · verifying findings · alice · bob ✓, carol requested · worker w1 · since " in out
     assert "  #8 · brand_new · since " in out  # unknown phase: the raw code
     # An older record (no PR title, no `waiting`): `PR #n`, never the report comment's URL.
     assert "  PR #5 · clean review, waiting for CI · since " in out and "issuecomment" not in out
     assert "  #6 Drop the cache · will not merge, report published" in out
-    assert "  #10 Add the export · clean review, waiting for approval · since " in out
+    assert ("  #10 Add the export · clean review, waiting for approval · alice · bob requested · "
+            "waiting on bob · since ") in out
+    assert ("  #12 Add the import · clean review, waiting for approval · alice · "
+            "waiting on anyone with write access · since ") in out
     assert "  #11 Fix the login · clean review, waiting for CI · since " in out
     assert "Train: lease held by merger-0 · renews in 9s" in out
-    assert "  #3 · finishing the merge · sym/eng-3 · alice · reviewed " in out
+    assert ("  #3 · finishing the merge · sym/eng-3 · alice · dave changes requested, erin commented · "
+            "reviewed ") in out
     assert "  #4 · conflict · sym/eng-4" in out
     assert "Current batch: #3 ✓  #4" in out
     assert "  #9 Fix · bob · new review · ready " in out
@@ -497,12 +509,14 @@ def test_issues_show_phase_and_block_reason(home, keychain, fake_api, capsys):
     fake_api.issues.append({"issue_id": "iss-2", "identifier": "ENG-2", "title": "No repo",
                             "status": "blocked", "phase": None, "tracker_state": "Todo",
                             "pr_url": None, "held": None, "reason": "mixed_owner_repo_designation",
-                            "updated_at": "2026-11-16T00:46:41Z"})
+                            "updated_at": "2026-11-16T00:46:41Z",
+                            "assignee": {"name": "alice", "login": "alice"}})
     code, out, _ = run(capsys, "issues")
     rows = {line.split()[0]: line for line in out.splitlines()[1:]}
-    assert "BLOCKED" in out.splitlines()[0]
+    assert "BLOCKED" in out.splitlines()[0] and "ASSIGNEE" in out.splitlines()[0]
     assert "repositories have more than one owner" in rows["ENG-2"] and "blocked" in rows["ENG-2"]
-    assert "running" in rows["ENG-1"] and rows["ENG-1"].count("—") >= 2  # no hold, no block
+    assert " alice " in rows["ENG-2"]
+    assert "running" in rows["ENG-1"] and rows["ENG-1"].count("—") >= 3  # no assignee, hold, block
     code, out, _ = run(capsys, "issues", "--json")
     assert json.loads(out)["items"][1]["reason"] == "mixed_owner_repo_designation"
 

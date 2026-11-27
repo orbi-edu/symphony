@@ -22,7 +22,7 @@ from collections import defaultdict
 from itertools import islice
 from typing import Any
 
-from . import endpoints, state
+from . import endpoints, notify, state
 from .discovery import DISCOVERY_KEY
 from .discovery import REFRESH_EVERY_MS as DISCOVERY_EVERY_MS
 from .orchestrator import BLOCKED_ON_PERSON
@@ -164,6 +164,17 @@ def _blocked(entry: dict) -> dict | None:
         return None
     return {"needs": _name(entry.get("blocked_needs")), "reason": _text(entry.get("blocked_detail"), 500),
             "at": _iso(entry.get("blocked_at"))}
+
+
+def _assignee(entry: dict) -> dict | None:
+    """Who the ticket is assigned to, as the daemon claimed it: `{name, login?}`. A person
+    `notify.users` maps goes by their GitHub login, the name the merger rows use too. The
+    e-mail only finds them there: no other read shows a viewer an e-mail."""
+    name = _text(entry.get("assignee"), 160)
+    if name is None:
+        return None
+    login = notify.login_for((_text(entry.get("assignee_email"), 320), name))
+    return {"name": login, "login": login} if login else {"name": name}
 
 
 def _run(issue_id: str, entry: dict) -> dict | None:
@@ -1001,6 +1012,7 @@ class LiveReader:
                     "status": run["status"],
                     "phase": "held" if issue_id in holds else self._phase(entry, meta),
                     "held": holds.get(issue_id),
+                    "assignee": _assignee(entry),
                     "blocked": _blocked(entry),
                     "tracker_state": _text(entry.get("tracker_state"), 80),
                     "attempt": run["attempt"],

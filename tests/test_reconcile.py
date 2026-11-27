@@ -333,9 +333,12 @@ def test_lifecycle_events_are_emitted_per_stage(kv, clock, tracker):
 
 def test_reassigned_issue_interrupts_execution_keeping_workspace(kv, clock, tracker):
     """FR-012: an issue reassigned mid-execution is interrupted without cleanup."""
-    tracker.add_issue("i1", "ENG-i1", assignee="alice")
+    tracker.add_issue("i1", "ENG-i1", assignee="alice", assignee_email="alice@example.com")
     c = cfg()
     tick(kv, tracker, c, clock.now_ms(), FakeEffects(), owner="d1")
+    # The claim keeps who the ticket is assigned to; the e-mail names them for the API.
+    claimed = kv.get(state.issue_key("i1"))
+    assert (claimed["assignee"], claimed["assignee_email"]) == ("alice", "alice@example.com")
     set_running(kv, clock)
     from dataclasses import replace as dc_replace
 

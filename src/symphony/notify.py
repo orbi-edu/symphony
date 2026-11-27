@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import threading
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -148,6 +149,31 @@ def reset() -> None:
 def users() -> dict[str, dict[str, str]]:
     """The `notify.users` maps in force: service → key (casefolded) → user id."""
     return _settings().users
+
+
+_GITHUB_LOGIN = re.compile(r"[a-z0-9][a-z0-9-]{0,38}\Z")
+
+
+def login_for(keys: Iterable[str | None]) -> str | None:
+    """The GitHub login `notify.users` maps to the same chat user as the first of `keys` it
+    maps (an e-mail, a tracker name or a login): the key itself when it is a login, else the
+    first login-shaped key of that user. None when no key maps or that user has no login."""
+    maps = users()
+    for key in keys:
+        key = (key or "").strip().casefold()
+        if not key:
+            continue
+        for service in sorted(maps):
+            mapped = maps[service]
+            user_id = mapped.get(key)
+            if user_id is None:
+                continue
+            if _GITHUB_LOGIN.match(key):
+                return key
+            logins = sorted(k for k, v in mapped.items() if v == user_id and _GITHUB_LOGIN.match(k))
+            if logins:
+                return logins[0]
+    return None
 
 
 def post(

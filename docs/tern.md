@@ -212,7 +212,11 @@ action.
 ## Tickets
 
 The tickets that Symphony tracks, with their state in Symphony and on the tracker board (Linear or
-GitHub Projects), the attempt, the cost and the PR.
+GitHub Projects), the **Assignee**, the attempt, the cost and the PR. The assignee is the person
+the ticket was assigned to when Symphony claimed it: by their GitHub login when `notify.users`
+maps them, else by the tracker's name, and `—` when nobody is assigned. A narrow terminal drops
+the column together with the board state. The session card of the ticket's attempt shows the
+assignee too.
 
 ![Tickets](tern/tickets-light.png)
 
@@ -225,9 +229,15 @@ symphony-learnings" under the label filter, or "every PR" when the filter is off
 ([merger.md](merger.md)). PRs in review, the merge train and the queue carry a **Repository**
 column, so PR #7 of one repository never mixes with PR #7 of another. **Queue and parked** shows
 each PR's title; a clean review parked for its gate says **waiting for CI**, or **waiting for
-approval** once CI passed under `require_approval: true`. On the selected PR: **Bypass** (`b`,
-asks for a reason of at least 8 characters that goes to the audit log), **Requeue** (`q`) and
-**Release** (`l`). Each action goes to the merger of that PR's repository.
+approval** once CI passed under `require_approval: true`. Each PR names its people as
+`author · reviewers`, with each reviewer's latest state: `alice · bob ✓, carol requested`
+(✓ approved, changes requested, requested or commented). Reviews in progress and the train
+show them in a **People** column, the queue and parked PRs in their detail line. A PR waiting
+for approval also says who it waits on: `waiting on bob`, or `waiting on anyone with write
+access` when no reviewer is requested. The merger records the people when it reads them (a
+review starts, the approval check); the panel never asks GitHub. On the selected PR: **Bypass**
+(`b`, asks for a reason of at least 8 characters that goes to the audit log), **Requeue** (`q`)
+and **Release** (`l`). Each action goes to the merger of that PR's repository.
 
 ![Merger](tern/merger-light.png)
 ![Merger, dark theme](tern/merger-dark.png)

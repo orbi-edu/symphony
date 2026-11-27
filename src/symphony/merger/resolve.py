@@ -90,7 +90,8 @@ def resolve(m: Merger, policy: Policy, team: dict, rec: dict, owner: str) -> str
             return f"#{n} clean: it rebases onto main {main[:9]} without a conflict now"
         probe(m, policy, team, ["developer", "reviewer"])
         base = m.git.merge_base(main, rec["head_sha"])
-        m.store.set_reviewing(n, head_sha=rec["head_sha"], worker=owner, phase="resolve", started_at=m.clock())
+        m.store.set_reviewing(n, head_sha=rec["head_sha"], worker=owner, phase="resolve", started_at=m.clock(),
+                              author=rec.get("author", ""), reviewers=rec.get("reviewers", []))
         run = _Meta(rec)
         dev = run_agent(m, policy, team, "developer", run, n,
                         prompts.resolve_prompt(n, rec["branch"], wt, base, main, files, policy.rules),

@@ -65,19 +65,22 @@ def seed(client: redis.Redis) -> dict:
     now = now_ms()
     sessions = SessionStore(client, NAMESPACE)
     issues = [
-        ("iss-139", 2, "ENG-139", "Paginate the invoices API for the mobile app", "acme/billing", "running", "In Progress"),
-        ("iss-142", 1, "ENG-142", "Export the sales report as CSV", "acme/web", "running", "In Progress"),
-        ("iss-151", 1, "ENG-151", "Resend invite button on the teams page", "acme/web", "claimed", "In Progress"),
-        ("iss-147", 3, "ENG-147", "Fix tax rounding in BRL", "acme/billing", "retry_queued", "In Progress"),
-        ("iss-133", 1, "ENG-133", "Move the email queue to SQS", "acme/web", "parked", "In Review"),
+        ("iss-139", 2, "ENG-139", "Paginate the invoices API for the mobile app", "acme/billing", "running", "In Progress",
+         "alice"),
+        ("iss-142", 1, "ENG-142", "Export the sales report as CSV", "acme/web", "running", "In Progress", "bob"),
+        ("iss-151", 1, "ENG-151", "Resend invite button on the teams page", "acme/web", "claimed", "In Progress",
+         "Carol Diaz"),
+        ("iss-147", 3, "ENG-147", "Fix tax rounding in BRL", "acme/billing", "retry_queued", "In Progress", None),
+        ("iss-133", 1, "ENG-133", "Move the email queue to SQS", "acme/web", "parked", "In Review", "alice"),
     ]
-    for issue_id, seq, ident, title, repo, status, tracker in issues:
+    for issue_id, seq, ident, title, repo, status, tracker, assignee in issues:
         client.set(state.issue_key(issue_id), json.dumps({
             "identifier": ident, "title": title, "target_repo": repo, "status": status,
             "tracker_state": tracker, "dispatch_seq": seq, "attempt": seq, "model": KIMI,
             "tokens": {"total": 50_000 * seq, "cost_estimate": 0.65 * seq},
             "claimed_at": now - 600_000, "updated_at": now - 30_000 * seq,
             "pr_url": "https://github.com/acme/web/pull/815" if ident == "ENG-133" else None,
+            "assignee": assignee,
         }))
     sid_wait, sid_run = "iss-139:2", "iss-142:1"
     sessions.open(sid_wait, kind="implement", identifier="ENG-139", title=issues[0][3], issue_id="iss-139",
@@ -147,30 +150,38 @@ def seed_merger(client: redis.Redis, namespace: str) -> None:
     gateway = MergerStore(client, namespace, "acme/gateway")
     for merger in (web, gateway):
         merger.register(ttl_ms=3_600_000)
-    gateway.set_reviewing(812, head_sha="4be1a07c9d", worker="merger-0", phase="verify", started_at=now - 240_000)
+    gateway.set_reviewing(812, head_sha="4be1a07c9d", worker="merger-0", phase="verify", started_at=now - 240_000,
+                          author="bob", reviewers=[{"login": "alice", "state": "requested"}])
     gateway.add_session(812, "merger:acme:gateway:812:review:1")
     gateway.add_session(812, "merger:acme:gateway:812:oracle:1")
-    web.set_reviewing(815, head_sha="a91c33e012", worker="merger-0", phase="review", started_at=now - 70_000)
+    web.set_reviewing(815, head_sha="a91c33e012", worker="merger-0", phase="review", started_at=now - 70_000,
+                      author="symphony", reviewers=[{"login": "bob", "state": "requested"},
+                                                    {"login": "carol", "state": "commented"}])
     web.add_session(815, "merger:acme:web:815:review:1")
     web.park({"pr": 818, "head_sha": "77d0e1f3aa", "kind": "clean", "waiting": "approval",
               "pr_title": "Show the delivery date at checkout", "title": "**Waiting for CI**",
+              "author": "symphony", "reviewers": [{"login": "bob", "state": "requested"},
+                                                  {"login": "carol", "state": "approved"}],
               "parked_at": now - 420_000, "comment": "https://github.com/acme/web/pull/818#issuecomment-1"})
-    for merger, pr, rec_state, branch, author, ago_ms in (
-        (web, 402, "finalizing", "symphony/eng-129-stripe-v14", "symphony", 900_000),
-        (gateway, 806, "train", "fix/login-redirect", "bob", 1_300_000),
-        (web, 809, "resolve", "symphony/eng-120-remove-flag", "symphony", 1_900_000),
-        (web, 811, "reviewed", "feat/team-invites", "carol", 2_400_000),
-        (web, 813, "publishing", "symphony/eng-133-sqs", "symphony", 60_000),
+    for merger, pr, rec_state, branch, author, ago_ms, reviewers in (
+        (web, 402, "finalizing", "symphony/eng-129-stripe-v14", "symphony", 900_000, [("alice", "approved")]),
+        (gateway, 806, "train", "fix/login-redirect", "bob", 1_300_000, [("carol", "approved")]),
+        (web, 809, "resolve", "symphony/eng-120-remove-flag", "symphony", 1_900_000, []),
+        (web, 811, "reviewed", "feat/team-invites", "carol", 2_400_000, [("alice", "approved"), ("dave", "commented")]),
+        (web, 813, "publishing", "symphony/eng-133-sqs", "symphony", 60_000, [("bob", "requested")]),
     ):
         merger.put_rec({"pr": pr, "state": rec_state, "head_sha": f"{pr:06x}", "branch": branch,
-                        "author": author, "reviewed_at": now - ago_ms})
+                        "author": author, "reviewed_at": now - ago_ms,
+                        "reviewers": [{"login": login, "state": st} for login, st in reviewers]})
     web.save_batch({"members": [{"pr": 402, "reviewed": True}]})
     gateway.save_batch({"members": [{"pr": 806, "reviewed": True}]})
     web.set_queue([
-        {"pr": 821, "title": "Export the sales report as CSV", "author": "symphony", "ready_at": now - 40_000, "kind": "first"},
+        {"pr": 821, "title": "Export the sales report as CSV", "author": "symphony", "ready_at": now - 40_000, "kind": "first",
+         "reviewers": [{"login": "alice", "state": "requested"}]},
     ])
     gateway.set_queue([
-        {"pr": 790, "title": "Refactor the gateway HTTP client", "author": "carol", "ready_at": now - 5_400_000, "kind": "rereview"},
+        {"pr": 790, "title": "Refactor the gateway HTTP client", "author": "carol", "ready_at": now - 5_400_000,
+         "kind": "rereview", "reviewers": []},
     ])
     web.acquire("train", "merger-web-0", 120_000)
     gateway.acquire("train", "merger-gateway-0", 120_000)

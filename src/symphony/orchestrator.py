@@ -536,7 +536,8 @@ def tick(
             # The rollup describes the run being superseded, so it goes with it: carrying it
             # forward would blend two runs' traces into one report.
             kv.delete(state.telemetry_key(issue.id))
-        if not state.claim_issue(kv, issue.id, issue.identifier, now_ms, assignee=issue.assignee):
+        if not state.claim_issue(kv, issue.id, issue.identifier, now_ms, assignee=issue.assignee,
+                                 assignee_email=issue.assignee_email):
             continue  # another replica won the claim
         entry = kv.get(state.issue_key(issue.id))
         seq = entry["dispatch_seq"]

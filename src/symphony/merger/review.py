@@ -22,6 +22,7 @@ from . import agents as ag
 from . import comments as cm
 from . import inline as ir
 from . import prompts
+from .approval import check_approval, reviewer_states
 from .ci import cancel_ci, ci_state, revive_ci
 from .context import Merger, log
 from .policy import ALL_LANE, Policy
@@ -65,6 +66,9 @@ class Run:
     findings: list = field(default_factory=list)
     blockers: list = field(default_factory=list)
     evidence: list = field(default_factory=list)
+    # The PR's requested reviewers when the review started, and `approval.reviewer_states`.
+    requested: list = field(default_factory=list)
+    reviewers: list = field(default_factory=list)
 
 
 def wt_name(n: int) -> str:
@@ -348,9 +352,11 @@ def arbitrate(m: Merger, policy: Policy, team: dict, run: Run, delta: dict | Non
 # -- CI, parking, hand-off -------------------------------------------------------------------
 def ci_now(m: Merger, policy: Policy, n: int, head_sha: str, branch: str, revive: bool = False) -> dict:
     """One look at CI on the head: passed, failed, pending, or moved (the author pushed; the
-    remote decides, as GitHub's API can lag a push)."""
+    remote decides, as GitHub's API can lag a push). `requested` are the PR's requested
+    reviewers."""
     pr = m.gh.pr(n)
-    at = {"open": pr["state"] == "open", "merged": pr["state"] == "merged", "draft": pr["draft"]}
+    at = {"open": pr["state"] == "open", "merged": pr["state"] == "merged", "draft": pr["draft"],
+          "requested": pr.get("requested_reviewers", [])}
     if pr["head_sha"] != head_sha:
         remote = m.git.ls_remote(branch)
         return {"state": "pending" if remote == head_sha else "moved", "failed": [], **at}
@@ -367,7 +373,7 @@ def parked_of(m: Merger, run: Run) -> dict:
     own title is `pr_title`. A clean review says what it waits for: `waiting` is `ci` or
     `approval` (the policy's `require_approval`, once CI passed)."""
     return {"pr": run.pr, "branch": run.branch, "author": run.author, "author_type": run.author_type,
-            "pr_title": run.title,
+            "pr_title": run.title, "reviewers": run.reviewers,
             "issue": run.issue, "head_sha": run.head_sha, "ready_at": run.ready_at,
             "started_at": run.started_at, "parked_at": m.clock(), "findings": run.findings,
             "rounds": prior_rounds(m, run.pr)}
@@ -398,6 +404,7 @@ def hand_off(m: Merger, policy: Policy, run, report: str, edit: str | None = Non
         "author_type": run.get("author_type") if isinstance(run, dict) else run.author_type,
         # A parked record's `title` is its report's heading, not the PR's.
         "title": run.get("pr_title", "") if isinstance(run, dict) else run.title,
+        "reviewers": run.get("reviewers", []) if isinstance(run, dict) else run.reviewers,
         "issue": get("issue"), "head_sha": get("head_sha"), "reviewed_at": m.clock(),
         "ready_at": get("ready_at"), "started_at": get("started_at"), "policy": cm.VERSION,
         "state": "publishing", "publication": {"report": report, "done": [], **({"edit": edit} if edit else {})},
@@ -425,7 +432,7 @@ def bypass_hand_off(m: Merger, policy: Policy, p: dict) -> None:
     report = (f"**Review bypassed**\n\n**{cm.VERSION}** on `{p['head_sha'][:9]}`: the `{cm.BYPASS}` label hands "
               "it to the merge train without a review. The train merges it once CI passes on main.")
     rec = {"pr": n, "branch": p["head_ref"], "author": p["author"], "author_type": p.get("author_type"),
-           "title": p["title"],
+           "title": p["title"], "reviewers": reviewer_states(p["author"], p.get("requested_reviewers", []), []),
            "issue": m.ticket_of(p), "head_sha": p["head_sha"], "reviewed_at": now,
            "ready_at": p["ready_at"], "started_at": now, "policy": "bypass", "state": "publishing",
            "publication": {"report": report, "done": []}}
@@ -501,10 +508,9 @@ def settle_parked(m: Merger, policy: Policy, owner: str) -> None:
                         cm.ci_line(ci["state"], rec["head_sha"], ci["failed"]), rec["body"], rec["drafted"]))
                 m.store.unpark(n)
             elif ci["state"] == "passed":
-                from .approval import check_approval
-
-                if not check_approval(m, policy, rec):
-                    if rec.get("waiting") != "approval":
+                seen = rec.get("reviewers")
+                if not check_approval(m, policy, rec, ci["requested"]):
+                    if rec.get("waiting") != "approval" or rec.get("reviewers") != seen:
                         m.store.park({**rec, "waiting": "approval"})
                     continue  # still parked, waiting for approval
                 report = cm.compose(cm.REVIEWED_TITLE, rec["head_sha"], hand_off_text(rec["head_sha"]),
@@ -592,8 +598,10 @@ def review_pr(m: Merger, policy: Policy, team: dict, n: int, worker: str) -> tup
     delta = None if saved else plan_delta(m, n, p["head_sha"])
     run = Run(pr=n, repo=m.repo, title=p["title"], body=p["body"], branch=p["head_ref"], head_sha=p["head_sha"],
               author=p["author"], ready_at=p["ready_at"], issue=m.ticket_of(p), started_at=m.clock(),
-              author_type=p.get("author_type", "User"))
-    m.store.set_reviewing(n, head_sha=run.head_sha, worker=worker, phase="pin", started_at=run.started_at)
+              author_type=p.get("author_type", "User"), requested=p.get("requested_reviewers", []))
+    run.reviewers = _reviewers_at_start(m, run)
+    m.store.set_reviewing(n, head_sha=run.head_sha, worker=worker, phase="pin", started_at=run.started_at,
+                          author=run.author, reviewers=run.reviewers)
     try:
         run.wt = m.git.worktree(wt_name(n), run.head_sha)
         run.fork = m.git.merge_base(m.git.origin_main, run.head_sha)
@@ -623,6 +631,17 @@ def review_pr(m: Merger, policy: Policy, team: dict, n: int, worker: str) -> tup
     finally:
         m.git.remove_worktree(wt_name(n))
         m.store.clear_reviewing(n)
+
+
+def _reviewers_at_start(m: Merger, run: Run) -> list[dict]:
+    """Who reviews the PR as its review starts. The reviews are best effort: without them the
+    record names the requested reviewers until an approval check reads them again."""
+    try:
+        reviews = m.gh.reviews(run.pr)
+    except Exception as exc:  # noqa: BLE001 — the people on a row never fail a review
+        log.warning("merger_reviewers_failed", pr=run.pr, error=str(exc)[:300])
+        reviews = []
+    return reviewer_states(run.author, run.requested, reviews)
 
 
 def _finish(m: Merger, n: int) -> None:
@@ -766,10 +785,10 @@ def _outcome(m: Merger, policy: Policy, team: dict, run: Run, result: dict, delt
 
     # Approval gate: the review passed and CI is green, but the policy requires a human
     # approval on GitHub.  Park the PR until it is approved.
-    from .approval import check_approval
-
-    if not check_approval(m, policy, {"pr": n, "head_sha": run.head_sha, "author": run.author,
-                                      "title": run.title, "branch": run.branch}):
+    ask = {"pr": n, "head_sha": run.head_sha, "author": run.author, "title": run.title, "branch": run.branch}
+    approved = check_approval(m, policy, ask, run.requested)
+    run.reviewers = ask.get("reviewers", run.reviewers)
+    if not approved:
         outcome = (f"reviewed, nothing blocking: waiting for a human approval on `{run.head_sha[:9]}`. "
                    "Once approved, the merge train takes it.")
         _finish(m, n)
@@ -837,6 +856,7 @@ def pick(m: Merger, policy: Policy, owner: str) -> dict | None:
     )
     m.store.set_queue([
         {"pr": p["number"], "title": p["title"], "author": p["author"], "ready_at": p["ready_at"],
+         "reviewers": reviewer_states(p["author"], p.get("requested_reviewers", []), []),
          "kind": "bypass" if cm.BYPASS in p["labels"] else "rereview" if p["number"] in rereview else "first"}
         for p in candidates
     ])
