@@ -163,16 +163,20 @@ def login_for(keys: Iterable[str | None]) -> str | None:
         key = (key or "").strip().casefold()
         if not key:
             continue
+        matched = False
         for service in sorted(maps):
             mapped = maps[service]
             user_id = mapped.get(key)
             if user_id is None:
                 continue
+            matched = True
             if _GITHUB_LOGIN.match(key):
                 return key
             logins = sorted(k for k, v in mapped.items() if v == user_id and _GITHUB_LOGIN.match(k))
             if logins:
                 return logins[0]
+        if matched:  # the first key that maps names the person; a later key could name another
+            return None
     return None
 
 

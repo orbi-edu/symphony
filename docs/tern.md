@@ -233,8 +233,9 @@ approval** once CI passed under `require_approval: true`. Each PR names its peop
 `author · reviewers`, with each reviewer's latest state: `alice · bob ✓, carol requested`
 (✓ approved, changes requested, requested or commented). Reviews in progress and the train
 show them in a **People** column, the queue and parked PRs in their detail line. A PR waiting
-for approval also says who it waits on: `waiting on bob`, or `waiting on anyone with write
-access` when no reviewer is requested. The merger records the people when it reads them (a
+for approval also says who it waits on: each reviewer still requested or whose latest review
+requests changes (`waiting on bob`), or `waiting on anyone with write access` when there is
+none. The merger records the people when it reads them (a
 review starts, the approval check); the panel never asks GitHub. On the selected PR: **Bypass**
 (`b`, asks for a reason of at least 8 characters that goes to the audit log), **Requeue** (`q`)
 and **Release** (`l`). Each action goes to the merger of that PR's repository.

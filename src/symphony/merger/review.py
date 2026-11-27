@@ -786,7 +786,7 @@ def _outcome(m: Merger, policy: Policy, team: dict, run: Run, result: dict, delt
     # Approval gate: the review passed and CI is green, but the policy requires a human
     # approval on GitHub.  Park the PR until it is approved.
     ask = {"pr": n, "head_sha": run.head_sha, "author": run.author, "title": run.title, "branch": run.branch}
-    approved = check_approval(m, policy, ask, run.requested)
+    approved = check_approval(m, policy, ask, ci["requested"])
     run.reviewers = ask.get("reviewers", run.reviewers)
     if not approved:
         outcome = (f"reviewed, nothing blocking: waiting for a human approval on `{run.head_sha[:9]}`. "

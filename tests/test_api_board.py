@@ -99,14 +99,18 @@ def test_issues_name_the_assignee_as_notify_users_maps_them(api, redis_client):
     put_issue(redis_client, "i2", identifier="ENG-2", status="running", assignee="Bob Jones",
               assignee_email="bob@example.com")
     put_issue(redis_client, "i3", identifier="ENG-3", status="running", assignee=None)
-    notify.configure({"slack": {"alice@example.com": "U1", "alice": "U1"}})
+    # The e-mail maps a person without a login; the same name maps someone else: the e-mail wins.
+    put_issue(redis_client, "i4", identifier="ENG-4", status="running", assignee="Carol Smith",
+              assignee_email="carol.one@example.com")
+    notify.configure({"slack": {"alice@example.com": "U1", "alice": "U1", "carol.one@example.com": "U3",
+                                "carol smith": "U4", "carol-two": "U4"}})
     try:
         items = client.get("/v1/issues", headers=bearer(tokens["viewer"])).json()["items"]
     finally:
         notify.reset()
     people = {item["identifier"]: item["assignee"] for item in items}
     assert people == {"ENG-1": {"name": "alice", "login": "alice"}, "ENG-2": {"name": "Bob Jones"},
-                      "ENG-3": None}
+                      "ENG-3": None, "ENG-4": {"name": "Carol Smith"}}
     assert "@example.com" not in json.dumps(items)
 
 

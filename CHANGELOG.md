@@ -7,6 +7,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.32] - 2026-11-27
+
 ### Added
 
 - Tickets and merger PRs name the people responsible. `GET /v1/issues` has each ticket's
@@ -17,8 +19,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   for an approval has `waiting_on`. The merger records the reviewers when it already reads
   GitHub (a review starts, the approval checks, the queue); a snapshot never calls GitHub.
   Tern's Tickets view has an **Assignee** column and the session card shows it; Merger rows
-  say `alice · bob ✓, carol requested` and `waiting on bob` (or `waiting on anyone with write
-  access`). `symphony issues` and `symphony merger status` show the same
+  say `alice · bob ✓, carol requested` and `waiting on bob` (each reviewer still requested or
+  requesting changes; `waiting on anyone with write access` when none). `symphony issues` and
+  `symphony merger status` show the same
   ([api.md](docs/api.md#issues), [merger.md](docs/merger.md#api-and-store),
   [tern.md](docs/tern.md#merger)).
 
