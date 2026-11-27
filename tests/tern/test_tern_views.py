@@ -295,6 +295,68 @@ def test_merger_parked_rows_say_what_they_wait_for_and_name_the_pr(render, redis
     assert "issuecomment" not in json.dumps(out)
 
 
+def spans_text(spans) -> str:
+    return "".join(s.get("t", "") for s in spans) if isinstance(spans, list) else str(spans)
+
+
+def test_tickets_show_the_assignee_and_the_session_card_too(render):
+    """`GET /v1/issues` names each ticket's `assignee` (null when none): the Tickets table has
+    an Assignee column, kept as long as the tracker state, and the session card of the
+    ticket's attempt says who it is assigned to."""
+    issues = {"items": [
+        {"issue_id": "iss-1", "identifier": "ENG-1", "title": "Export", "phase": "running",
+         "session_id": "iss-1:1", "assignee": {"name": "alice", "login": "alice"}},
+        {"issue_id": "iss-2", "identifier": "ENG-2", "title": "Import", "phase": "running", "assignee": None},
+    ]}
+    sessions = {"items": [{"sid": "iss-1:1", "issue_id": "iss-1", "identifier": "ENG-1", "kind": "implement",
+                           "state": "running", "updated_at": "2026-11-25T12:00:00Z"}]}
+    out = render({
+        "t": {"view": "tickets", "data": base_data(issues=issues)},
+        "s": {"view": "sessions", "data": base_data(issues=issues, sessions=sessions), "sel": {"sessions": "iss-1:1"}},
+    })
+    [table] = [x["p"] for x in walk(out["t"]["main"]) if x.get("k") == "table"]
+    cols = {c["id"]: c for c in table["cols"]}
+    assert cols["assignee"]["head"] == "Assignee"
+    assert cols["assignee"]["priority"] == cols["tracker"]["priority"]
+    assert [spans_text(r["cells"]["assignee"]) for r in table["rows"]] == ["alice", "—"]
+    [facts] = [x["p"]["items"] for x in walk(out["s"]["main"]) if x.get("k") == "kv"]
+    assert {spans_text(f[0]): spans_text(f[1]) for f in facts}["Assignee"] == "alice"
+
+
+def test_merger_rows_name_the_author_and_reviewers(render):
+    """Each merger row says `author · reviewers` with each reviewer's latest state; a PR
+    parked for an approval says who it waits on, or anyone with write access."""
+    people = {"author": "alice", "reviewers": [{"login": "bob", "state": "approved"},
+                                               {"login": "carol", "state": "requested"}]}
+    snap = {
+        "repo": "acme/web", "alive": True, "batch": {}, "label_filter": None,
+        "reviewing": [{"pr": 815, "phase": "review", "head_sha": "a" * 40, "worker": "w0", "started_at": 1,
+                       "sessions": [], **people}],
+        "parked": [
+            {"pr": 818, "kind": "clean", "waiting": "approval", "title": "Show the date", "parked_at": 1,
+             "author": "alice", "reviewers": [{"login": "bob", "state": "requested"}], "waiting_on": ["bob"]},
+            {"pr": 819, "kind": "clean", "waiting": "approval", "title": "Fix the redirect", "parked_at": 2,
+             "author": "dave", "reviewers": [], "waiting_on": []},
+        ],
+        "train": {"lease": None, "records": [{"pr": 402, "state": "train", "branch": "feat/a", "reviewed_at": 1,
+                                              **people}]},
+        "queue": [{"pr": 821, "title": "Export", "kind": "first", "ready_at": 1, **people}],
+    }
+    out = render({"m": {"view": "merger", "data": base_data(merger={"repos": [snap]})}})["m"]
+    # The data tables (`key` t): the mergers, in review, the train; the count strip is one too.
+    tables = [x["p"] for x in walk(out["main"]) if x.get("k") == "table" and x["p"].get("key") == "t"]
+    cells = [spans_text(r["cells"]["people"]) for t in tables for r in t["rows"] if "people" in r["cells"]]
+    assert cells == ["alice · bob ✓, carol requested"] * 2  # in review, then the train
+    assert all("people" in {c["id"] for c in t["cols"]} for t in tables[1:])
+    details = {spans_text(it["p"]["label"]): spans_text(it["p"]["detail"])
+               for it in walk(out["main"]) if it.get("k") == "item"}
+    assert details == {
+        "#821  Export": "  acme/web · alice · bob ✓, carol requested · first review",
+        "#818  Show the date": "  acme/web · clean review · alice · bob requested · waiting on bob",
+        "#819  Fix the redirect": "  acme/web · clean review · dave · waiting on anyone with write access",
+    }
+
+
 def test_the_views_render_the_real_history_document(render, redis_client):
     """The documents `rollups.history` builds (the API's), not the fixture's: live bumps of a
     few sessions, a dispatch, a merged PR and an answered question."""

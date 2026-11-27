@@ -640,20 +640,33 @@ s = MergerStore(client, namespace, "owner/name")              # one repository, 
 s.snapshot() -> {                      # one entry of GET /v1/merger {repos: [...]}
     "repo":      "owner/name",
     "alive":     bool,                  # the heartbeat key exists
-    "reviewing": [{pr, head_sha, worker, phase, started_at, sessions: [sid, ...]}],
-    "parked":    [{pr, head_sha, kind: "clean"|"report", parked_at, comment, title?,
-                   waiting?: "ci"|"approval"}],   # title: the PR's; waiting: clean only
+    "reviewing": [{pr, head_sha, worker, phase, started_at, sessions: [sid, ...], author,
+                   reviewers}],
+    "parked":    [{pr, head_sha, kind: "clean"|"report", parked_at, comment, author, reviewers,
+                   title?, waiting?: "ci"|"approval",  # title: the PR's; waiting: clean only
+                   waiting_on?: [login, ...]}],          # waiting_on: waiting for approval only
     "train":     {"lease": {owner, expires_in_ms} | None,
-                  "records": [{pr, state, head_sha, branch, author, reviewed_at, title,
+                  "records": [{pr, state, head_sha, branch, author, reviewed_at, title, reviewers,
                                pushing?, conflict?, outcome?}]},
     "batch":     {members: [{pr, reviewed, merged?, chain_base?}], top?, rerun?, main?, end?} | {},
-    "queue":     [{pr, title, author, ready_at, kind: "bypass"|"rereview"|"first"}],
+    "queue":     [{pr, title, author, ready_at, reviewers, kind: "bypass"|"rereview"|"first"}],
 }
 s.counts() -> {"reviewing": int, "train": int, "parked": int}   # summed in GET /v1/overview
 s.request_action(pr, action, *, actor, reason="") -> {"id", "pr", "action", "actor", "reason", "at"}
 s.register(ttl_ms=90_000)   # the merger: add to the registry and write the heartbeat
 s.heartbeat(); s.alive()
 ```
+
+`reviewers` is `[{login, state}]`, the requested reviewers first, then who reviewed, in review
+order. `state` is the latest decision (`approved`, `changes_requested`), else `requested` while
+GitHub asks for a review, else `commented`. The PR's author (a reply to an inline comment is a
+review too) and bots and apps (the merger's own `COMMENT` review) are not reviewers. The merger
+records them when it already reads GitHub: the requested reviewers when it lists open PRs (the
+queue) and hands a bypassed PR to the train, the reviews too when a review starts and on each
+approval check (the end of a review, `settle_parked`, the train's `take`). A snapshot never
+calls GitHub. `waiting_on` names who a PR parked for an approval waits on: each reviewer still
+requested or whose latest decision requests changes. An empty list means anyone with write
+access may approve, as the `needs_approval` notice says.
 
 `MergerStore` raises `ValueError` for a malformed repository name. `request_action` raises
 `ValueError` for an unknown action or `pr < 1`. The API then returns 422.

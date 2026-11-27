@@ -1,7 +1,7 @@
 --!nonstrict
 -- Renders the plugin's views for tests/tern/test_tern_views.py, from the temporary copy the test
 -- makes (`lib/` holds the plugin's modules and `tern_stub.luau`). The argument is a Luau table
--- literal `{ [name] = {view, period, data, errs} }`, `N` standing for JSON null; the output is one
+-- literal `{ [name] = {view, period, data, errs, sel} }`, `N` standing for JSON null; the output is one
 -- JSON document `{ [name] = {main, dock} }` on stdout.
 
 local tern = require("./lib/tern_stub")
@@ -16,7 +16,7 @@ for name, case in cases do
 	api.creds = { url = "https://symphony.example.com", token = "dummy", name = "alice", role = "admin" }
 	local state = {
 		api = api, view = case.view, period = case.period or "all", admin_tab = "models", filter = "active",
-		sel = {}, data = case.data, errs = case.errs or {}, draft = {}, busy = {}, read_at = {},
+		sel = case.sel or {}, data = case.data, errs = case.errs or {}, draft = {}, busy = {}, read_at = {},
 		mcp_tests = {}, cols = 160,
 	}
 	out[name] = V.render(state)

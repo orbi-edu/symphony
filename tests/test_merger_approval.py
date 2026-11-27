@@ -233,7 +233,10 @@ def test_a_parked_review_says_whether_it_waits_for_ci_or_an_approval(env_approva
     assert worker.step() is None
     assert parked() == ("approval", "ENG-7 change", cm.WAITING_TITLE, "approval", "ENG-7 change")
     out = render.merger_repo(env.m.store.snapshot())
-    assert "  #7 ENG-7 change · clean review, waiting for approval · since " in out
+    # Nobody is requested: anyone with write access may approve.
+    assert ("  #7 ENG-7 change · clean review, waiting for approval · dev7 · "
+            "waiting on anyone with write access · since ") in out
+    assert env.m.store.snapshot()["parked"][0]["waiting_on"] == []
 
     writes = []
     real_park = env.m.store.park
@@ -246,6 +249,78 @@ def test_a_parked_review_says_whether_it_waits_for_ci_or_an_approval(env_approva
     env.gh.pr_reviews[7] = [{"user": "reviewer1", "state": "APPROVED", "submitted_at": "2026-11-01T12:00:00Z"}]
     worker.step()
     assert env.m.store.parked(7) is None and env.m.store.rec(7)["title"] == "ENG-7 change"
+
+
+def test_merger_rows_name_the_reviewers_the_merger_recorded(env_approval):
+    """The review records who reviews the PR as it starts; the approval check of
+    `settle_parked` refreshes it. `GET /v1/merger` serves what the merger recorded, with no
+    GitHub call on the read, and a parked approval row says who it waits on. The author's
+    replies and the reviews of bots and apps (the merger's own) are not reviewers."""
+    from symphony.cli import render
+    from symphony.merger.review import ReviewWorker
+    from symphony.merger.store import MergerStore
+
+    env, worker = env_approval, ReviewWorker(env_approval.m, "1")
+    head = env.world.commit("eng-7", {"src/a.py": "A = 1\n"}, "feat: a")
+    env.gh.open_pr(7, "eng-7", "ENG-7 change", author="dev7", requested_reviewers=["bob", "carol"])
+    at = "2026-11-01T12:00:00Z"
+    env.gh.pr_reviews[7] = [{"user": "dave", "state": "COMMENTED", "submitted_at": at},
+                            {"user": "dev7", "state": "COMMENTED", "submitted_at": at},
+                            {"user": "symphony-merger[bot]", "state": "COMMENTED", "submitted_at": at}]
+    started = []
+    set_reviewing = env.m.store.set_reviewing
+    env.m.store.set_reviewing = lambda pr, **f: started.append(f) or set_reviewing(pr, **f)
+    env.gh.check_runs(head)  # CI started, still running
+    assert worker.step() == "#7 waiting"
+    asked = [{"login": "bob", "state": "requested"}, {"login": "carol", "state": "requested"},
+             {"login": "dave", "state": "commented"}]
+    assert started[0]["author"] == "dev7" and started[0]["reviewers"] == asked
+
+    api = MergerStore(env.m.store.client, env.m.store.ns, env.m.store.repo)  # the API's own store
+
+    def row() -> dict:
+        with mock.patch.object(env.gh, "reviews", side_effect=AssertionError("GitHub on a read")), \
+                mock.patch.object(env.gh, "pr", side_effect=AssertionError("GitHub on a read")):
+            [parked] = api.snapshot()["parked"]
+        return parked
+
+    assert (row()["author"], row()["reviewers"], "waiting_on" in row()) == ("dev7", asked, False)
+    env.gh.tick()  # CI passes; nobody approved
+    assert worker.step() is None
+    assert (row()["waiting"], row()["waiting_on"]) == ("approval", ["bob", "carol"])
+
+    env.gh.pr_reviews[7] += [{"user": "bob", "state": "APPROVED", "submitted_at": at},
+                             {"user": "carol", "state": "CHANGES_REQUESTED", "submitted_at": at}]
+    assert worker.step() is None
+    assert row()["reviewers"] == [{"login": "bob", "state": "approved"},
+                                  {"login": "carol", "state": "changes_requested"},
+                                  {"login": "dave", "state": "commented"}]
+    assert row()["waiting_on"] == ["carol"]
+    out = render.merger_repo(api.snapshot())
+    assert ("  #7 ENG-7 change · clean review, waiting for approval · dev7 · "
+            "bob ✓, carol changes requested, dave commented · waiting on carol · since ") in out
+
+    env.gh.prs[7]["requested_reviewers"] = []  # GitHub drops the requests once they reviewed
+    env.gh.pr_reviews[7].append({"user": "carol", "state": "APPROVED", "submitted_at": at})
+    worker.step()
+    assert env.m.store.parked(7) is None
+    # No request left: the reviewers in the order they reviewed.
+    assert env.m.store.rec(7)["reviewers"] == [{"login": "dave", "state": "commented"},
+                                               {"login": "bob", "state": "approved"},
+                                               {"login": "carol", "state": "approved"}]
+
+
+def test_the_train_records_the_reviewers_its_approval_check_read(env_approval):
+    """The train's `take` re-checks the approval and keeps the reviewers it read."""
+    handed(env_approval, 8, {"src/b.py": "B = 1\n"})
+    env_approval.gh.prs[8]["requested_reviewers"] = ["frank"]
+    env_approval.gh.pr_reviews[8] = [
+        {"user": "erin", "state": "CHANGES_REQUESTED", "submitted_at": "2026-11-01T12:00:00Z"}]
+    assert "waiting for human approval" in env_approval.train.step()
+    rec = env_approval.m.store.rec(8)
+    assert rec["reviewers"] == [{"login": "frank", "state": "requested"},
+                                {"login": "erin", "state": "changes_requested"}]
+    assert env_approval.m.store.snapshot()["train"]["records"][0]["reviewers"] == rec["reviewers"]
 
 
 def test_is_approved_with_no_reviews(env):

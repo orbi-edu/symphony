@@ -147,9 +147,13 @@ deployed ([cli.md](cli.md#symphony-update-and-symphony-version)).
 
 #### Issues
 
-Each item has `issue_id, identifier, title, repo, status, phase, held, blocked, tracker_state,
-attempt, seq, session_id, session_state, input_request, model, tokens, cost, pr_url, reason,
-updated_at, evidence_count`. `phase` is `held` when a person holds the ticket. `status` and
+Each item has `issue_id, identifier, title, repo, status, phase, held, assignee, blocked,
+tracker_state, attempt, seq, session_id, session_state, input_request, model, tokens, cost,
+pr_url, reason, updated_at, evidence_count`. `phase` is `held` when a person holds the ticket.
+`assignee` is who the ticket was assigned to when the daemon claimed it, `{name, login?}`, or
+null when nobody was. A person `notify.users` maps (by the tracker's e-mail or name) has
+`login`, their GitHub login, and `name` is that login too; otherwise `name` is the tracker's
+name (a GitHub tracker gives a login). The e-mail is never in the item. `status` and
 `phase` are `blocked_on_person` while the agent waits for a person
 ([concepts](concepts.md#waiting-for-a-person)); then `blocked` is `{needs, reason, at}`, with
 `needs` one of `answer`, `access`, `decision` or `other`, and null otherwise. `reason` tells
@@ -373,7 +377,7 @@ One merger runs for each repository. The routes show and address each repository
 
 | Method and path | Role | Request | Response |
 |---|---|---|---|
-| `GET /v1/merger` | viewer | — | `{repos: [{repo, alive, reviewing, parked, train, batch, queue}]}`, sorted by `repo`; see [merger.md](merger.md#api-and-store) |
+| `GET /v1/merger` | viewer | — | `{repos: [{repo, alive, reviewing, parked, train, batch, queue}]}`, sorted by `repo`; each PR row names its `author` and `reviewers`, a PR parked for an approval who it is `waiting_on`; see [merger.md](merger.md#api-and-store) |
 | `POST /v1/merger/prs/{n}/{action}` | operator | `action` ∈ `bypass`, `requeue`, `release`; `{reason (1-1000), repo?}` | `202 {id, pr, action, actor, reason, at, repo}` |
 
 Rules for `repo` in an action:

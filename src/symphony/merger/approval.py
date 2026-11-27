@@ -13,6 +13,7 @@ Preview comment.
 from __future__ import annotations
 
 import time
+from collections.abc import Iterable
 
 import structlog
 
@@ -30,16 +31,21 @@ log = structlog.get_logger()
 # ---------------------------------------------------------------------------
 
 DECISION_STATES = ("APPROVED", "CHANGES_REQUESTED")
+_DECISION_WORDS = {"APPROVED": "approved", "CHANGES_REQUESTED": "changes_requested"}
 
 
-def _latest_human_reviews(m: Merger, n: int) -> dict[str, str]:
+def _decisions(reviews: list[dict]) -> dict[str, str]:
     """The latest meaningful review per human reviewer: ``{login: state}``."""
-    reviews = m.gh.reviews(n)
     latest: dict[str, str] = {}
     for r in reviews:
         if r["state"] in DECISION_STATES:
             latest[r["user"].casefold()] = r["state"]
     return latest
+
+
+def _approved(reviews: list[dict]) -> bool:
+    latest = _decisions(reviews)
+    return bool(latest) and all(s == "APPROVED" for s in latest.values())
 
 
 def is_approved(m: Merger, n: int) -> bool:
@@ -51,21 +57,44 @@ def is_approved(m: Merger, n: int) -> bool:
     meaningful.  Checking latest-per-reviewer is deterministic and matches what
     GitHub's branch protection rule does.
     """
-    latest = _latest_human_reviews(m, n)
-    if not latest:
-        return False
-    return all(s == "APPROVED" for s in latest.values())
+    return _approved(m.gh.reviews(n))
 
 
-def check_approval(m: Merger, policy: Policy, rec: dict) -> bool:
+def reviewer_states(author: str, requested: Iterable[str], reviews: list[dict]) -> list[dict]:
+    """The PR's reviewers as its merger records show them: ``[{login, state}]``, the requested
+    reviewers first, then who reviewed, in review order. ``state`` is the latest decision
+    (``approved``, ``changes_requested``), else ``requested`` while GitHub asks for a review,
+    else ``commented``. The author (a reply to an inline comment is a review too) and bots
+    and apps (the merger's own COMMENT review) are left out."""
+    def person(login: str) -> bool:
+        return bool(login) and login.casefold() != (author or "").casefold() and not login.endswith("[bot]")
+
+    logins: dict[str, str] = {}
+    for login in requested:
+        if person(login):
+            logins.setdefault(login.casefold(), login)
+    asked = set(logins)
+    for r in reviews:
+        if person(r.get("user") or "") and r.get("state") != "PENDING":
+            logins.setdefault(r["user"].casefold(), r["user"])
+    decided = _decisions([r for r in reviews if person(r.get("user") or "")])
+    return [{"login": login,
+             "state": _DECISION_WORDS[decided[key]] if key in decided else "requested" if key in asked else "commented"}
+            for key, login in logins.items()]
+
+
+def check_approval(m: Merger, policy: Policy, rec: dict, requested: Iterable[str]) -> bool:
     """Check if a reviewed PR meets the approval requirement.  Returns True when
     the PR may proceed to the train.  When it may not, labels it and notifies
-    reviewers once per head sha.  Called from ``settle_parked`` and the train's
-    ``take``."""
+    reviewers once per head sha.  Called when a review ends, from ``settle_parked`` and
+    from the train's ``take``. The reviews it reads set ``rec["reviewers"]``
+    (``reviewer_states``, with the PR's ``requested`` reviewers), for the caller to keep."""
     if not policy.require_approval:
         return True
     n = rec["pr"]
-    if is_approved(m, n):
+    reviews = m.gh.reviews(n)
+    rec["reviewers"] = reviewer_states(rec.get("author") or "", requested, reviews)
+    if _approved(reviews):
         # Remove the waiting label if present.
         try:
             m.gh.remove_label(n, cm.WAIT_APPROVAL)

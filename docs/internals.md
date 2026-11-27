@@ -30,7 +30,7 @@ The `state` keys have no namespace prefix. All other keys have a namespace prefi
 
 | Key | Type | Content | Expiry |
 |---|---|---|---|
-| `issue:<issue_id>` | String (JSON) | The tracking entry of a ticket: `status`, `identifier`, `attempt`, `dispatch_seq`, `runs`, `tokens`, `session_id`, `bridge_token`, timestamps | 7 days idle |
+| `issue:<issue_id>` | String (JSON) | The tracking entry of a ticket: `status`, `identifier`, `assignee` and `assignee_email` (as claimed), `attempt`, `dispatch_seq`, `runs`, `tokens`, `session_id`, `bridge_token`, timestamps | 7 days idle |
 | `repos:discovery` | String (JSON) | The daemon's last repository discovery: `{observed_at_ms, items:[{name, default_branch, archived, merger_policy, runtime, components, truncated}], error?}`. Dispatch reads it to fill what WORKFLOW.md leaves unset; `/v1/repos` shows it | 7 days idle |
 | `repos:provisioned:<owner/name>` | String (JSON) | What provisioning last did for a repository: `{signature, at, failed, outcome: {labels_created, policy_pr, error}}` (`provision.py`) | 7 days idle |
 | `dispatch:<issue_id>:<seq>` | String (JSON) | The dispatch token of one dispatch: `{daemon_owner, created_at}` | 7 days idle |
@@ -111,15 +111,15 @@ The prefix of the keys below is `sym:<ns>:merger:<repo>:`.
 
 | Key | Type | Content |
 |---|---|---|
-| `rec` | Hash | Pull request → train record (`publishing`, `reviewed`, `train`, `resolve`, `finalizing`) |
-| `parked` | Hash | Pull request → a review that waits for the head CI |
+| `rec` | Hash | Pull request → train record (`publishing`, `reviewed`, `train`, `resolve`, `finalizing`), with its `author` and `reviewers` |
+| `parked` | Hash | Pull request → a review that waits for the head CI, with its `author` and `reviewers` |
 | `skips` | Hash | Pull request → why stage 1 stopped on the pull request, and when to try again |
 | `baseline` | Hash | Pull request → the last review (head, fork point, findings, rounds, outcome) |
 | `run` | Hash | Pull request → a finished review whose outcome is not applied yet |
 | `inline` | Hash | Pull request → the findings with an inline review comment: `{threads: {key: {comment, id, head}}}`, the key a hash of path and claim (`inline.py`); dropped when the pull request merges |
 | `caps` | Hash | Pull request → the largest batch the pull request can join after a red batch |
 | `probe` | Hash | Role → the last tool check of the role |
-| `reviewing` | Hash | Pull request → the review in progress |
+| `reviewing` | Hash | Pull request → the review in progress, with its `author` and `reviewers` |
 | `reviewing:<pr>:sessions` | List | The session ids of that review |
 | `batch` | String (JSON) | The batch that the train merges on one CI run |
 | `queue` | String (JSON) | The review queue as the last pick saw it |

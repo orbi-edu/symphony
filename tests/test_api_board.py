@@ -87,6 +87,33 @@ def test_issues_join_linear_state_and_session_without_leaking_failures(api, redi
     assert "sk-secret" not in json.dumps(items)
 
 
+def test_issues_name_the_assignee_as_notify_users_maps_them(api, redis_client):
+    """The assignee the daemon claimed the ticket with: by the GitHub login `notify.users`
+    maps their e-mail to, else by the tracker's name; null without one. The e-mail itself is
+    never shown."""
+    from symphony import notify
+
+    _, client, tokens = api
+    put_issue(redis_client, "i1", identifier="ENG-1", status="running", assignee="Alice Smith",
+              assignee_email="alice@example.com")
+    put_issue(redis_client, "i2", identifier="ENG-2", status="running", assignee="Bob Jones",
+              assignee_email="bob@example.com")
+    put_issue(redis_client, "i3", identifier="ENG-3", status="running", assignee=None)
+    # The e-mail maps a person without a login; the same name maps someone else: the e-mail wins.
+    put_issue(redis_client, "i4", identifier="ENG-4", status="running", assignee="Carol Smith",
+              assignee_email="carol.one@example.com")
+    notify.configure({"slack": {"alice@example.com": "U1", "alice": "U1", "carol.one@example.com": "U3",
+                                "carol smith": "U4", "carol-two": "U4"}})
+    try:
+        items = client.get("/v1/issues", headers=bearer(tokens["viewer"])).json()["items"]
+    finally:
+        notify.reset()
+    people = {item["identifier"]: item["assignee"] for item in items}
+    assert people == {"ENG-1": {"name": "alice", "login": "alice"}, "ENG-2": {"name": "Bob Jones"},
+                      "ENG-3": None, "ENG-4": {"name": "Carol Smith"}}
+    assert "@example.com" not in json.dumps(items)
+
+
 def test_commands_are_durable_intents_by_the_token_name_and_wake_the_daemon(api, redis_client):
     services, client, tokens = api
     fresh_daemon(redis_client)
